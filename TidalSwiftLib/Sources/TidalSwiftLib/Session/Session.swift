@@ -10,10 +10,10 @@ import Foundation
 
 public class Session {
 	public var config: Config
-	
+
 	var countryCode: String?
 	public var userId: Int?
-	
+
 	var sessionParameters: [String: String] {
 		if countryCode == nil {
 			return [:]
@@ -21,14 +21,14 @@ public class Session {
 			return ["countryCode": countryCode!,
 					"limit": "999"]
 		}
-		
+
 	}
-	
+
 	public var favorites: Favorites?
 	public var helpers: Helpers!
 	public var playlistEditing: PlaylistEditing!
 	var activeTokenRefresh: Task<Void, Error>?
-	
+
 	public init(config: Config?) {
 		if let config = config {
 			self.config = config

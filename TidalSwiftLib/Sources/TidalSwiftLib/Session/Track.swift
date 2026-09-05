@@ -31,7 +31,7 @@ extension Session {
 			return nil
 		}
 	}
-	
+
 	public func trackCredits(trackId: Int) async -> [Credit]? {
 		let url = URL(string: "\(AuthInformation.APILocation)/tracks/\(trackId)/credits")!
 		do {
@@ -41,7 +41,7 @@ extension Session {
 			return nil
 		}
 	}
-	
+
 	// Delete inexistent or unaccessable Tracks from list
 	// Detected by checking for nil values
 	public func cleanTrackList(_ trackList: [Track]) -> [Track] {
@@ -53,12 +53,12 @@ extension Session {
 		}
 		return result
 	}
-	
+
 	public func trackRadio(trackId: Int, limit: Int = 100, offset: Int = 0) async -> [Track]? {
 		var parameters = sessionParameters
 		parameters["limit"] = "\(limit)"
 		parameters["offset"] = "\(offset)"
-		
+
 		let url = URL(string: "\(AuthInformation.APILocation)/tracks/\(trackId)/radio")!
 		do {
 			let response: Tracks = try await get(url: url, parameters: parameters)

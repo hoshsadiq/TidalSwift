@@ -19,7 +19,7 @@ extension Session {
 			return nil
 		}
 	}
-	
+
 	public func user(userId: Int) async -> User? {
 		let url = URL(string: "\(AuthInformation.APILocation)/users/\(userId)")!
 		do {
@@ -29,7 +29,7 @@ extension Session {
 			return nil
 		}
 	}
-	
+
 	public func userPlaylists(userId: Int, order: AlbumOrder? = nil, orderDirection: OrderDirection? = nil) async -> [Playlist]? {
 		let url = URL(string: "\(AuthInformation.APILocation)/users/\(userId)/playlists")!
 		var parameters = sessionParameters
@@ -39,7 +39,7 @@ extension Session {
 		if let orderDirection = orderDirection {
 			parameters["orderDirection"] = "\(orderDirection.rawValue)"
 		}
-		
+
 		do {
 			let response: Playlists = try await get(url: url, parameters: parameters)
 			return response.items

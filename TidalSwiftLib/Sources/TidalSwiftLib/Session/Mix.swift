@@ -15,23 +15,23 @@ extension Session {
 		let url = URL(string: "\(AuthInformation.APILocation)/pages/my_collection_my_mixes")!
 		do {
 			let response: Mixes = try await get(url: url, parameters: parameters)
-			
+
 			// Filter out Video Mixes for now
 			// TODO: Add support for Video Mixes
 			let audioOnlyMixes = response.rows[0].modules[0].pagedList.items.filter { $0.mixType == .audio }
-			
+
 			return audioOnlyMixes
 		} catch {
 			return nil
 		}
 	}
-	
+
 	public func mixPlaylistTracks(mixId: String) async -> [Track]? {
 		var parameters = sessionParameters
 		parameters["mixId"] = "\(mixId)"
 		parameters["deviceType"] = "DESKTOP"
 		parameters["token"] = "\(config.apiToken)"
-		
+
 		let url = URL(string: "\(AuthInformation.APILocation)/pages/mix")!
 		do {
 			let response: Mix = try await get(url: url, parameters: parameters)

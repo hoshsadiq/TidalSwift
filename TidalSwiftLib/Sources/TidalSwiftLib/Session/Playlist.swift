@@ -23,7 +23,7 @@ extension Session {
 			return nil
 		}
 	}
-	
+
 	public func playlistTracks(playlistId: String) async -> [Track]? {
 		let url = URL(string: "\(AuthInformation.APILocation)/playlists/\(playlistId)/tracks")!
 		do {

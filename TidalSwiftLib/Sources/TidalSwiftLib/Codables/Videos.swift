@@ -36,26 +36,26 @@ public struct Video: Codable, Equatable, Identifiable, Hashable {
 	public let adsPrePaywallOnly: Bool
 	public let artists: [Artist]
 //	public let album: Album? // Sometimes Tidal returns empty object here which breaks things. In all other cases I found, returns nil otherwise, so doesn't matter anyways.
-	
+
 	public func isInFavorites(session: Session) async -> Bool? {
 		await session.favorites?.doFavoritesContainVideo(videoId: id)
 	}
-	
+
 	public func videoUrl(session: Session) async -> URL? {
 		await session.videoUrl(videoId: id)
 	}
-	
+
 	public func imageUrl(session: Session, resolution: Int) -> URL? {
 		guard let imageId = imageId else {
 			return nil
 		}
 		return session.imageUrl(imageId: imageId, resolution: resolution)
 	}
-	
+
 	public static func == (lhs: Video, rhs: Video) -> Bool {
 		lhs.id == rhs.id
 	}
-	
+
 	public func hash(into hasher: inout Hasher) {
 		hasher.combine(id)
 	}

@@ -20,7 +20,7 @@ extension ViewState {
 			replaceCurrentView(with: view)
 		}
 	}
-	
+
 	func offlineAlbums() {
 		guard var view = stack.last else {
 			return
@@ -31,7 +31,7 @@ extension ViewState {
 			replaceCurrentView(with: view)
 		}
 	}
-	
+
 	func offlineTracks() {
 		guard var view = stack.last else {
 			return

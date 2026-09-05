@@ -14,10 +14,10 @@ struct ContentView: View {
 	@ObservedObject var playlistEditingValues: PlaylistEditingValues
 	@ObservedObject var viewState: ViewState
 	@ObservedObject var sortingState: SortingState
-	
+
 	let session: Session
 	let player: Player
-	
+
 	var body: some View {
 		TopDetailView(session: session, player: player)
 			.environmentObject(viewState)

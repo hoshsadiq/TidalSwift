@@ -13,7 +13,7 @@ let PICKERWIDTH: CGFloat = 580
 
 struct ReverseButton: View {
 	@Binding var reversed: Bool
-	
+
 	var body: some View {
 		Button {
 			reversed.toggle()
@@ -32,10 +32,10 @@ struct ReverseButton: View {
 struct FavoritePlaylists: View {
 	let session: Session
 	let player: Player
-	
+
 	@EnvironmentObject var viewState: ViewState
 	@EnvironmentObject var sortingState: SortingState
-	
+
 	var body: some View {
 		ScrollView {
 			VStack(alignment: .leading) {
@@ -76,10 +76,10 @@ struct FavoritePlaylists: View {
 struct FavoriteAlbums: View {
 	let session: Session
 	let player: Player
-	
+
 	@EnvironmentObject var viewState: ViewState
 	@EnvironmentObject var sortingState: SortingState
-	
+
 	var body: some View {
 		ScrollView {
 			VStack(alignment: .leading) {
@@ -118,12 +118,12 @@ struct FavoriteAlbums: View {
 struct FavoriteTracks: View {
 	let session: Session
 	let player: Player
-	
+
 	@EnvironmentObject var viewState: ViewState
 	@EnvironmentObject var sortingState: SortingState
-	
+
 	@AppStorage("SaveFavoritesOffline") public var saveFavoritesOffline = false
-	
+
 	var body: some View {
 		ScrollView {
 			VStack(alignment: .leading) {
@@ -178,7 +178,7 @@ struct FavoriteTracks: View {
 					}
 				}
 				.padding(.horizontal)
-				
+
 				if let tracks = viewState.stack.last?.tracks {
 					TrackList(wrappedTracks: tracks.sortedTracks(by: sortingState.favoriteTrackSorting).reversed(sortingState.favoriteTrackReversed).wrapped(),
 							  showCover: true, showAlbumTrackNumber: false,
@@ -195,10 +195,10 @@ struct FavoriteTracks: View {
 struct FavoriteVideos: View {
 	let session: Session
 	let player: Player
-	
+
 	@EnvironmentObject var viewState: ViewState
 	@EnvironmentObject var sortingState: SortingState
-	
+
 	var body: some View {
 		ScrollView {
 			VStack(alignment: .leading) {
@@ -238,10 +238,10 @@ struct FavoriteVideos: View {
 struct FavoriteArtists: View {
 	let session: Session
 	let player: Player
-	
+
 	@EnvironmentObject var viewState: ViewState
 	@EnvironmentObject var sortingState: SortingState
-	
+
 	var body: some View {
 		ScrollView {
 			VStack(alignment: .leading) {

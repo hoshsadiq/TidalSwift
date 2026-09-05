@@ -48,7 +48,7 @@ public struct MixesItem: Codable, Equatable, Identifiable {
 	public let subTitle: String
 	public let graphic: MixesGraphic
 	public let mixType: MixType
-	
+
 	public static func == (lhs: MixesItem, rhs: MixesItem) -> Bool {
 		lhs.id == rhs.id
 	}
@@ -73,7 +73,7 @@ public struct MixesGraphicImage: Codable {
 	public let id: String
 	public let vibrantColor: String
 	public let type: MixesGraphicImageType
-	
+
 	public func getImageUrl(session: Session, resolution: Int) -> URL? {
 		session.imageUrl(imageId: id, resolution: resolution)
 	}

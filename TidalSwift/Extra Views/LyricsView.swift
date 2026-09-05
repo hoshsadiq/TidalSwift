@@ -11,16 +11,16 @@ import TidalSwiftLib
 
 struct LyricsView: View {
 	@EnvironmentObject var queueInfo: QueueInfo
-	
+
 	@State var workItem: DispatchWorkItem?
 	@State var loadingState: LoadingState = .loading
-	
+
 	@State var lyrics: String?
-	
+
 	var track: Track? {
 		queueInfo.currentItem?.track
 	}
-	
+
 	var body: some View {
 		ScrollView {
 			VStack(alignment: .leading) {
@@ -69,7 +69,7 @@ struct LyricsView: View {
 			await fetchLyrics()
 		}
 	}
-	
+
 	private func fetchLyrics() async {
 		guard let track else {
 			loadingState = .error

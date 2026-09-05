@@ -24,23 +24,23 @@ nonisolated class OptionalTimeDateFormatter: DateFormatter {
 		formatter.dateFormat = "yyyy-MM-dd"
 		return formatter
 	}()
-	
+
 	func setup() {
 		self.calendar = Calendar(identifier: .iso8601)
 		self.timeZone = TimeZone(identifier: "UTC")
 		self.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZZZZ"
 	}
-	
+
 	override init() {
 		super.init()
 		setup()
 	}
-	
+
 	required init?(coder aDecoder: NSCoder) {
 		super.init(coder: aDecoder)
 		setup()
 	}
-	
+
 	override func date(from string: String) -> Date? {
 		if let result = super.date(from: string) {
 			return result

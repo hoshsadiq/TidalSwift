@@ -26,7 +26,7 @@ public class Config {
 	var imageSize: Int
 	public var urlType: AudioUrlType
 	var tokenExpirationDate: Date?
-	
+
 	public init(
 		accessToken: String,
 		refreshToken: String,
@@ -41,17 +41,17 @@ public class Config {
 		self.accessToken = accessToken
 		self.refreshToken = refreshToken
 		self.clientID = clientID
-		
+
 		if let token = apiToken {
 			self.apiToken = token
 		} else {
 			self.apiToken = "_DSTon1kC8pABnTw" // Direct ALAC, 1080p Videos
 		}
-		
+
 		self.offlineAudioQuality = offlineAudioQuality
 		self.urlType = urlType
-		
-		
+
+
 		self.imageSize = imageSize
 		self.tokenExpirationDate = tokenExpirationDate
 	}

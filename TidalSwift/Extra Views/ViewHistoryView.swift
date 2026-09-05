@@ -11,7 +11,7 @@ import TidalSwiftLib
 
 struct ViewHistoryView: View {
 	@EnvironmentObject var viewState: ViewState
-	
+
 	var body: some View {
 		ScrollView {
 			VStack(alignment: .leading) {
@@ -47,12 +47,12 @@ struct ViewHistoryView: View {
 struct ViewHistoryViewRow: View {
 	let view: TidalSwiftView
 	var text: String
-	
+
 	@EnvironmentObject var viewState: ViewState
-	
+
 	init(view: TidalSwiftView) {
 		self.view = view
-		
+
 		text = view.viewType.rawValue
 		if view.viewType == .artist {
 			text += ": \(view.artist?.name ?? "Missing Artist Name")"
@@ -64,7 +64,7 @@ struct ViewHistoryViewRow: View {
 			text += ": \(view.mix?.title ?? "Missing Mix Title")"
 		}
 	}
-	
+
 	var body: some View {
 		Text(text)
 			.onTapGesture(count: 2) {

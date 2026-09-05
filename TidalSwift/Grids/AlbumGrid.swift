@@ -15,25 +15,25 @@ struct AlbumGrid: View {
 	let showReleaseDate: Bool
 	let session: Session
 	let player: Player
-	
+
 	var rowHeight: CGFloat = 190
-	
+
 	init(albums: [Album], showArtists: Bool, showReleaseDate: Bool = false, session: Session, player: Player) {
 		self.albums = albums
 		self.showArtists = showArtists
 		self.showReleaseDate = showReleaseDate
-		
+
 		if showArtists {
 			rowHeight += 18
 		}
 		if showReleaseDate {
 			rowHeight += 18
 		}
-		
+
 		self.session = session
 		self.player = player
 	}
-	
+
 	var body: some View {
 		LazyVGrid(columns: [GridItem(.adaptive(minimum: 170))]) {
 			ForEach(albums) { album in

@@ -12,9 +12,9 @@ import TidalSwiftLib
 struct QueueView: View {
 	unowned let session: Session
 	unowned let player: Player
-	
+
 	@EnvironmentObject var queueInfo: QueueInfo
-	
+
 	func calculateTotalTime(for tracks: [Track]) -> Int {
 		var result = 0
 		for track in tracks {
@@ -22,7 +22,7 @@ struct QueueView: View {
 		}
 		return result
 	}
-	
+
 	var body: some View {
 		ScrollView {
 			VStack(alignment: .leading) {

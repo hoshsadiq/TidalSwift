@@ -15,10 +15,10 @@ struct AlbumGridItem: View {
 	let showReleaseDate: Bool
 	let session: Session
 	let player: Player
-	
+
 	@EnvironmentObject var viewState: ViewState
 	@State private var isOffline: Bool = false
-	
+
 	init(album: Album, showArtists: Bool, showReleaseDate: Bool = false, session: Session, player: Player) {
 		self.album = album
 		self.showArtists = showArtists
@@ -26,7 +26,7 @@ struct AlbumGridItem: View {
 		self.session = session
 		self.player = player
 	}
-	
+
 	var body: some View {
 		VStack {
 			ZStack(alignment: .bottomTrailing) {
@@ -128,7 +128,7 @@ struct AlbumGridItem: View {
 			isOffline = await album.isOffline(session: session)
 		}
 	}
-	
+
 	var toolTipString: String {
 		var s = album.title
 		if let artists = album.artists {
@@ -156,7 +156,7 @@ extension Album {
 		}
 		.secondaryIconColor()
 	}
-	
+
 	var hasAttributes: Bool {
 		explicit ?? false ||
 			audioQuality == .max ||

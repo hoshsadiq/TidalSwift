@@ -16,11 +16,11 @@ extension Session {
 		parameters["offset"] = String(offset)
 		// Server-side limit of 300. Doesn't go higher (also limits totalNumberOfItems to 300.
 		// Can potentially go higher using offset.
-		
+
 		let url = URL(string: "\(AuthInformation.APILocation)/search/")!
 		do {
 			let response: SearchResult = try await get(url: url, parameters: parameters)
-			
+
 			return SearchResponse(
 				artists: response.artists.items,
 				albums: response.albums.items,

@@ -13,15 +13,15 @@ import TidalSwiftLib
 struct SearchView: View {
 	let session: Session
 	let player: Player
-	
+
 	@EnvironmentObject var viewState: ViewState
-	
+
 	init(session: Session, player: Player) {
 		print("init SearchView")
 		self.session = session
 		self.player = player
 	}
-	
+
 	var body: some View {
 		ScrollView(.vertical) {
 			VStack(alignment: .leading) {
@@ -32,7 +32,7 @@ struct SearchView: View {
 					LoadingSpinner()
 				}
 				.padding([.horizontal, .bottom])
-				
+
 				if let searchResponse = viewState.stack.last?.searchResponse {
 					if !searchResponse.artists.isEmpty {
 						SearchViewArtists(artists: searchResponse.artists, session: session, player: player)
@@ -74,13 +74,13 @@ struct SearchViewArtists: View {
 	let artists: [Artist]
 	let session: Session
 	let player: Player
-	
+
 	var body: some View {
 		VStack(alignment: .leading) {
 			Text("Artists")
 				.font(.title)
 				.padding(.horizontal)
-			
+
 			ScrollView(.horizontal) {
 				LazyHStack(alignment: .top) {
 					ForEach(artists) { artist in
@@ -97,13 +97,13 @@ struct SearchViewAlbums: View {
 	let albums: [Album]
 	let session: Session
 	let player: Player
-	
+
 	var body: some View {
 		VStack(alignment: .leading) {
 			Text("Albums")
 				.font(.title)
 				.padding(.horizontal)
-			
+
 			ScrollView(.horizontal) {
 				LazyHStack(alignment: .top) {
 					ForEach(albums) { album in
@@ -120,13 +120,13 @@ struct SearchViewPlaylists: View {
 	let playlists: [Playlist]
 	let session: Session
 	let player: Player
-	
+
 	var body: some View {
 		VStack(alignment: .leading) {
 			Text("Playlists")
 				.font(.title)
 				.padding(.horizontal)
-			
+
 			ScrollView(.horizontal) {
 				LazyHStack(alignment: .top) {
 					ForEach(playlists) { playlist in
@@ -143,13 +143,13 @@ struct SearchViewTracks: View {
 	let tracks: [Track]
 	let session: Session
 	let player: Player
-	
+
 	var body: some View {
 		VStack(alignment: .leading) {
 			Text("Tracks")
 				.font(.title)
 				.padding(.horizontal)
-			
+
 			ScrollView(.horizontal) {
 				LazyHStack(alignment: .top) {
 					ForEach(tracks) { track in
@@ -166,13 +166,13 @@ struct SearchViewVideos: View {
 	let videos: [Video]
 	let session: Session
 	let player: Player
-	
+
 	var body: some View {
 		VStack(alignment: .leading) {
 			Text("Videos")
 				.font(.title)
 				.padding(.horizontal)
-			
+
 			ScrollView(.horizontal) {
 				LazyHStack(alignment: .top) {
 					ForEach(videos) { video in

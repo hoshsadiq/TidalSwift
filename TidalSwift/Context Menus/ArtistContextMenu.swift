@@ -13,10 +13,10 @@ struct ArtistContextMenu: View {
 	let artist: Artist
 	let session: Session
 	let player: Player
-	
+
 	@EnvironmentObject var viewState: ViewState
 	@State private var isFavorite: Bool? = nil
-	
+
 	var body: some View {
 		Group {
 			Button {

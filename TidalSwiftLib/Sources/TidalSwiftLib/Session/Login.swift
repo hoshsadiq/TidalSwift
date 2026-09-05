@@ -12,7 +12,7 @@ import Combine
 extension Session {
 	/// Margin before actual expiration to trigger a refresh (5 minutes)
 	private static let tokenRefreshMargin: TimeInterval = 5 * 60
-	
+
 	public func login(refreshToken: String, clientID: String) async throws {
 		config.refreshToken = refreshToken
 		config.clientID = clientID
@@ -52,46 +52,46 @@ extension Session {
 		self.userId = user.userId
 		self.favorites = Favorites(session: self, userId: user.userId)
 	}
-	
+
 	public enum AuthorizationState {
 		case waiting
 		case pending(loginUrl: URL, expiration: Date)
 		case success
 		case failure(Error)
 	}
-	
+
 	enum AuthorizationError: Error {
 		case deviceAuthorizationFailed
 		case pollingFailed
 		case expiredToken
 		case unknown
 	}
-	
+
 	public func startAuthorization() -> CurrentValueSubject<AuthorizationState, Never> {
 		let subject = CurrentValueSubject<AuthorizationState, Never>(.waiting)
-		
+
 		let url = URL(string: "\(AuthInformation.AuthLocation)/device_authorization")!
 		let parameters: [String: String] = ["client_id": AuthInformation.OAuthClientID,
 											"scope": AuthInformation.scope]
-		
+
 		Task {
 			do {
 				let response: DeviceAuthorizationResponse = try await Network.post(url: url, parameters: parameters, accessToken: nil, xTidalToken: nil)
-				
+
 				let expiration = Date().addingTimeInterval(TimeInterval(response.expiresIn))
 				let loginUrlString = "https://\(response.verificationUriComplete.absoluteString)"
 				let loginUrl = URL(string: loginUrlString)!
 				subject.send(.pending(loginUrl: loginUrl, expiration: expiration))
-				
+
 				startAuthorizationPolling(deviceCode: response.deviceCode, subject: subject)
 			} catch {
 				subject.send(.failure(AuthorizationError.deviceAuthorizationFailed))
 			}
 		}
-		
+
 		return subject
 	}
-	
+
 	private func startAuthorizationPolling(deviceCode: UUID, subject: CurrentValueSubject<AuthorizationState, Never>) {
 		let url = URL(string: "\(AuthInformation.AuthLocation)/token")!
 		let parameters: [String: String] = [
@@ -101,13 +101,13 @@ extension Session {
 			"grant_type": "urn:ietf:params:oauth:grant-type:device_code",
 			"scope": AuthInformation.scope
 		]
-		
+
 		Task {
 			try await Task.sleep(for: .seconds(2))
 			authorizationPoll(url: url, parameters: parameters, subject: subject)
 		}
 	}
-	
+
 	private func authorizationPoll(url: URL, parameters: [String: String], subject: CurrentValueSubject<AuthorizationState, Never>) {
 		Task {
 			do {
@@ -142,7 +142,7 @@ extension Session {
 			}
 		}
 	}
-	
+
 	/// Refreshes the access token. Concurrent calls share a single refresh
 	/// request instead of each hitting the auth server.
 	public func refreshAccessToken() async throws {

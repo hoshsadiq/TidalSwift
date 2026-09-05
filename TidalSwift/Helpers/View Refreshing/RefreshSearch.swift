@@ -14,18 +14,18 @@ extension ViewState {
 		guard var view = stack.last else {
 			return
 		}
-		
+
 		view.searchResponse = cache.searchResponses[searchTerm]
 		view.loadingState = .loading
 		replaceCurrentView(with: view)
-		
+
 		let term = searchTerm
 		refreshTask?.cancel()
 		refreshTask = Task { [self] in
 			await refreshSearch(searchTerm: term)
 		}
 	}
-	
+
 	func doSearch(term: String) {
 		if stack.last?.viewType != .search {
 			return
@@ -35,13 +35,13 @@ extension ViewState {
 		}
 		lastSearchTerm = searchTerm
 		refreshTask?.cancel()
-		
+
 		search()
 	}
-	
+
 	private func refreshSearch(searchTerm: String) async {
 		let response = await session.search(for: searchTerm)
-		
+
 		guard !Task.isCancelled else { return }
 		var view = TidalSwiftView(viewType: .search)
 		if response != nil {
@@ -52,7 +52,7 @@ extension ViewState {
 			view.searchResponse = cache.searchResponses[searchTerm]
 			view.loadingState = .error
 		}
-		
+
 		replaceCurrentView(with: view)
 	}
 }

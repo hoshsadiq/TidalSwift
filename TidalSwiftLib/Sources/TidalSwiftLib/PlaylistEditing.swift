@@ -11,12 +11,12 @@ import Foundation
 public class PlaylistEditing {
 	unowned let session: Session
 	let baseUrl: String
-	
+
 	init(session: Session) {
 		self.session = session
 		self.baseUrl = "\(AuthInformation.APILocation)/playlists"
 	}
-	
+
 	func etag(for playlistId: String) async -> Int {
 		let url = URL(string: "\(baseUrl)/\(playlistId)")!
 		do {
@@ -26,7 +26,7 @@ public class PlaylistEditing {
 			return -1
 		}
 	}
-	
+
 	public func addTracks(_ trackIds: [Int], to playlistId: String, duplicate: Bool) async -> Bool {
 		let url = URL(string: "\(baseUrl)/\(playlistId)/items")!
 		var parameters = session.sessionParameters
@@ -44,11 +44,11 @@ public class PlaylistEditing {
 			return false
 		}
 	}
-	
+
 	public func addTrack(_ trackId: Int, to playlistId: String, duplicate: Bool) async -> Bool {
 		await addTracks([trackId], to: playlistId, duplicate: duplicate)
 	}
-	
+
 	public func removeItem(atIndex index: Int, from playlistId: String) async -> Bool {
 		let url = URL(string: "\(baseUrl)/\(playlistId)/items/\(index)")!
 		var parameters = session.sessionParameters
@@ -61,7 +61,7 @@ public class PlaylistEditing {
 			return false
 		}
 	}
-	
+
 	public func moveItem(fromIndex: Int, toIndex: Int, in playlistId: String) async -> Bool {
 		let url = URL(string: "\(baseUrl)/\(playlistId)/items/\(fromIndex)")!
 		var parameters = session.sessionParameters
@@ -73,7 +73,7 @@ public class PlaylistEditing {
 			return false
 		}
 	}
-	
+
 	public func create(title: String, description: String) async -> Playlist? {
 		guard let userId = session.userId else {
 			return nil
@@ -89,7 +89,7 @@ public class PlaylistEditing {
 			return nil
 		}
 	}
-	
+
 	public func edit(playlistId: String, title: String, description: String) async -> Bool {
 		let url = URL(string: "\(baseUrl)/\(playlistId)")!
 		var parameters = session.sessionParameters
@@ -102,7 +102,7 @@ public class PlaylistEditing {
 			return false
 		}
 	}
-	
+
 	public func delete(playlistId: String) async -> Bool {
 		let url = URL(string: "\(baseUrl)/\(playlistId)")!
 		do {

@@ -13,7 +13,7 @@ public typealias Mood = Genre
 
 public struct Genre: Decodable, Identifiable { // Also Mood
 	public var id: String { name }
-	
+
 	let name: String
 	let path: String
 	let hasPlaylists: Bool
@@ -22,7 +22,7 @@ public struct Genre: Decodable, Identifiable { // Also Mood
 	let hasTracks: Bool
 	let hasVideos: Bool
 	let image: String
-	
+
 	public func imageUrl(session: Session, resolution: Int) -> URL? {
 		session.imageUrl(imageId: image, resolution: resolution)
 	}
@@ -59,7 +59,7 @@ public struct FeaturedItem: Decodable {
 	let imageId: String
 	let featured: Bool
 	let openExternal: Bool
-	
+
 	public func imageUrl(session: Session, resolution: Int, resolutionY: Int) -> URL? {
 		session.imageUrl(imageId: imageId, resolution: resolution, resolutionY: resolutionY)
 	}

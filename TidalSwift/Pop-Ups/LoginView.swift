@@ -17,34 +17,34 @@ final class LoginInfo: ObservableObject {
 struct LoginView: View {
 	@ObservedObject var loginInfo: LoginInfo
 	@ObservedObject var viewState: ViewState
-	
+
 	let session: Session
 	let player: Player
-	
+
 	@Environment(\.openURL) private var openURL
-	
+
 	@State var cancellables = Set<AnyCancellable>()
 	@State var authState: Session.AuthorizationState = .waiting
 	@State var counter = 300
 	let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
-	
+
 	@State var refreshToken: String = ""
 	@State var clientID: String = ""
 	@State var loginErrorMessage: String?
 	@State var offlineAudioQuality: AudioQuality = .high
 	@State var audioUrlType: AudioUrlType = .offline
-	
+
 	var body: some View {
 		ScrollView {
 			VStack {
 				Image("Icon")
 				Text("TidalSwift")
 					.font(.largeTitle)
-				
+
 				TabView {
 					deviceLogin
 						.tabItem { Text("Device Login") }
-					
+
 					authLogin
 						.tabItem { Text("Authorization") }
 				}
@@ -54,7 +54,7 @@ struct LoginView: View {
 			.padding()
 		}
 	}
-	
+
 	var deviceLogin: some View {
 		VStack {
 			switch authState {
@@ -66,7 +66,7 @@ struct LoginView: View {
 				} label: {
 					Text("Open Browser")
 				}
-				
+
 				if counter > 0 {
 					Text("Time remaining: \(counter)")
 						.onReceive(timer, perform: { _ in
@@ -81,22 +81,22 @@ struct LoginView: View {
 				Text("Something went wrong")
 					.foregroundColor(.red)
 			}
-			
+
 			qualityPicker
-			
+
 			Button(action: startAuthorization) {
 				Text("Login")
 			}
 		}
 		.padding()
 	}
-	
+
 	var authLogin: some View {
 		VStack {
 			SecureField("Refresh Token", text: $refreshToken)
-			
+
 			TextField("Client ID", text: $clientID)
-			
+
 			Picker(selection: $audioUrlType, label: Text("Audio URL Type"), content: {
 				Text("Offline").tag(AudioUrlType.offline)
 				Text("Streaming").tag(AudioUrlType.streaming)
@@ -104,9 +104,9 @@ struct LoginView: View {
 			Text("When choosing Offline, TidalSwift won't stop playback on official clients, but does not work with TV authorization details.")
 				.foregroundColor(.secondary)
 				.fixedSize(horizontal: false, vertical: true)
-			
+
 			qualityPicker
-			
+
 			if let loginErrorMessage {
 				Text(loginErrorMessage)
 					.foregroundColor(.red)
@@ -118,7 +118,7 @@ struct LoginView: View {
 		}
 		.padding()
 	}
-	
+
 	var qualityPicker: some View {
 		Picker(selection: $offlineAudioQuality, label: Text("Offline Audio Quality")) {
 			ForEach(AudioQuality.allCases) { quality in
@@ -126,17 +126,17 @@ struct LoginView: View {
 			}
 		}
 	}
-	
+
 	func startAuthorization() {
 		cancellables.removeAll()
-		
+
 		let subject = session.startAuthorization()
 			.receive(on: DispatchQueue.main)
-		
+
 		subject
 			.assign(to: \.authState, on: self)
 			.store(in: &cancellables)
-		
+
 		subject
 			.sink { value in
 				switch value {
@@ -153,7 +153,7 @@ struct LoginView: View {
 			}
 			.store(in: &cancellables)
 	}
-	
+
 	func setAuthorization() {
 		session.config.urlType = audioUrlType
 		Task {
@@ -169,7 +169,7 @@ struct LoginView: View {
 			}
 		}
 	}
-	
+
 	func successfulLogin(audioUrlType: AudioUrlType) {
 		loginErrorMessage = nil
 		loginInfo.showModal = false

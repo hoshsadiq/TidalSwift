@@ -12,13 +12,13 @@ import TidalSwiftLib
 struct AlbumView: View {
 	let session: Session
 	let player: Player
-	
+
 	@EnvironmentObject var viewState: ViewState
-	
+
 	@State var cloudPressed: Bool = false
 	@State private var isFavorite: Bool? = nil
 	@State private var isOffline: Bool = false
-	
+
 	var body: some View {
 		ZStack {
 			ScrollView {
@@ -49,7 +49,7 @@ struct AlbumView: View {
 								}
 								#endif
 								.accessibilityHidden(true)
-								
+
 								VStack(alignment: .leading) {
 									HStack {
 										Text(album.title)
@@ -161,7 +161,7 @@ struct AlbumView: View {
 						}
 						.frame(height: 100)
 						.padding(EdgeInsets(top: 10, leading: 20, bottom: 10, trailing: 20))
-						
+
 						TrackList(wrappedTracks: tracks.wrapped(), showCover: false, showAlbumTrackNumber: true,
 								  showArtist: true, showAlbum: false, playlist: nil, session: session, player: player)
 					} else {

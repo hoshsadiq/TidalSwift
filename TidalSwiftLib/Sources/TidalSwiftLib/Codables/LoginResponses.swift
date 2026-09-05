@@ -23,7 +23,7 @@ struct TokenSuccessResponse: Decodable {
 	let tokenType: String // "Bearer"
 	let expiresIn: Int
 	let user: LoginUser
-	
+
 	enum CodingKeys: String, CodingKey {
 		case accessToken = "access_token"
 		case refreshToken = "refresh_token"
@@ -38,7 +38,7 @@ struct TokenErrorResponse: Decodable {
 	let error: String?
 	let subStatus: Int
 	let errorDescription: String
-	
+
 	enum CodingKeys: String, CodingKey {
 		case status
 		case error

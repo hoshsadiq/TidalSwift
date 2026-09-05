@@ -13,9 +13,9 @@ struct ArtistGridItem: View {
 	let artist: Artist
 	let session: Session
 	let player: Player
-	
+
 	@EnvironmentObject var viewState: ViewState
-	
+
 	var body: some View {
 		VStack {
 			if let pictureUrl = artist.pictureUrl(session: session, resolution: 320) {

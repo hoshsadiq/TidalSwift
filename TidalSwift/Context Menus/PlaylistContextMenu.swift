@@ -13,12 +13,12 @@ struct PlaylistContextMenu: View {
 	let playlist: Playlist
 	let session: Session
 	let player: Player
-	
+
 	@EnvironmentObject var viewState: ViewState
 	@EnvironmentObject var playlistEditingValues: PlaylistEditingValues
 	@State private var isFavorite: Bool? = nil
 	@State private var isOffline: Bool = false
-	
+
 	var body: some View {
 		Group {
 			Group{
@@ -117,7 +117,7 @@ struct PlaylistContextMenu: View {
 						Text("Add to Offline")
 					}
 				}
-				
+
 				Button {
 					Task {
 						print("Download")

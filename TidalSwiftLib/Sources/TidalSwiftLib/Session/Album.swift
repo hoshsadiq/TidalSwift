@@ -25,7 +25,7 @@ extension Session {
 			return nil
 		}
 	}
-	
+
 	public func albumTracks(albumId: Int) async -> [Track]? {
 		let url = URL(string: "\(AuthInformation.APILocation)/albums/\(albumId)/tracks")!
 		do {
@@ -35,7 +35,7 @@ extension Session {
 			return nil
 		}
 	}
-	
+
 	public func albumCredits(albumId: Int) async -> [Credit]? {
 		let url = URL(string: "\(AuthInformation.APILocation)/albums/\(albumId)/credits")!
 		do {

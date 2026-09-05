@@ -24,7 +24,7 @@ public struct User: Decodable, Identifiable {
 	public let dateOfBirth: Date
 	public let facebookUid: Int?
 	public let appleUid: String?
-	
+
 	public func pictureUrl(session: Session, resolution: Int) -> URL? {
 		guard let picture = picture else { return nil }
 		return session.imageUrl(imageId: picture, resolution: resolution)

@@ -13,10 +13,10 @@ struct PlaylistGridItem: View {
 	let playlist: Playlist
 	let session: Session
 	let player: Player
-	
+
 	@EnvironmentObject var viewState: ViewState
 	@State private var isOffline: Bool = false
-	
+
 	var body: some View {
 		VStack {
 			ZStack(alignment: .bottomTrailing) {

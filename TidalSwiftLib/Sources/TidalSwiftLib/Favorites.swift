@@ -12,15 +12,15 @@ public class Favorites {
 	unowned let session: Session
 	var cache: FavoritesCache!
 	let baseUrl: String
-	
+
 	public init(session: Session, userId: Int) {
 		self.session = session
 		self.baseUrl = "\(AuthInformation.APILocation)/users/\(userId)/favorites"
 		self.cache = FavoritesCache(favorites: self)
 	}
-	
+
 	// Return
-	
+
 	public func artists(limit: Int = 999, offset: Int = 0, order: ArtistOrder? = nil, orderDirection: OrderDirection? = nil) async -> [FavoriteArtist]? {
 		let url = URL(string: "\(baseUrl)/artists")!
 		var parameters = session.sessionParameters
@@ -77,13 +77,13 @@ public class Favorites {
 			return nil
 		}
 	}
-	
+
 	public func videos(limit: Int = 100, offset: Int = 0, order: VideoOrder? = nil, orderDirection: OrderDirection? = nil) async -> [FavoriteVideo]? {
 		guard limit <= 100 else {
 			displayError(title: "Favorite Videos failed (Limit too high)", content: "The limit has to be 100 or below.")
 			return nil
 		}
-		
+
 		let url = URL(string: "\(baseUrl)/videos")!
 		var parameters = session.sessionParameters
 		parameters["limit"] = "\(limit)" // Unlike the rest, here a maximum limit of 100 exists. Error if higher.
@@ -101,14 +101,14 @@ public class Favorites {
 			return nil
 		}
 	}
-	
+
 	/// - Note: Includes User Playlists
 	public func playlists(limit: Int = 999, offset: Int = 0, order: PlaylistOrder? = nil, orderDirection: OrderDirection? = nil) async -> [FavoritePlaylist]? {
 		guard let userId = session.userId else {
 			return nil
 		}
 		let url = URL(string: "\(AuthInformation.APILocation)/users/\(userId)/playlistsAndFavoritePlaylists")!
-		
+
 		var tempLimit = limit
 		var tempOffset = offset
 		var tempPlaylists: [FavoritePlaylist] = []
@@ -130,20 +130,20 @@ public class Favorites {
 			do {
 				let response: FavoritePlaylists = try await session.get(url: url, parameters: parameters)
 				// TODO: JSON signature is different
-				
+
 				tempPlaylists += response.items
-				
+
 				if response.totalNumberOfItems - tempOffset < tempLimit {
 					return tempPlaylists
 				}
-				
+
 				tempLimit -= 50
 				tempOffset += 50
 			} catch {
 				return nil
 			}
 		}
-		
+
 		return tempPlaylists
 	}
 
@@ -152,12 +152,12 @@ public class Favorites {
 			displayError(title: "User Playlists failed", content: "User ID not set yet.")
 			return nil
 		}
-		
+
 		return await session.userPlaylists(userId: userId)
 	}
-	
+
 	// Add
-	
+
 	@discardableResult public func addArtist(artistId: Int) async -> Bool {
 		let url = URL(string: "\(baseUrl)/artists")!
 		var parameters = session.sessionParameters
@@ -196,7 +196,7 @@ public class Favorites {
 			return false
 		}
 	}
-	
+
 	@discardableResult public func addVideo(videoId: Int) async -> Bool {
 		let url = URL(string: "\(baseUrl)/videos")!
 		var parameters = session.sessionParameters
@@ -222,9 +222,9 @@ public class Favorites {
 			return false
 		}
 	}
-	
+
 	// Delete
-	
+
 	@discardableResult public func removeArtist(artistId: Int) async -> Bool {
 		let url = URL(string: "\(baseUrl)/artists/\(artistId)")!
 		do {
@@ -257,7 +257,7 @@ public class Favorites {
 			return false
 		}
 	}
-	
+
 	@discardableResult public func removeVideo(videoId: Int) async -> Bool {
 		let url = URL(string: "\(baseUrl)/videos/\(videoId)")!
 		do {
@@ -279,9 +279,9 @@ public class Favorites {
 			return false
 		}
 	}
-	
+
 	// Check
-	
+
 	public func doFavoritesContainArtist(artistId: Int) async -> Bool? {
 		guard let artists = await cache.artists else {
 			return nil
@@ -291,7 +291,7 @@ public class Favorites {
 		}
 		return false
 	}
-	
+
 	public func doFavoritesContainAlbum(albumId: Int) async -> Bool? {
 		guard let albums = await cache.albums else {
 			return nil
@@ -301,7 +301,7 @@ public class Favorites {
 		}
 		return false
 	}
-	
+
 	public func doFavoritesContainTrack(trackId: Int) async -> Bool? {
 		guard let tracks = await cache.tracks else {
 			return nil
@@ -311,7 +311,7 @@ public class Favorites {
 		}
 		return false
 	}
-	
+
 	public func doFavoritesContainVideo(videoId: Int) async -> Bool? {
 		guard let videos = await cache.videos else {
 			return nil
@@ -321,7 +321,7 @@ public class Favorites {
 		}
 		return false
 	}
-	
+
 	public func doFavoritesContainPlaylist(playlistId: String) async -> Bool? {
 		guard let playlists = await cache.playlists else {
 			return nil
@@ -331,25 +331,25 @@ public class Favorites {
 		}
 		return false
 	}
-	
+
 	// Refresh Caches
-	
+
 	private func refreshCachedArtists() async {
 		cache.set(await artists())
 	}
-	
+
 	private func refreshCachedAlbums() async {
 		cache.set(await albums())
 	}
-	
+
 	private func refreshCachedTracks() async {
 		cache.set(await tracks())
 	}
-	
+
 	private func refreshCachedVideos() async {
 		cache.set(await videos())
 	}
-	
+
 	private func refreshCachedPlaylists() async {
 		cache.set(await playlists())
 	}
@@ -358,12 +358,12 @@ public class Favorites {
 class FavoritesCache {
 	unowned let favorites: Favorites
 	let timeoutInSeconds: Double
-	
+
 	init(favorites: Favorites, timeoutInSeconds: Double = 60) {
 		self.favorites = favorites
 		self.timeoutInSeconds = timeoutInSeconds
 	}
-	
+
 	private var _artists: [FavoriteArtist]?
 	private var lastCheckedArtists = Date(timeIntervalSince1970: 0)
 	var artists: [FavoriteArtist]? {
@@ -378,7 +378,7 @@ class FavoritesCache {
 		_artists = newValue
 		lastCheckedArtists = .now
 	}
-	
+
 	private var _albums: [FavoriteAlbum]?
 	private var lastCheckedAlbums = Date(timeIntervalSince1970: 0)
 	var albums: [FavoriteAlbum]? {
@@ -393,7 +393,7 @@ class FavoritesCache {
 		_albums = newValue
 		lastCheckedAlbums = .now
 	}
-	
+
 	private var _tracks: [FavoriteTrack]?
 	private var lastCheckedTracks = Date(timeIntervalSince1970: 0)
 	var tracks: [FavoriteTrack]? {
@@ -408,7 +408,7 @@ class FavoritesCache {
 		_tracks = newValue
 		lastCheckedTracks = .now
 	}
-	
+
 	private var _videos: [FavoriteVideo]?
 	private var lastCheckedVideos = Date(timeIntervalSince1970: 0)
 	var videos: [FavoriteVideo]? {
@@ -423,7 +423,7 @@ class FavoritesCache {
 		_videos = newValue
 		lastCheckedVideos = .now
 	}
-	
+
 	private var _playlists: [FavoritePlaylist]?
 	private var lastCheckedPlaylists = Date(timeIntervalSince1970: 0)
 	var playlists: [FavoritePlaylist]? {

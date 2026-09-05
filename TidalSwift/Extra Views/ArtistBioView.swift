@@ -11,12 +11,12 @@ import TidalSwiftLib
 
 struct ArtistBioView: View {
 	let session: Session
-	
+
 	@State var artist: Artist
 	@State var bio: ArtistBio?
 	@State var workItem: DispatchWorkItem?
 	@State var loadingState: LoadingState = .loading
-	
+
 	var body: some View {
 		ScrollView {
 			VStack(alignment: .leading) {
@@ -49,7 +49,7 @@ struct ArtistBioView: View {
 						.foregroundColor(.secondary)
 					Spacer(minLength: 0)
 				}
-				
+
 			}
 			.padding()
 		}
@@ -61,7 +61,7 @@ struct ArtistBioView: View {
 			workItem?.cancel()
 		}
 	}
-	
+
 	func createWorkItem() -> DispatchWorkItem {
 		DispatchWorkItem {
 			Task {

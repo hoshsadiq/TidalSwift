@@ -48,40 +48,40 @@ public struct Album: Codable, Equatable, Identifiable, Hashable {
 	public let audioModes: [AudioMode]?
 	public let artist: Artist?
 	public let artists: [Artist]?
-	
+
 	public var isCompilation: Bool {
 		artist?.name == "Various Artists"
 	}
-	
+
 	public func isInFavorites(session: Session) async -> Bool? {
 		await session.favorites?.doFavoritesContainAlbum(albumId: id)
 	}
-	
+
 	public func getCoverUrl(session: Session, resolution: Int) -> URL? {
 		guard let cover = cover else { return nil }
 		return session.imageUrl(imageId: cover, resolution: resolution)
 	}
-	
+
 	public func isOffline(session: Session) async -> Bool {
 		await session.helpers.offline.isAlbumOffline(album: self)
 	}
-	
+
 	public func addOffline(session: Session) async {
 		await session.helpers.offline.add(album: self)
 	}
-	
+
 	public func removeOffline(session: Session) async {
 		await session.helpers.offline.remove(album: self)
 	}
-	
+
 	public func credits(session: Session) async -> [Credit]? {
 		await session.albumCredits(albumId: id)
 	}
-	
+
 	public static func == (lhs: Album, rhs: Album) -> Bool {
 		lhs.id == rhs.id
 	}
-	
+
 	public func hash(into hasher: inout Hasher) {
 		hasher.combine(id)
 	}

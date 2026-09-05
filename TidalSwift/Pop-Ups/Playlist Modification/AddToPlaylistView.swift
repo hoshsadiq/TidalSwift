@@ -11,24 +11,24 @@ import TidalSwiftLib
 
 struct AddToPlaylistView: View {
 	let session: Session
-	
+
 	@State private var playlists: [Playlist]? = nil
 	@State private var isLoadingPlaylists = false
-	
+
 	@ObservedObject var playlistEditingValues: PlaylistEditingValues
 	@ObservedObject var viewState: ViewState
-	
+
 	@State var selectedPlaylist: String = "" // Playlist UUID
 	@State var newPlaylistName: String = ""
 	@State var newPlaylistDescription: String = ""
 	@State var showEmptyNameWarning: Bool = false
-	
+
 	init(session: Session, playlistEditingValues: PlaylistEditingValues, viewState: ViewState) {
 		self.session = session
 		self.playlistEditingValues = playlistEditingValues
 		self.viewState = viewState
 	}
-	
+
 	var body: some View {
 		ScrollView {
 			VStack {
@@ -53,13 +53,13 @@ struct AddToPlaylistView: View {
 					.pickerStyle(.automatic)
 					#endif
 				}
-				
+
 				Text(showEmptyNameWarning ? "Playlist name can't be empty" : "")
 					.foregroundColor(.red)
-				
+
 				Text("Duplicate tracks won't be added")
 					.foregroundColor(.secondary)
-				
+
 				HStack {
 					Button {
 						print("Cancel")
@@ -112,7 +112,7 @@ struct AddToPlaylistView: View {
 			await loadPlaylistsIfNeeded()
 		}
 	}
-	
+
 	private func loadPlaylistsIfNeeded() async {
 		guard playlists == nil, !isLoadingPlaylists else { return }
 		isLoadingPlaylists = true

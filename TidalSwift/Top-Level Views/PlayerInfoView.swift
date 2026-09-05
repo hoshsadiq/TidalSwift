@@ -13,11 +13,11 @@ import Sliders
 struct PlayerInfoView: View {
 	let session: Session
 	let player: Player
-	
-	
+
+
 	@EnvironmentObject var queueInfo: QueueInfo
 	@EnvironmentObject var appModel: TidalSwiftAppModel
-	
+
 	var body: some View {
 		VStack {
 			GeometryReader { metrics in
@@ -30,7 +30,7 @@ struct PlayerInfoView: View {
 								TrackContextMenu(track: track, session: session, player: player)
 							}
 						}
-					
+
 					PlaybackControls(player: player)
 						.frame(width: 200)
 					Spacer()
@@ -60,9 +60,9 @@ struct PlayerInfoView: View {
 struct TrackInfoView: View {
 	let player: Player
 	let session: Session
-	
+
 	@EnvironmentObject var queueInfo: QueueInfo
-	
+
 	var body: some View {
 		HStack {
 			if !player.queueInfo.queue.isEmpty {
@@ -97,7 +97,7 @@ struct TrackInfoView: View {
 							.frame(width: 30, height: 30)
 							.cornerRadius(CORNERRADIUS)
 					}
-					
+
 					VStack(alignment: .leading) {
 						HStack {
 							Text("\(track.title)")
@@ -129,7 +129,7 @@ struct TrackInfoView: View {
 			}
 		}
 	}
-	
+
 	func trackToolTipString(for track: Track) -> String {
 		var s = track.title
 		if let version = track.version {
@@ -142,9 +142,9 @@ struct TrackInfoView: View {
 
 struct PlaybackControls: View {
 	let player: Player
-	
+
 	@EnvironmentObject var playbackInfo: PlaybackInfo
-	
+
 	var body: some View {
 		VStack(spacing: 8) {
 			HStack {
@@ -220,10 +220,10 @@ struct PlaybackControls: View {
 
 struct ProgressBar: View {
 	let player: Player
-	
+
 	@EnvironmentObject var playbackInfo: PlaybackInfo
 	@Environment(\.colorScheme) var colorScheme: ColorScheme
-	
+
 	var body: some View {
 		ValueSlider(value: $playbackInfo.fraction) { down in
 			if down { // Only apply while scrubbing, not when releasing
@@ -251,9 +251,9 @@ struct ProgressBar: View {
 
 struct VolumeControl: View {
 	let player: Player
-	
+
 	@EnvironmentObject var playbackInfo: PlaybackInfo
-	
+
 	var body: some View {
 		HStack {
 			speakerSymbol
@@ -279,7 +279,7 @@ struct VolumeControl: View {
 				.layoutPriority(1)
 		}
 	}
-	
+
 	@ViewBuilder
 	var speakerSymbol: some View {
 		if playbackInfo.volume > 0.66 {

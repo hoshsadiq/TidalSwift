@@ -38,9 +38,9 @@ extension Session {
 			return nil
 		}
 	}
-	
+
 	// TODO: There's more to moods and/or genres than playlists
-	
+
 	public func genres() async -> [Genre]? { // Overview over all Genres
 		let url = URL(string: "\(AuthInformation.APILocation)/genres")!
 		do {
@@ -50,9 +50,9 @@ extension Session {
 			return nil
 		}
 	}
-	
+
 	// Haven't found Artists in there yet, so only Tracks, Albums & Playlists
-	
+
 	public func genreTracks(genrePath: String) async -> [Track]? {
 		let url = URL(string: "\(AuthInformation.APILocation)/genres/\(genrePath)/tracks")!
 		do {
@@ -62,7 +62,7 @@ extension Session {
 			return nil
 		}
 	}
-	
+
 	public func genreAlbums(genreName: String) async -> [Album]? {
 		let url = URL(string: "\(AuthInformation.APILocation)/genres/\(genreName)/albums")!
 		do {
@@ -72,7 +72,7 @@ extension Session {
 			return nil
 		}
 	}
-	
+
 	public func genrePlaylists(genreName: String) async -> [Playlist]? {
 		let url = URL(string: "\(AuthInformation.APILocation)/genres/\(genreName)/playlists")!
 		do {

@@ -14,7 +14,7 @@ struct VideoGrid: View {
 	let showArtists: Bool
 	let session: Session
 	let player: Player
-	
+
 	var body: some View {
 		LazyVGrid(columns: [GridItem(.adaptive(minimum: 170))]) {
 			ForEach(videos) { video in

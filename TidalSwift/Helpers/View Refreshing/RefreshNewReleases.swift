@@ -15,16 +15,16 @@ extension ViewState {
 		view.albums = cache.newReleases
 		view.loadingState = .loading
 		replaceCurrentView(with: view)
-		
+
 		refreshTask?.cancel()
 		refreshTask = Task { [self] in
 			await refreshNewReleases()
 		}
 	}
-	
+
 	func refreshNewReleases() async {
 		let albums = await session.helpers.newReleasesFromFavoriteArtists(number: 40, includeEps: newReleasesIncludeEps)
-		
+
 		guard !Task.isCancelled else { return }
 		var view = TidalSwiftView(viewType: .newReleases)
 		if albums != nil {
@@ -35,7 +35,7 @@ extension ViewState {
 			view.albums = cache.newReleases
 			view.loadingState = .error
 		}
-		
+
 		replaceCurrentView(with: view)
 	}
 }

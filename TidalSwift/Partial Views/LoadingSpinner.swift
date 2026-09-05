@@ -10,11 +10,11 @@ import SwiftUI
 
 struct FullscreenLoadingSpinner: View {
 	let externalState: LoadingState?
-	
+
 	init(_ externalState: LoadingState? = nil) {
 		self.externalState = externalState
 	}
-	
+
 	var body: some View {
 		VStack {
 			Spacer(minLength: 0)
@@ -41,15 +41,15 @@ struct LoadingSpinner: View {
 			}
 		}
 	}
-	
+
 	init(_ externalState: LoadingState? = nil) {
 		self.externalState = externalState
 	}
-	
+
 	@EnvironmentObject var viewState: ViewState
-	
+
 	@State var animate = false
-	
+
 	var body: some View {
 		Group {
 			if loadingState == .loading {

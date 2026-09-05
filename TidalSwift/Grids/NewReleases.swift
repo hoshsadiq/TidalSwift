@@ -13,11 +13,11 @@ import TidalSwiftLib
 struct NewReleases: View {
 	let session: Session
 	let player: Player
-	
+
 	@EnvironmentObject var viewState: ViewState
-	
+
 	@State var cancellable: AnyCancellable?
-	
+
 	var body: some View {
 		ScrollView {
 			VStack(alignment: .leading) {
@@ -28,7 +28,7 @@ struct NewReleases: View {
 					LoadingSpinner()
 					Toggle("Include EPs and Singles", isOn: $viewState.newReleasesIncludeEps)
 				}
-				
+
 				if let albums = viewState.stack.last?.albums {
 					AlbumGrid(albums: albums, showArtists: true, showReleaseDate: true, session: session, player: player)
 				}

@@ -15,11 +15,11 @@ struct TrackContextMenu: View {
 	let playlist: Playlist?
 	let session: Session
 	let player: Player
-	
+
 	@EnvironmentObject var viewState: ViewState
 	@EnvironmentObject var playlistEditingValues: PlaylistEditingValues
 	@State private var isFavorite: Bool? = nil
-	
+
 	init(track: Track, indexInPlaylist: Int? = nil, playlist: Playlist? = nil, session: Session, player: Player) {
 		self.track = track
 		self.session = session
@@ -27,7 +27,7 @@ struct TrackContextMenu: View {
 		self.indexInPlaylist = indexInPlaylist
 		self.playlist = playlist
 	}
-	
+
 	var body: some View {
 		Group {
 			Group {

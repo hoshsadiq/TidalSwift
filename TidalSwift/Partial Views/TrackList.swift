@@ -18,7 +18,7 @@ struct TrackList: View {
 	let playlist: Playlist? // Has to be nil if not displaying User Playlist
 	let session: Session
 	let player: Player
-	
+
 	var body: some View {
 		LazyVStack {
 			ForEach(wrappedTracks) { wrappedTrack in
@@ -46,16 +46,16 @@ struct TrackRow: View {
 	let showAlbum: Bool
 	let trackNumber: Int?
 	let session: Session
-	
+
 	var widthFactorTrack: CGFloat
 	var widthFactorArtist: CGFloat
 	var widthFactorAlbum: CGFloat
-	
+
 	@EnvironmentObject var viewState: ViewState
 	@EnvironmentObject var queueInfo: QueueInfo
 	@State private var isOffline: Bool = false
 	@State private var isFavorite: Bool? = nil
-	
+
 	init(track: Track, showCover: Bool = false, showArtist: Bool, showAlbum: Bool,
 		 trackNumber: Int? = nil, session: Session) {
 		self.track = track
@@ -68,7 +68,7 @@ struct TrackRow: View {
 			self.trackNumber = nil
 		}
 		self.session = session
-		
+
 		if showArtist && showAlbum { // Both
 			self.widthFactorTrack = 0.28
 			self.widthFactorArtist = 0.28
@@ -83,7 +83,7 @@ struct TrackRow: View {
 			self.widthFactorAlbum = 0.0
 		}
 	}
-	
+
 	var body: some View {
 		GeometryReader { metrics in
 			HStack {
@@ -200,7 +200,7 @@ struct TrackRow: View {
 		.lineLimit(1)
 		.frame(height: showCover ? 30 : 16) // Values tested "by hand"
 	}
-	
+
 	var trackToolTipString: String {
 		var s = track.title
 		if let version = track.version {

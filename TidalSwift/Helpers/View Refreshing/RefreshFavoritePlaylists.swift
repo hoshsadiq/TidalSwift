@@ -15,13 +15,13 @@ extension ViewState {
 		view.playlists = cache.favoritePlaylists
 		view.loadingState = .loading
 		replaceCurrentView(with: view)
-		
+
 		refreshTask?.cancel()
 		refreshTask = Task { [self] in
 			await refreshFavoritePlaylists()
 		}
 	}
-	
+
 	private func refreshFavoritePlaylists() async {
 		var view = TidalSwiftView(viewType: .favoritePlaylists)
 		guard let favorites = session.favorites else {
@@ -38,14 +38,14 @@ extension ViewState {
 			replaceCurrentView(with: view)
 			return
 		}
-		
+
 		guard !Task.isCancelled else { return }
 		let playlists = favP.unwrapped()
-		
+
 		view.playlists = playlists
 		view.loadingState = .successful
 		cache.favoritePlaylists = playlists
-		
+
 		replaceCurrentView(with: view)
 	}
 }

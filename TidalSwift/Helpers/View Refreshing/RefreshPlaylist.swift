@@ -19,31 +19,31 @@ extension ViewState {
 			replaceCurrentView(with: view)
 			return
 		}
-		
+
 		view.tracks = cache.playlistTracks[playlist.id]
 		view.loadingState = .loading
 		replaceCurrentView(with: view)
-		
+
 		refreshTask?.cancel()
 		refreshTask = Task { [self] in
 			await refreshPlaylist()
 		}
 	}
-	
+
 	private func refreshPlaylist() async {
 		guard var view = stack.last else {
 			return
 		}
-		
+
 		guard let playlist = stack.last?.playlist else {
 			guard !Task.isCancelled else { return }
 			view.loadingState = .error
 			replaceCurrentView(with: view)
 			return
 		}
-		
+
 		view.tracks = await session.playlistTracks(playlistId: playlist.id)
-		
+
 		if view.tracks != nil {
 			guard !Task.isCancelled else { return }
 			view.loadingState = .successful
@@ -53,7 +53,7 @@ extension ViewState {
 			view.loadingState = .error
 			view.tracks = await session.helpers.offline.getTracks(for: playlist)
 		}
-		
+
 		guard !Task.isCancelled else { return }
 		replaceCurrentView(with: view)
 	}

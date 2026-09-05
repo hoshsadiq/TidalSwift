@@ -12,14 +12,14 @@ import TidalSwiftLib
 struct TopDetailView: View {
     let session: Session
 	let player: Player
-	
+
 	@EnvironmentObject var viewState: ViewState
-	
+
 	init(session: Session, player: Player) {
 		self.session = session
 		self.player = player
 	}
-	
+
 	var body: some View {
 		let selectionBinding = Binding<ViewType?>(
 			get: { viewState.stack.last?.viewType },
@@ -44,13 +44,13 @@ struct TopDetailView: View {
 struct TopView: View {
 	@Binding var selection: ViewType?
 //	@Binding var searchTerm: String
-	
+
 	let session: Session
-	
+
 	@EnvironmentObject var viewState: ViewState
-	
+
 	@State var becomeFirstResponder = true
-	
+
 	var body: some View {
 		VStack {
 			SearchField(selection: $selection, searchTerm: viewState.searchTerm)
@@ -81,11 +81,11 @@ struct TopView: View {
 
 struct SearchField: View {
 	@Binding var selection: ViewType?
-	
+
 	@EnvironmentObject var viewState: ViewState
-	
+
 	@State var searchTerm: String
-	
+
 	var body: some View {
 		TextField("Search", text: $searchTerm, onCommit: {
 			print("Search Commit: \(searchTerm)")
@@ -101,15 +101,15 @@ struct SearchField: View {
 struct DetailView: View {
 	let session: Session
 	let player: Player
-	
+
 	@EnvironmentObject var viewState: ViewState
-	
+
 	init(session: Session, player: Player) {
 		self.session = session
 		self.player = player
 		print("init DetailView")
 	}
-	
+
 	var placeHolderView: some View {
 		HStack {
 			VStack {
@@ -118,7 +118,7 @@ struct DetailView: View {
 			Spacer(minLength: 0)
 		}
 	}
-	
+
 	var body: some View {
 		VStack(spacing: 0) {
 			PlayerInfoView(session: session, player: player)
@@ -130,14 +130,14 @@ struct DetailView: View {
 					if viewType == .search {
 						SearchView(session: session, player: player)
 					}
-					
+
 					// News
 					else if viewType == .newReleases {
 						NewReleases(session: session, player: player)
 					} else if viewType == .myMixes {
 						MyMixes(session: session, player: player)
 					}
-					
+
 					// Favorites
 					else if viewType == .favoritePlaylists {
 						FavoritePlaylists(session: session, player: player)
@@ -150,7 +150,7 @@ struct DetailView: View {
 					} else if viewType == .favoriteArtists {
 						FavoriteArtists(session: session, player: player)
 					}
-					
+
 					else if viewType == .offlinePlaylists {
 						OfflinePlaylistsView(session: session, player: player)
 					} else if viewType == .offlineAlbums {
@@ -158,7 +158,7 @@ struct DetailView: View {
 					} else if viewType == .offlineTracks {
 						OfflineTracksView(session: session, player: player)
 					}
-					
+
 					// Single Things
 					else if viewType == .artist {
 						ArtistView(session: session, player: player, viewState: viewState)

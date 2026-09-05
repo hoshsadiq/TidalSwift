@@ -13,7 +13,7 @@ extension ViewState {
 	func refreshCurrentView() {
 		refreshTask?.cancel()
 		refreshTask = nil
-		
+
 		switch stack.last?.viewType {
 		case .search:
 			search()
@@ -33,7 +33,7 @@ extension ViewState {
 			favoriteTracks()
 		case .favoriteVideos:
 			favoriteVideos()
-		
+
 		case .offlineAlbums:
 			offlineAlbums()
 		case .offlinePlaylists:
@@ -49,12 +49,12 @@ extension ViewState {
 			playlist()
 		case .mix:
 			mix()
-		
+
 		case nil:
 			doNothing()
 		}
 	}
-	
+
 	// Only replaces if actually different
 	// Also replaces View in History
 	func replaceCurrentView(with view: TidalSwiftView) {
@@ -82,7 +82,7 @@ extension ViewState {
 			}
 		}
 	}
-	
+
 	func doNothing() {
 		print("ViewState doNothing(): \(stack.last?.viewType.rawValue ?? "nil")")
 		refreshTask?.cancel()

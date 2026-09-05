@@ -42,12 +42,12 @@ struct CodablePlaybackInfo: Codable {
 	var shuffle: Bool
 	var repeatState: RepeatState
 	var pauseAfter: Bool
-	
+
 	// QueueInfo
 	var nonShuffledQueue: [WrappedTrack]
 	var queue: [WrappedTrack]
 	var currentIndex: Int
-	
+
 	var history: [WrappedTrack]
 	var maxHistoryItems: Int
 }

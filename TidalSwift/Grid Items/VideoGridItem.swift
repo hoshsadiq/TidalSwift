@@ -14,9 +14,9 @@ struct VideoGridItem: View {
 	let showArtist: Bool
 	let session: Session
 	let player: Player
-	
+
 	@EnvironmentObject var playbackInfo: PlaybackInfo
-	
+
 	var body: some View {
 		VStack {
 			if let imageUrl = video.imageUrl(session: session, resolution: 320) {

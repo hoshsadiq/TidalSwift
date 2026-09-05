@@ -11,21 +11,21 @@ import TidalSwiftLib
 
 struct ViewCache: Codable {
 	var searchResponses: [String: SearchResponse] = [:]
-	
+
 	var newReleases: [Album]?
 	var mixes: [MixesItem]?
-	
+
 	var favoriteArtists: [Artist]?
 	var favoriteAlbums: [Album]?
 	var favoritePlaylists: [Playlist]?
 	var favoriteTracks: [Track]?
 	var favoriteVideos: [Video]?
-	
+
 //	var artist: [Int: Artist] = [:]
 //	var album: [Int: Album] = [:]
 //	var playlist: [String: Playlist] = [:]
 //	var video: [Int: Video] = [:]
-	
+
 	var mixTracks: [String: [Track]] = [:]
 	var artistTopTracks: [Int: [Track]] = [:]
 	var artistAlbums: [Int: [Album]] = [:]

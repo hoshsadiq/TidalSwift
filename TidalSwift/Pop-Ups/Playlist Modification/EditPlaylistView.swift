@@ -11,15 +11,15 @@ import TidalSwiftLib
 
 struct EditPlaylistView: View {
 	let session: Session
-	
+
 	@ObservedObject var playlistEditingValues: PlaylistEditingValues
 	@ObservedObject var viewState: ViewState
-	
+
 	@State var playlistTitle: String = ""
 	@State var playlistDescription: String = ""
 	@State var showEmptyNameWarning: Bool = false
 	@State private var isOffline: Bool = false
-	
+
 	var body: some View {
 		VStack {
 			if let playlist = playlistEditingValues.playlist {
@@ -36,7 +36,7 @@ struct EditPlaylistView: View {
 					Text("This playlist is saved offline, but won't anymore if renamed. You have to to add it to Offline items again manually, if you so desire.")
 						.foregroundColor(.secondary)
 				}
-				
+
 				HStack {
 					Button {
 						print("Cancel")

@@ -12,10 +12,10 @@ import TidalSwiftLib
 struct OfflinePlaylistsView: View {
 	let session: Session
 	let player: Player
-	
+
 	@EnvironmentObject var viewState: ViewState
 	@EnvironmentObject var sortingState: SortingState
-	
+
 	var body: some View {
 		ScrollView {
 			VStack(alignment: .leading) {
@@ -54,10 +54,10 @@ struct OfflinePlaylistsView: View {
 struct OfflineAlbumsView: View {
 	let session: Session
 	let player: Player
-	
+
 	@EnvironmentObject var viewState: ViewState
 	@EnvironmentObject var sortingState: SortingState
-	
+
 	var body: some View {
 		ScrollView {
 			VStack(alignment: .leading) {
@@ -82,7 +82,7 @@ struct OfflineAlbumsView: View {
 						Text("\(albums.count) \(albums.count == 1 ? "Album" : "Albums")")
 						Spacer()
 					}
-					
+
 					AlbumGrid(albums: albums.sortedAlbums(by: sortingState.offlineAlbumSorting).reversed(sortingState.offlineAlbumReversed), showArtists: true, session: session, player: player)
 				}
 				Spacer(minLength: 0)
@@ -95,10 +95,10 @@ struct OfflineAlbumsView: View {
 struct OfflineTracksView: View {
 	let session: Session
 	let player: Player
-	
+
 	@EnvironmentObject var viewState: ViewState
 	@EnvironmentObject var sortingState: SortingState
-	
+
 	var body: some View {
 		ScrollView {
 			VStack(alignment: .leading) {
@@ -128,7 +128,7 @@ struct OfflineTracksView: View {
 					}
 				}
 				.padding(.horizontal)
-				
+
 				if let tracks = viewState.stack.last?.tracks {
 					TrackList(wrappedTracks: tracks.sortedTracks(by: sortingState.offlineTrackSorting).reversed(sortingState.offlineTrackReversed).wrapped(), showCover: true, showAlbumTrackNumber: false, showArtist: true, showAlbum: true, playlist: nil, session: session, player: player)
 				}

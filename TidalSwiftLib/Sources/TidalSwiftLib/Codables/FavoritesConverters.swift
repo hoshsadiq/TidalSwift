@@ -23,7 +23,7 @@ extension Array where Element == FavoriteAlbum {
 extension Array where Element == FavoritePlaylist {
 	public func unwrapped() -> [Playlist] {
 		let tempPlaylists = self.map { $0.playlist }
-		
+
 		// Playlists can appear as userCreated and userFavorited. Only keep one.
 		var resultArray: [Playlist] = []
 		for playlist in tempPlaylists {

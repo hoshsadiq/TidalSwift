@@ -15,10 +15,10 @@ class VideoPlayerController: NSWindowController {
 		let player = AVPlayer(url: videoUrl)
 		player.volume = volume
 		player.play()
-		
+
 		let playerView = AVPlayerView()
 		playerView.player = player
-		
+
 		let window = NSWindow(contentRect: NSMakeRect(0, 0, width, height),
 							  styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
 							  backing: NSWindow.BackingStoreType.buffered,

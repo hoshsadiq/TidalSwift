@@ -13,11 +13,11 @@ struct VideoContextMenu: View {
 	let video: Video
 	let session: Session
 	let player: Player
-	
+
 	@EnvironmentObject var viewState: ViewState
 	@EnvironmentObject var playbackInfo: PlaybackInfo
 	@State private var isFavorite: Bool? = nil
-	
+
 	var body: some View {
 		Group {
 			if video.streamReady {

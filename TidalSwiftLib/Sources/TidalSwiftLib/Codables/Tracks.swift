@@ -18,7 +18,7 @@ struct Tracks: Decodable {
 
 public struct TrackMixes: Codable {
 	public let trackMix: String?
-	
+
 	enum CodingKeys: String, CodingKey {
 		case trackMix = "TRACK_MIX"
 	}
@@ -53,35 +53,35 @@ public struct Track: Codable, Equatable, Identifiable, Hashable {
 	public let dateAdded: Date?
 	public let index: Int?
 	public let itemUuid: UUID?
-	
+
 	public func isInFavorites(session: Session) async -> Bool? {
 		await session.favorites?.doFavoritesContainTrack(trackId: id)
 	}
-	
+
 	public func getCoverUrl(session: Session, resolution: Int) -> URL? {
 		album.getCoverUrl(session: session, resolution: resolution)
 	}
-	
+
 	public func getCredits(session: Session) async -> [Credit]? {
 		await session.trackCredits(trackId: id)
 	}
-	
+
 	public func audioUrl(session: Session, audioQuality: AudioQuality) async -> URL? {
 		await session.audioUrl(trackId: id, audioQuality: audioQuality)
 	}
-	
+
 	public func isOffline(session: Session) async -> Bool {
 		await session.helpers.offline.isTrackOffline(track: self)
 	}
-	
+
 	public func radio(session: Session) async -> [Track]? {
 		await session.trackRadio(trackId: id)
 	}
-	
+
 	public static func == (lhs: Track, rhs: Track) -> Bool {
 		lhs.id == rhs.id
 	}
-	
+
 	public func hash(into hasher: inout Hasher) {
 		hasher.combine(id)
 	}

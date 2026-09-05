@@ -18,18 +18,18 @@ extension Session {
 	public func loadSession() -> Bool {
 		let persistentInformationOptional: [String: String]? =
 			UserDefaults.standard.dictionary(forKey: "Session Information") as? [String: String]
-		
+
 		guard let persistentInformation = persistentInformationOptional else {
 			displayError(title: "Couldn't load Session", content: "Persistent Session Information doesn't exist")
 			return false
 		}
-		
+
 		countryCode = persistentInformation["countryCode"]
 		userId = Int(persistentInformation["userId"]!)
 		favorites = Favorites(session: self, userId: userId!)
 		return true
 	}
-	
+
 	public func saveSession() {
 		guard let countryCode = countryCode,
 			  let userId = userId else {
@@ -37,13 +37,13 @@ extension Session {
 						 content: "Session Information wasn't set yet. You're probably not logged in.")
 			return
 		}
-		
+
 		let persistentInformation: [String: String] = ["countryCode": countryCode,
 													   "userId": String(userId)]
-		
+
 		UserDefaults.standard.set(persistentInformation, forKey: "Session Information")
 	}
-	
+
 	public func saveConfig() {
 		var persistentInformation: [String: String?] = [
 			"accessToken": config.accessToken,
@@ -60,7 +60,7 @@ extension Session {
 
 		UserDefaults.standard.set(persistentInformation, forKey: "Config Information")
 	}
-	
+
 	public func deletePersistentInformation() {
 		let domain = Bundle.main.bundleIdentifier!
 		UserDefaults.standard.removePersistentDomain(forName: domain)
@@ -71,12 +71,12 @@ extension Config {
 	static func load() -> Config? {
 		let persistentInformationOptional: [String: String]? =
 			UserDefaults.standard.dictionary(forKey: "Config Information") as? [String: String]
-		
+
 		guard let persistentInformation = persistentInformationOptional else {
 			displayError(title: "Couldn't load Config", content: "Persistent Config doesn't exist")
 			return nil
 		}
-		
+
 		guard let accessToken = persistentInformation["accessToken"],
 			  let refreshToken = persistentInformation["refreshToken"],
 			  let apiToken = persistentInformation["apiToken"],
@@ -90,7 +90,7 @@ extension Config {
 			displayError(title: "Couldn't load Config", content: "Missing part of Persistent Config.")
 			return nil
 		}
-		
+
 		let clientID = persistentInformation["clientID"] ?? AuthInformation.OAuthClientID
 
 		var tokenExpirationDate: Date?

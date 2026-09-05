@@ -11,7 +11,7 @@ import SwiftUI
 struct TouchBarView: View {
 	let player: Player
 	@ObservedObject var playbackInfo: PlaybackInfo
-	
+
 	var body: some View {
 		Button(action: {
 			player.previous()

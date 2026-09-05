@@ -13,7 +13,7 @@ struct ArtistGrid: View {
 	let artists: [Artist]
 	let session: Session
 	let player: Player
-	
+
 	var body: some View {
 		LazyVGrid(columns: [GridItem(.adaptive(minimum: 170))]) {
 			ForEach(artists) { artist in

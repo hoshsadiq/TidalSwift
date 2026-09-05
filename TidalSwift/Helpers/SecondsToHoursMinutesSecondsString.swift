@@ -12,7 +12,7 @@ func secondsToHoursMinutesSecondsString(seconds: Int) -> String {
 	let formatter = DateComponentsFormatter()
 	formatter.allowedUnits = [.hour, .minute, .second]
 	formatter.unitsStyle = .positional
-	
+
 	var s = formatter.string(from: TimeInterval(seconds))!
 	if s.count == 1 {
 		s = "0:0\(s)"

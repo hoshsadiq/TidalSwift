@@ -24,7 +24,7 @@ class ImageWindowController: NSWindowController {
 struct ImageWindowView: View {
 	let imageUrl: URL
 	let title: String
-	
+
 	var body: some View {
 		AsyncImage(url: imageUrl) { image in
 			image.resizable().scaledToFit()

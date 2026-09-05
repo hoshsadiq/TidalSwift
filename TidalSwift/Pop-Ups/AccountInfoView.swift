@@ -13,10 +13,10 @@ struct AccountInfoView: View {
 	let session: Session
 	@State var user: User?
 	@State var subscription: Subscription?
-	
+
 	@State var workItem: DispatchWorkItem?
 	@State var loadingState: LoadingState = .loading
-	
+
 	var body: some View {
 		ScrollView {
 			VStack(alignment: .leading) {
@@ -67,18 +67,18 @@ struct AccountInfoView: View {
 			workItem?.cancel()
 		}
 	}
-	
+
 	func createWorkItem() -> DispatchWorkItem {
 		DispatchWorkItem {
 			Task {
 				var tUser: User?
 				let tSubscription: Subscription?
-				
+
 				if let userId = session.userId {
 					tUser = await session.user(userId: userId)
 				}
 				tSubscription = await session.subscriptionInfo()
-				
+
 				if tUser != nil && tSubscription != nil {
 					user = tUser
 					subscription = tSubscription
@@ -94,7 +94,7 @@ struct AccountInfoView: View {
 struct UserInfoView: View {
 	let user: User
 	let session: Session
-	
+
 	var body: some View {
 		VStack(alignment: .leading) {
 			Text("")
@@ -111,7 +111,7 @@ struct UserInfoView: View {
 					.bold()
 				Text(user.firstName)
 				Text("")
-				
+
 			}
 			Group {
 				Text("Last Name")
@@ -140,7 +140,7 @@ struct UserInfoView: View {
 					.bold()
 				Text(user.acceptedEULA ? "Yes" : "No")
 				Text("")
-				
+
 			}
 			Group {
 				Text("Gender")
@@ -150,7 +150,7 @@ struct UserInfoView: View {
 				Text("Date of Birth")
 					.bold()
 				Text(DateFormatter.dateOnly.string(from: user.dateOfBirth))
-				
+
 				if let faceBookUid = user.facebookUid {
 					Text("")
 					Text("Facebook User ID")
@@ -164,7 +164,7 @@ struct UserInfoView: View {
 
 struct SubscriptionInfoView: View {
 	let subscription: Subscription
-	
+
 	var body: some View {
 		VStack(alignment: .leading) {
 			Text("")
@@ -177,7 +177,7 @@ struct SubscriptionInfoView: View {
 					.bold()
 				Text(subscription.status)
 				Text("")
-				
+
 			}
 			Group {
 				Text("Subscription Type")

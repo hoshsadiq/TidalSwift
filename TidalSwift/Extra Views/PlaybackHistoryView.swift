@@ -11,10 +11,10 @@ import TidalSwiftLib
 
 struct PlaybackHistoryView: View {
 	@EnvironmentObject var queueInfo: QueueInfo
-	
+
 	let session: Session
 	let player: Player
-	
+
 	var body: some View {
 		ScrollView {
 			VStack(alignment: .leading) {

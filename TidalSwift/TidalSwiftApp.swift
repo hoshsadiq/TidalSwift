@@ -59,7 +59,7 @@ final class TidalSwiftAppModel: ObservableObject {
 
 	private var didStart = false
 	private var isTerminating = false
-	
+
 	#if canImport(AppKit)
 	private var lyricsViewController: NSWindowController?
 	private var queueViewController: NSWindowController?
@@ -154,23 +154,23 @@ final class TidalSwiftAppModel: ObservableObject {
 		initCancellables()
 		viewState.refreshCurrentView()
 		refreshFavoriteState()
-		
+
 		#if canImport(AppKit)
 		initSecondaryWindows()
 		registerCloseLastWindowBehavior()
-		
+
 		updateCheck(showNoUpdatesAlert: false)
 		#endif
-		
+
 		Task {
 			await session.helpers.offline.syncAllOfflinePlaylistsAndFavoriteTracks()
 		}
-		
+
 		Task {
 			await viewState.refreshNewReleases()
 		}
 	}
-	
+
 	#if canImport(AppKit)
 	func prepareForTermination() {
 		guard !isTerminating else { return }
@@ -183,7 +183,7 @@ final class TidalSwiftAppModel: ObservableObject {
 		closeModals()
 		saveState()
 	}
-	
+
 	func quit() {
 		prepareForTermination()
 		NSApp.terminate(nil)
@@ -497,13 +497,13 @@ final class TidalSwiftAppModel: ObservableObject {
 	}
 
 	// MARK: Menu Actions
-	
+
 	#if canImport(AppKit)
 	func checkForUpdates() {
 		updateCheck(showNoUpdatesAlert: true)
 	}
 	#endif
-	
+
 	func showChangelog() {
 		#if canImport(AppKit)
 		updateNotification.showChangelogWindow()
@@ -670,7 +670,7 @@ final class TidalSwiftAppModel: ObservableObject {
 	func clearQueue() {
 		player.clearQueue(leavingCurrent: true)
 	}
-	
+
 	func accountInfo() {
 		#if canImport(AppKit)
 		guard let userId = session.userId else { return }
@@ -696,7 +696,7 @@ final class TidalSwiftAppModel: ObservableObject {
 			}
 		}
 	}
-	
+
 	func logout() {
 		session.helpers.offline.removeAll()
 		closeModals()
@@ -748,7 +748,7 @@ struct TidalSwiftCommands: Commands {
 				appModel.showChangelog()
 			}
 		}
-		
+
 		CommandGroup(replacing: .appTermination) {
 			Button("Quit TidalSwift") {
 				appModel.quit()
@@ -874,7 +874,7 @@ struct TidalSwiftCommands: Commands {
 				appModel.removeAllOfflineContent()
 			}
 		}
-		
+
 		#if canImport(AppKit)
 		CommandGroup(after: .windowArrangement) {
 			Divider()

@@ -15,19 +15,19 @@ extension Session {
 		let url = URL(string: "\(AuthInformation.APILocation)/tracks/\(trackId)/\(config.urlType.rawValue)")!
 		do {
 			let response: AudioUrl = try await get(url: url, parameters: parameters)
-			
+
 //			print("""
 //			Track ID: \(response.trackId),
 //			Quality: \(response.soundQuality.rawValue),
 //			Codec: \(response.codec)
 //			""")
-			
+
 			return response.url.upgradedToHTTPS
 		} catch {
 			return nil
 		}
 	}
-	
+
 	func videoUrl(videoId: Int) async -> URL? {
 		let url = URL(string: "\(AuthInformation.APILocation)/videos/\(videoId)/playbackinfo")!
 		var parameters = sessionParameters
@@ -45,7 +45,7 @@ extension Session {
 			return nil
 		}
 	}
-	
+
 	func pathExtension(for audioQuality: AudioQuality) -> String {
 		switch audioQuality {
 		case .low, .medium:

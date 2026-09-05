@@ -14,7 +14,7 @@ struct TrackGridItem: View {
 	let showArtist: Bool
 	let session: Session
 	let player: Player
-	
+
 	var body: some View {
 		VStack {
 			if let coverUrl = track.album.getCoverUrl(session: session, resolution: 320) {
@@ -70,7 +70,7 @@ struct TrackGridItem: View {
 			TrackContextMenu(track: track, session: session, player: player)
 		}
 	}
-	
+
 	var toolTipString: String {
 		var s = track.title
 		if let version = track.version {
@@ -99,14 +99,14 @@ extension Track {
 		}
 		.secondaryIconColor()
 	}
-	
+
 	var hasAttributes: Bool {
 		explicit ||
 			audioQuality == .max ||
 			audioModes?.contains(.sony360RealityAudio) ?? false ||
 			audioModes?.contains(.dolbyAtmos) ?? false
 	}
-	
+
 	var isUnavailable: Bool {
 		!streamReady ||
 		audioModes?.contains(.sony360RealityAudio) ?? false ||

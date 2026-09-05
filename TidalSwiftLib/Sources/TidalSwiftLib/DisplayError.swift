@@ -11,6 +11,6 @@ import SwiftUI
 
 func displayError(title: String, content: String) {
 	// Comment out while unit testing to prevent pop-ups
-	
+
 	print("\(title). \(content)")
 }

@@ -26,7 +26,7 @@ public enum PlaylistType: String, Codable {
 
 public struct Playlist: Codable, Equatable, Identifiable, Hashable {
 	public var id: String { uuid }
-	
+
 	public let uuid: String
 	public let title: String
 	public let numberOfTracks: Int
@@ -42,79 +42,79 @@ public struct Playlist: Codable, Equatable, Identifiable, Hashable {
 	public let image: String?
 	public let popularity: Int
 	public let squareImage: String?
-	
+
 	public func isInFavorites(session: Session) async -> Bool? {
 		await session.favorites?.doFavoritesContainPlaylist(playlistId: uuid)
 	}
-	
+
 	public func imageUrl(session: Session, resolution: Int, resolutionY: Int? = nil) -> URL? {
 		if squareImage == nil && image == nil {
 			return nil
 		}
-		
+
 		if let resolutionY = resolutionY {
 			return session.imageUrl(imageId: squareImage ?? image!, resolution: resolution, resolutionY: resolutionY)
 		}
-		
+
 		if let squareImage = squareImage {
 			return session.imageUrl(imageId: squareImage, resolution: resolution)
 		} else {
 			return session.imageUrl(imageId: image!, resolution: 480, resolutionY: 320)
 		}
 	}
-	
+
 	// Offline
-	
+
 	public func isOffline(session: Session) async -> Bool {
 		await session.helpers.offline.isPlaylistOffline(playlist: self)
 	}
-	
+
 	public func addOffline(session: Session) async {
 		await session.helpers.offline.add(playlist: self)
 	}
-	
+
 	public func removeOffline(session: Session) async {
 		await session.helpers.offline.remove(playlist: self)
 	}
-	
+
 	// Playlist Editing
-	
+
 	public func addTracks(_ tracks: [Track], duplicate: Bool, session: Session) async -> Bool {
 		return await session.playlistEditing.addTracks(tracks.map(\.id), to: uuid, duplicate: duplicate)
 	}
-	
+
 	public func addTrack(_ track: Track, duplicate: Bool, session: Session) async -> Bool {
 		return await session.playlistEditing.addTrack(track.id, to: uuid, duplicate: duplicate)
 	}
-	
+
 	public func removeItem(atIndex index: Int, session: Session) async -> Bool {
 		return await session.playlistEditing.removeItem(atIndex: index, from: uuid)
 	}
-	
+
 	public func addVideos(_ videos: [Video], duplicate: Bool, session: Session) async -> Bool {
 		return await session.playlistEditing.addTracks(videos.map(\.id), to: uuid, duplicate: duplicate)
 	}
-	
+
 	public func addVideo(_ video: Video, duplicate: Bool, session: Session) async -> Bool {
 		return await session.playlistEditing.addTrack(video.id, to: uuid, duplicate: duplicate)
 	}
-	
+
 	public func moveItem(fromIndex: Int, toIndex: Int, session: Session) async -> Bool {
 		return await session.playlistEditing.moveItem(fromIndex: fromIndex, toIndex: toIndex, in: uuid)
 	}
-	
+
 	public func edit(title: String, description: String, session: Session) async -> Bool {
 		return await session.playlistEditing.edit(playlistId: uuid, title: title, description: description)
 	}
-	
+
 	public func delete(session: Session) async -> Bool {
 		return await session.playlistEditing.delete(playlistId: uuid)
 	}
-	
+
 	public static func == (lhs: Playlist, rhs: Playlist) -> Bool {
 		lhs.uuid == rhs.uuid
 	}
-	
+
 	public func hash(into hasher: inout Hasher) {
 		hasher.combine(uuid)
 	}
@@ -126,7 +126,7 @@ public struct PlaylistCreator: Codable {
 	public let url: URL?
 	public let picture: String?
 	public let popularity: Int?
-	
+
 	public func pictureUrl(session: Session, resolution: Int) -> URL? {
 		guard let picture = picture else {
 			return nil

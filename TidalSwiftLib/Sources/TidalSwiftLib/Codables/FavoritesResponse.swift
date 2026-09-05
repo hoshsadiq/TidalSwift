@@ -27,18 +27,18 @@ struct FavoriteArtists: Decodable {
 
 public struct FavoriteArtist: Decodable, Equatable, Identifiable {
 	public var id: Int { item.id }
-	
+
 	public let created: Date
 	public let item: Artist
-	
+
 	public static func == (lhs: FavoriteArtist, rhs: FavoriteArtist) -> Bool {
 		lhs.item.id == rhs.item.id
 	}
-	
+
 	public static func == (lhs: FavoriteArtist, rhs: Artist) -> Bool {
 		lhs.item.id == rhs.id
 	}
-	
+
 	public static func == (lhs: Artist, rhs: FavoriteArtist) -> Bool {
 		lhs.id == rhs.item.id
 	}
@@ -53,18 +53,18 @@ struct FavoriteAlbums: Decodable {
 
 public struct FavoriteAlbum: Decodable, Equatable, Identifiable {
 	public var id: Int { item.id }
-	
+
 	public let created: Date
 	public let item: Album
-	
+
 	public static func == (lhs: FavoriteAlbum, rhs: FavoriteAlbum) -> Bool {
 		lhs.item.id == rhs.item.id
 	}
-	
+
 	public static func == (lhs: FavoriteAlbum, rhs: Album) -> Bool {
 		lhs.item.id == rhs.id
 	}
-	
+
 	public static func == (lhs: Album, rhs: FavoriteAlbum) -> Bool {
 		lhs.id == rhs.item.id
 	}
@@ -79,18 +79,18 @@ struct FavoriteTracks: Decodable {
 
 public struct FavoriteTrack: Decodable, Equatable, Identifiable {
 	public var id: Int { item.id }
-	
+
 	public let created: Date
 	public let item: Track
-	
+
 	public static func == (lhs: FavoriteTrack, rhs: FavoriteTrack) -> Bool {
 		lhs.item.id == rhs.item.id
 	}
-	
+
 	public static func == (lhs: FavoriteTrack, rhs: Track) -> Bool {
 		lhs.item.id == rhs.id
 	}
-	
+
 	public static func == (lhs: Track, rhs: FavoriteTrack) -> Bool {
 		lhs.id == rhs.item.id
 	}
@@ -105,18 +105,18 @@ struct FavoriteVideos: Decodable {
 
 public struct FavoriteVideo: Decodable, Equatable, Identifiable {
 	public var id: Int { item.id }
-	
+
 	public let created: Date
 	public let item: Video
-	
+
 	public static func == (lhs: FavoriteVideo, rhs: FavoriteVideo) -> Bool {
 		lhs.item.id == rhs.item.id
 	}
-	
+
 	public static func == (lhs: FavoriteVideo, rhs: Video) -> Bool {
 		lhs.item.id == rhs.id
 	}
-	
+
 	public static func == (lhs: Video, rhs: FavoriteVideo) -> Bool {
 		lhs.id == rhs.item.id
 	}
@@ -136,19 +136,19 @@ public enum FavoritePlaylistType: String, Decodable {
 
 public struct FavoritePlaylist: Decodable, Equatable {
 	public var id: String { playlist.id }
-	
+
 	public let type: FavoritePlaylistType
 	public let created: Date
 	public let playlist: Playlist
-	
+
 	public static func == (lhs: FavoritePlaylist, rhs: FavoritePlaylist) -> Bool {
 		lhs.playlist.uuid == rhs.playlist.uuid
 	}
-	
+
 	public static func == (lhs: FavoritePlaylist, rhs: Playlist) -> Bool {
 		lhs.playlist.uuid == rhs.uuid
 	}
-	
+
 	public static func == (lhs: Playlist, rhs: FavoritePlaylist) -> Bool {
 		lhs.uuid == rhs.playlist.uuid
 	}

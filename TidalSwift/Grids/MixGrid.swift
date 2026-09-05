@@ -13,7 +13,7 @@ struct MixGrid: View {
 	let mixes: [MixesItem]
 	let session: Session
 	let player: Player
-	
+
 	var body: some View {
 		LazyVGrid(columns: [GridItem(.adaptive(minimum: 170))]) {
 			ForEach(mixes) { mix in

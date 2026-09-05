@@ -11,15 +11,15 @@ import SwiftTagger
 
 class Metadata {
 	unowned let session: Session
-	
+
 	init(session: Session) {
 		self.session = session
 	}
-	
+
 	// Only works for M4A & MP3
 	func setMetadata(for track: Track, at path: URL) async {
 		print("FIXME: Set Metadata") // FIXME: Set Metadata
-		
+
 		var m4aFile: AudioFile
 		do {
 			m4aFile = try AudioFile(location: path)
@@ -27,34 +27,34 @@ class Metadata {
 			displayError(title: "Error finding M4A file", content: "Path: \(path). Error: \(error)")
 			return
 		}
-		
+
 		var title = track.title
 		if let version = track.version {
 			title += " (\(version))"
 		}
 		m4aFile.title = title
-		
+
 		if !track.artists.isEmpty {
 			m4aFile.artist = track.artists.formArtistString()
 		}
-		
-		
+
+
 		m4aFile.album = track.album.title
-		
+
 		if let album = await session.album(albumId: track.album.id) {
 			m4aFile.discNumber = .init(index: track.volumeNumber, total: album.numberOfVolumes)
-			
+
 			m4aFile.trackNumber = .init(index: track.trackNumber, total: album.numberOfTracks)
-			
+
 			if let artists = album.artists, !artists.isEmpty {
 				m4aFile.albumArtist = artists.formArtistString()
 			}
 		}
-		
+
 		m4aFile.releaseDateTime = track.album.releaseDate
 
 		m4aFile.copyright = track.copyright
-		
+
 		if let coverUrl = track.getCoverUrl(session: session, resolution: 1280) {
 			do {
 				try m4aFile.setCoverArt(imageLocation: coverUrl)
@@ -71,10 +71,10 @@ class Metadata {
 
 		// TODO: Check if correct
 		m4aFile.compilation = track.album.isCompilation
-		
+
 		// iTunes Artist ID
 		m4aFile.artistID = track.artist?.id
-		
+
 		do {
 			try m4aFile.write(outputLocation: path)
 		} catch {

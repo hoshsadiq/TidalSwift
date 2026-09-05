@@ -12,9 +12,9 @@ import TidalSwiftLib
 struct MyMixes: View {
 	let session: Session
 	let player: Player
-	
+
 	@EnvironmentObject var viewState: ViewState
-	
+
 	var body: some View {
 		ScrollView {
 			VStack(alignment: .leading) {
@@ -24,7 +24,7 @@ struct MyMixes: View {
 					Spacer()
 					LoadingSpinner()
 				}
-				
+
 				if let mixes = viewState.stack.last?.mixes {
 					MixGrid(mixes: mixes, session: session, player: player)
 				}

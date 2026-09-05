@@ -12,9 +12,9 @@ import TidalSwiftLib
 struct MixPlaylistView: View {
 	let session: Session
 	let player: Player
-	
+
 	@EnvironmentObject var viewState: ViewState
-	
+
 	var body: some View {
 		ZStack {
 			ScrollView {
@@ -32,7 +32,7 @@ struct MixPlaylistView: View {
 									controller.showWindow(nil)
 								}
 								#endif
-							
+
 							VStack(alignment: .leading) {
 								Text(mix.title)
 									.font(.title)
@@ -45,7 +45,7 @@ struct MixPlaylistView: View {
 						}
 						.frame(height: 100)
 						.padding(EdgeInsets(top: 10, leading: 20, bottom: 10, trailing: 20))
-						
+
 						TrackList(wrappedTracks: tracks.wrapped(), showCover: true, showAlbumTrackNumber: false,
 								  showArtist: true, showAlbum: true, playlist: nil,
 								  session: session, player: player)
@@ -53,10 +53,9 @@ struct MixPlaylistView: View {
 					Spacer(minLength: 0)
 				}
 				.padding(.top, 40)
-				
+
 			}
 			BackButton()
 		}
 	}
 }
-

@@ -13,29 +13,29 @@ struct ArtistView: View {
 	let session: Session
 	let player: Player
 	let viewState: ViewState
-	
+
 	var artist: Artist?
 	var topTracks: [WrappedTrack] = []
 	var albums: [Album] = []
 	var epsAndSingles: [Album] = []
 	var appearances: [Album] = []
 	var videos: [Video] = []
-	
+
 	enum BottomSectionType {
 		case albums
 		case epsAndSingles
 		case appearances
 		case videos
 	}
-	
+
 	@State var bottomSectionType: BottomSectionType = .albums
 	@State private var isFavorite: Bool? = nil
-	
+
 	init(session: Session, player: Player, viewState: ViewState) {
 		self.session = session
 		self.player = player
 		self.viewState = viewState
-		
+
 		if let view = viewState.stack.last {
 			if let artist = view.artist {
 				self.artist = artist
@@ -57,7 +57,7 @@ struct ArtistView: View {
 			}
 		}
 	}
-	
+
 	var body: some View {
 		ZStack {
 			// TODO: Bring ScroolView back in?
@@ -81,7 +81,7 @@ struct ArtistView: View {
 			isFavorite = await artist.isInFavorites(session: session)
 		}
 	}
-	
+
 	func headerSection(_ artist: Artist, viewState: ViewState) -> some View {
 		HStack {
 		if let pictureUrlSmall = artist.pictureUrl(session: session, resolution: 320),
@@ -107,7 +107,7 @@ struct ArtistView: View {
 				#endif
 				.accessibilityHidden(true)
 			}
-			
+
 			VStack(alignment: .leading) {
 				HStack {
 					Text(artist.name)
@@ -163,7 +163,7 @@ struct ArtistView: View {
 		.frame(height: 100)
 		.padding(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
 	}
-	
+
 	func topTrackSection() -> some View {
 		ScrollView {
 			TrackList(wrappedTracks: topTracks, showCover: true, showAlbumTrackNumber: false,
@@ -172,7 +172,7 @@ struct ArtistView: View {
 		}
 		.frame(height: 155)
 	}
-	
+
 	func bottomSection(_ artist: Artist) -> some View {
 		VStack(spacing: 0) {
 			Picker(selection: $bottomSectionType, label: Spacer(minLength: 0)) {
@@ -183,7 +183,7 @@ struct ArtistView: View {
 			}
 			.pickerStyle(SegmentedPickerStyle())
 			.layoutPriority(-1)
-			
+
 			ScrollView {
 				VStack {
 					if bottomSectionType == .albums {

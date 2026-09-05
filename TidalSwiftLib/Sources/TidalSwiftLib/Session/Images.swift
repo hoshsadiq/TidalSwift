@@ -21,14 +21,14 @@ extension Session {
 		// FeaturedItem: 1100x800, 550x400 (not square)
 		// Mixes: ???
 		// Genres: ???
-		
+
 		var tempResolutionY: Int
 		if let resolutionY = resolutionY {
 			tempResolutionY = resolutionY
 		} else {
 			tempResolutionY = resolution
 		}
-		
+
 		let path = imageId.replacingOccurrences(of: "-", with: "/")
         let urlString = "\(AuthInformation.ImageLocation)/\(path)/\(resolution)x\(tempResolutionY).jpg"
 		return URL(string: urlString)

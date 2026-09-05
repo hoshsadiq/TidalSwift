@@ -15,16 +15,16 @@ extension ViewState {
 		view.mixes = cache.mixes
 		view.loadingState = .loading
 		replaceCurrentView(with: view)
-		
+
 		refreshTask?.cancel()
 		refreshTask = Task { [self] in
 			await refreshMyMixes()
 		}
 	}
-	
+
 	private func refreshMyMixes() async {
 		let mixes = await session.mixes()
-		
+
 		guard !Task.isCancelled else { return }
 		var view = TidalSwiftView(viewType: .myMixes)
 		if mixes != nil {
@@ -35,7 +35,7 @@ extension ViewState {
 			view.mixes = cache.mixes
 			view.loadingState = .error
 		}
-		
+
 		replaceCurrentView(with: view)
 	}
 }

@@ -12,15 +12,15 @@ import TidalSwiftLib
 struct PlaylistView: View {
 	let session: Session
 	let player: Player
-	
+
 	@EnvironmentObject var viewState: ViewState
 	@State private var isFavorite: Bool? = nil
 	@State private var isOffline: Bool = false
-	
+
 	var isUserPlaylist: Bool {
 		viewState.stack.last?.playlist?.creator.id == session.userId
 	}
-	
+
 	var body: some View {
 		ZStack {
 			ScrollView {
@@ -54,7 +54,7 @@ struct PlaylistView: View {
 								}
 								#endif
 								.accessibilityHidden(true)
-								
+
 								VStack(alignment: .leading) {
 									HStack {
 										Text(playlist.title)
@@ -135,7 +135,7 @@ struct PlaylistView: View {
 						}
 						.frame(height: 100)
 						.padding(EdgeInsets(top: 10, leading: 20, bottom: 10, trailing: 20))
-						
+
 						TrackList(wrappedTracks: tracks.wrapped(), showCover: true, showAlbumTrackNumber: false,
 								  showArtist: true, showAlbum: true, playlist: isUserPlaylist ? playlist : nil,
 								  session: session, player: player)
@@ -144,7 +144,7 @@ struct PlaylistView: View {
 							Spacer()
 						}
 					}
-					
+
 					Spacer(minLength: 0)
 				}
 				.padding(.top, 40)

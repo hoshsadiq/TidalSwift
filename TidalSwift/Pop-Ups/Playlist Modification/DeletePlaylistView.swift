@@ -11,15 +11,15 @@ import TidalSwiftLib
 
 struct DeletePlaylistView: View {
 	let session: Session
-	
+
 	@ObservedObject var playlistEditingValues: PlaylistEditingValues
 	@ObservedObject var viewState: ViewState
-	
+
 	var body: some View {
 		VStack {
 			if let playlist = playlistEditingValues.playlist {
 				Text("Delete \(playlist.title)?")
-				
+
 				HStack {
 					Button {
 						print("Cancel")

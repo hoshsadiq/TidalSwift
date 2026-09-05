@@ -13,9 +13,9 @@ struct MixGridItem: View {
 	let mix: MixesItem
 	let session: Session
 	let player: Player
-	
+
 	@EnvironmentObject var viewState: ViewState
-	
+
 	var body: some View {
 		VStack {
 			MixImage(mix: mix, highResolutionImages: false, session: session)
@@ -23,7 +23,7 @@ struct MixGridItem: View {
 				.cornerRadius(CORNERRADIUS)
 				.shadow(radius: SHADOWRADIUS, y: SHADOWY)
 				.accessibilityHidden(true)
-			
+
 			Text(mix.title)
 				.frame(width: 160)
 			Text(mix.subTitle)
@@ -55,12 +55,12 @@ struct MixImage: View {
 	let mix: MixesItem
 	let highResolutionImages: Bool
 	let session: Session
-	
+
 	let lowResolution: Int = 160
 	let highResolution: Int = 480
-	
+
 	@State var scrollImages = false
-	
+
 	var body: some View {
 		GeometryReader { metrics in
 			if mix.graphic.images.count >= 5 {
@@ -76,7 +76,7 @@ struct MixImage: View {
 						}
 						Spacer()
 					}
-					
+
 					// Animated Images
 					VStack {
 						HStack {
@@ -90,7 +90,7 @@ struct MixImage: View {
 								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
 								.padding(metrics.size.width * 0.01)
 							}
-							
+
 							// 0 1
 							if let imageUrl = mix.graphic.images[0].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
 								AsyncImage(url: imageUrl, content: { image in
@@ -110,7 +110,7 @@ struct MixImage: View {
 								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
 								.padding(metrics.size.width * 0.01)
 							}
-							
+
 							// 2 3 4
 							if let imageUrl = mix.graphic.images[2].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
 								AsyncImage(url: imageUrl, content: { image in
@@ -139,7 +139,7 @@ struct MixImage: View {
 								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
 								.padding(metrics.size.width * 0.01)
 							}
-							
+
 							// 0 1
 							if let imageUrl = mix.graphic.images[0].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
 								AsyncImage(url: imageUrl, content: { image in
@@ -159,14 +159,14 @@ struct MixImage: View {
 								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
 								.padding(metrics.size.width * 0.01)
 							}
-							
+
 							Spacer()
 								.frame(width: metrics.size.width * 0.2)
 						}
 						HStack {
 							Spacer()
 								.frame(width: metrics.size.width * 0.2)
-							
+
 							// 2 3 4
 							if let imageUrl = mix.graphic.images[2].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
 								AsyncImage(url: imageUrl, content: { image in
@@ -195,7 +195,7 @@ struct MixImage: View {
 								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
 								.padding(metrics.size.width * 0.01)
 							}
-							
+
 							// 0 1
 							if let imageUrl = mix.graphic.images[0].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
 								AsyncImage(url: imageUrl, content: { image in
@@ -215,7 +215,7 @@ struct MixImage: View {
 								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
 								.padding(metrics.size.width * 0.01)
 							}
-							
+
 							// 2 3 4
 							if let imageUrl = mix.graphic.images[2].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
 								AsyncImage(url: imageUrl, content: { image in

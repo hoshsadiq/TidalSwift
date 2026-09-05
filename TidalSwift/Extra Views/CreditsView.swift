@@ -14,10 +14,10 @@ struct CreditsView: View {
 	@State var track: Track?
 	@State var album: Album?
 	@State var credits: [Credit]?
-	
+
 	@State var workItem: DispatchWorkItem?
 	@State var loadingState: LoadingState = .loading
-	
+
 	var body: some View {
 		ScrollView {
 			VStack(alignment: .leading) {
@@ -52,7 +52,7 @@ struct CreditsView: View {
 			workItem?.cancel()
 		}
 	}
-	
+
 	func createWorkItem() -> DispatchWorkItem {
 		DispatchWorkItem {
 			Task {
@@ -62,7 +62,7 @@ struct CreditsView: View {
 				} else if let album = album {
 					t = await album.credits(session: session)
 				}
-				
+
 				if let t {
 					credits = t
 					loadingState = .successful
