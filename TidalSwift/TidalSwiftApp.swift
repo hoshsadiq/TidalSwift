@@ -8,6 +8,7 @@
 
 import SwiftUI
 import Combine
+import MediaPlayer
 import TidalSwiftLib
 import UpdateNotification
 
@@ -52,6 +53,7 @@ final class TidalSwiftAppModel: ObservableObject {
 
 	let session: Session
 	let player: Player
+	private let nowPlayingController: NowPlayingController
 	var viewState: ViewState
 	var sortingState: SortingState
 	var playlistEditingValues = PlaylistEditingValues()
@@ -69,6 +71,13 @@ final class TidalSwiftAppModel: ObservableObject {
 	#endif
 
 	// MARK: Cancellables
+
+	// No public MPNowPlayingInfo constants exist for shuffle/repeat in MediaPlayer.
+	// Best-effort keys; the system may ignore them. Shuffle/repeat state is
+	// primarily driven via MPRemoteCommandCenter in NowPlayingController.
+	private static let nowPlayingShuffleKey = "MPNowPlayingInfoPropertyShuffle"
+	private static let nowPlayingRepeatKey = "MPNowPlayingInfoPropertyRepeat"
+
 	var timerCancellable: AnyCancellable?
 	var savePlaybackInfoOnNextTick = false
 	var saveViewStateOnNextTick = false
@@ -82,6 +91,12 @@ final class TidalSwiftAppModel: ObservableObject {
 	var currentIndexCancellable: AnyCancellable?
 	var volumeCancellable: AnyCancellable?
 	var viewStackCancellable: AnyCancellable?
+	var npPlayingCancellable: AnyCancellable?
+	var npFractionCancellable: AnyCancellable?
+	var npShuffleCancellable: AnyCancellable?
+	var npRepeatCancellable: AnyCancellable?
+	var npQueueCancellable: AnyCancellable?
+	var npCurrentIndexCancellable: AnyCancellable?
 
 	// SortingState
 	var favoritePlaylistSortingCancellable: AnyCancellable?
@@ -118,6 +133,7 @@ final class TidalSwiftAppModel: ObservableObject {
 		} else {
 			player = Player(session: session, audioQuality: .high)
 		}
+		nowPlayingController = NowPlayingController(player: player, session: session)
 
 		var cache = ViewCache()
 		if let data = UserDefaults.standard.data(forKey: "ViewCache") {
@@ -179,6 +195,8 @@ final class TidalSwiftAppModel: ObservableObject {
 			NotificationCenter.default.removeObserver(windowCloseObserver)
 			self.windowCloseObserver = nil
 		}
+		nowPlayingController.teardown()
+		NowPlayingInfoBuilder.clear()
 		cancelCancellables()
 		closeModals()
 		saveState()
@@ -404,6 +422,26 @@ final class TidalSwiftAppModel: ObservableObject {
 		playlistEditingValues.showEditModal = false
 	}
 
+	private func updateNowPlayingForTrackChange() {
+		let queue = player.queueInfo.queue
+		let currentIndex = player.queueInfo.currentIndex
+		guard !queue.isEmpty, queue.indices.contains(currentIndex) else {
+			NowPlayingInfoBuilder.clear()
+			return
+		}
+		let track = queue[currentIndex].track
+		MPNowPlayingInfoCenter.default().nowPlayingInfo = NowPlayingInfoBuilder.build(player: player, session: session)
+		NowPlayingInfoBuilder.updatePlaybackState(player.playbackInfo.playing ? .playing : .paused)
+		Task { [weak self] in
+			guard let self else { return }
+			guard let artwork = await NowPlayingInfoBuilder.fetchArtwork(session: self.session, track: track) else { return }
+			let nowIndex = self.player.queueInfo.currentIndex
+			guard self.player.queueInfo.queue.indices.contains(nowIndex),
+				  self.player.queueInfo.queue[nowIndex].track.id == track.id else { return }
+			MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork] = artwork
+		}
+	}
+
 	func initCancellables() {
 		uiRefreshCancellable = Publishers.Merge(player.playbackInfo.objectWillChange, player.queueInfo.objectWillChange)
 			.sink { [weak self] _ in
@@ -454,6 +492,54 @@ final class TidalSwiftAppModel: ObservableObject {
 		offlineTrackSortingCancellable = sortingState.$offlineTrackSorting.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
 		offlineTrackReversedCancellable = sortingState.$offlineTrackReversed.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
 
+		npPlayingCancellable = player.playbackInfo.$playing
+			.receive(on: DispatchQueue.main)
+			.sink { [weak self] isPlaying in
+				guard let self else { return }
+				NowPlayingInfoBuilder.updatePlaybackState(isPlaying ? .playing : .paused)
+				let oldArtwork = MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork]
+				var info = NowPlayingInfoBuilder.build(player: self.player, session: self.session)
+				if !info.isEmpty, let artwork = oldArtwork {
+					info[MPMediaItemPropertyArtwork] = artwork
+				}
+				MPNowPlayingInfoCenter.default().nowPlayingInfo = info.isEmpty ? nil : info
+			}
+
+		npFractionCancellable = player.playbackInfo.$fraction
+			.throttle(for: .seconds(1), scheduler: DispatchQueue.main, latest: true)
+			.sink { [weak self] fraction in
+				guard let self else { return }
+				let currentIndex = self.player.queueInfo.currentIndex
+				guard !self.player.queueInfo.queue.isEmpty,
+					  self.player.queueInfo.queue.indices.contains(currentIndex) else { return }
+				let elapsed = Double(self.player.queueInfo.queue[currentIndex].track.duration) * Double(fraction)
+				MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsed
+			}
+
+		npShuffleCancellable = player.playbackInfo.$shuffle
+			.receive(on: DispatchQueue.main)
+			.sink { shuffle in
+				MPNowPlayingInfoCenter.default().nowPlayingInfo?[TidalSwiftAppModel.nowPlayingShuffleKey] = shuffle
+			}
+
+		npRepeatCancellable = player.playbackInfo.$repeatState
+			.receive(on: DispatchQueue.main)
+			.sink { repeatState in
+				MPNowPlayingInfoCenter.default().nowPlayingInfo?[TidalSwiftAppModel.nowPlayingRepeatKey] = repeatState.rawValue
+			}
+
+		npQueueCancellable = player.queueInfo.$queue
+			.receive(on: DispatchQueue.main)
+			.sink { [weak self] _ in
+				self?.updateNowPlayingForTrackChange()
+			}
+
+		npCurrentIndexCancellable = player.queueInfo.$currentIndex
+			.receive(on: DispatchQueue.main)
+			.sink { [weak self] _ in
+				self?.updateNowPlayingForTrackChange()
+			}
+
 		timerCancellable = Timer.publish(every: 10, on: .main, in: .default)
 			.autoconnect()
 			.sink { [weak self] _ in
@@ -494,6 +580,12 @@ final class TidalSwiftAppModel: ObservableObject {
 		favoriteVideoReversedCancellable?.cancel()
 		favoriteArtistSortingCancellable?.cancel()
 		favoriteArtistReversedCancellable?.cancel()
+		npPlayingCancellable?.cancel()
+		npFractionCancellable?.cancel()
+		npShuffleCancellable?.cancel()
+		npRepeatCancellable?.cancel()
+		npQueueCancellable?.cancel()
+		npCurrentIndexCancellable?.cancel()
 	}
 
 	// MARK: Menu Actions
