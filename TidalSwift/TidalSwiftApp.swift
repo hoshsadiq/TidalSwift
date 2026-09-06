@@ -805,43 +805,83 @@ struct TidalSwiftCommands: Commands {
 
 		CommandMenu("Control") {
 			Button(appModel.player.playbackInfo.playing ? "Pause" : "Play") {
+				guard !KeyboardGuard.isTextEntryActive else { return }
 				appModel.togglePlay()
 			}
+			.keyboardShortcut(.space, modifiers: [])
 			Button("Stop") {
 				appModel.stop()
 			}
 			Button("Next") {
+				guard !KeyboardGuard.isTextEntryActive else { return }
 				appModel.next()
 			}
+			.keyboardShortcut(.rightArrow, modifiers: .command)
 			Button("Previous") {
+				guard !KeyboardGuard.isTextEntryActive else { return }
 				appModel.previous()
 			}
+			.keyboardShortcut(.leftArrow, modifiers: .command)
+			Button("Seek Forward") {
+				guard !KeyboardGuard.isTextEntryActive else { return }
+				guard !appModel.player.queueInfo.queue.isEmpty else { return }
+				let currentIndex = appModel.player.queueInfo.currentIndex
+				guard appModel.player.queueInfo.queue.indices.contains(currentIndex) else { return }
+				let track = appModel.player.queueInfo.queue[currentIndex].track
+				guard track.duration > 0 else { return }
+				let newFraction = min(max((Double(appModel.player.playbackInfo.fraction) * Double(track.duration) + 15.0) / Double(track.duration), 0.0), 1.0)
+				appModel.player.seek(to: newFraction)
+			}
+			.keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+			Button("Seek Backward") {
+				guard !KeyboardGuard.isTextEntryActive else { return }
+				guard !appModel.player.queueInfo.queue.isEmpty else { return }
+				let currentIndex = appModel.player.queueInfo.currentIndex
+				guard appModel.player.queueInfo.queue.indices.contains(currentIndex) else { return }
+				let track = appModel.player.queueInfo.queue[currentIndex].track
+				guard track.duration > 0 else { return }
+				let newFraction = min(max((Double(appModel.player.playbackInfo.fraction) * Double(track.duration) - 15.0) / Double(track.duration), 0.0), 1.0)
+				appModel.player.seek(to: newFraction)
+			}
+			.keyboardShortcut(.leftArrow, modifiers: [.command, .option])
 
 			Divider()
 
 			Button("Increase Volume") {
+				guard !KeyboardGuard.isTextEntryActive else { return }
 				appModel.increaseVolume()
 			}
+			.keyboardShortcut(.upArrow, modifiers: .command)
 			Button("Decrease Volume") {
+				guard !KeyboardGuard.isTextEntryActive else { return }
 				appModel.decreaseVolume()
 			}
+			.keyboardShortcut(.downArrow, modifiers: .command)
 			Toggle("Mute", isOn: Binding(
 				get: { appModel.player.playbackInfo.volume == 0 },
-				set: { _ in appModel.toggleMute() }
+				set: { _ in
+					guard !KeyboardGuard.isTextEntryActive else { return }
+					appModel.toggleMute()
+				}
 			))
+			.keyboardShortcut("m", modifiers: [.command, .option])
 
 			Divider()
 
 			Toggle("Shuffle", isOn: Binding(
 				get: { appModel.player.playbackInfo.shuffle },
-				set: { _ in appModel.toggleShuffle() }
+				set: { _ in
+					guard !KeyboardGuard.isTextEntryActive else { return }
+					appModel.toggleShuffle()
+				}
 			))
+			.keyboardShortcut("s", modifiers: .command)
 
-			Menu("Repeat") {
-				repeatButton(title: "Off", repeatState: .off)
-				repeatButton(title: "All", repeatState: .all)
-				repeatButton(title: "Single", repeatState: .single)
+			Button("Repeat") {
+				guard !KeyboardGuard.isTextEntryActive else { return }
+				appModel.player.playbackInfo.repeatState = appModel.player.playbackInfo.repeatState.next()
 			}
+			.keyboardShortcut("r", modifiers: .command)
 
 			Toggle("Pause After Current Track", isOn: Binding(
 				get: { appModel.player.playbackInfo.pauseAfter },
@@ -858,6 +898,33 @@ struct TidalSwiftCommands: Commands {
 				appModel.clearQueue()
 			}
 			.disabled(appModel.player.queueInfo.queue.isEmpty)
+
+			Divider()
+
+			Button("Favorite Current Track") {
+				guard !KeyboardGuard.isTextEntryActive else { return }
+				guard !appModel.player.queueInfo.queue.isEmpty else { return }
+				let queue = appModel.player.queueInfo.queue
+				let currentIndex = appModel.player.queueInfo.currentIndex
+				guard queue.indices.contains(currentIndex) else { return }
+				let trackId = queue[currentIndex].track.id
+				Task {
+					guard let favorites = appModel.session.favorites else { return }
+					guard let isFavorite = await favorites.doFavoritesContainTrack(trackId: trackId) else { return }
+					let success: Bool
+					if isFavorite {
+						success = await favorites.removeTrack(trackId: trackId)
+					} else {
+						success = await favorites.addTrack(trackId: trackId)
+					}
+					if success {
+						appModel.session.helpers.offline.asyncSyncFavoriteTracks()
+						appModel.refreshFavoriteState()
+						appModel.viewState.refreshCurrentView()
+					}
+				}
+			}
+			.keyboardShortcut("l", modifiers: .command)
 		}
 
 		CommandMenu("Account") {
@@ -905,19 +972,6 @@ struct TidalSwiftCommands: Commands {
 				appModel.downloadTrack()
 			}
 			.disabled(!appModel.hasCurrentTrack)
-		}
-	}
-
-	@ViewBuilder
-	private func repeatButton(title: String, repeatState: RepeatState) -> some View {
-		Button {
-			appModel.setRepeatState(repeatState)
-		} label: {
-			if appModel.player.playbackInfo.repeatState == repeatState {
-				Label(title, systemImage: "checkmark")
-			} else {
-				Text(title)
-			}
 		}
 	}
 
