@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="Build TidalSwiftLib package"
+set -eo pipefail
+
+cd TidalSwiftLib
+exec swift build

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Remove build outputs (DerivedData)"
+set -eo pipefail
+
+rm -rf .build/DerivedData

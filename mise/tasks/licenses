@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="Generate licenses plist from SPM dependencies (Settings acknowledgements)"
+#MISE depends=["generate"]
+set -eo pipefail
+
+exec license-plist --xcodeproj TidalSwift.xcodeproj --output-path TidalSwift/Settings.bundle

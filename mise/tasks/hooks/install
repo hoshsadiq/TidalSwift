@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Install git hook shims via prek (pre-commit + post-checkout)"
+set -eo pipefail
+
+exec prek install --install-hooks

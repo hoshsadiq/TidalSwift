@@ -1,0 +1,48 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:best-practices"],
+  "pinDigests": true,
+  "osvVulnerabilityAlerts": true,
+  "timezone": "Asia/Dubai",
+  "schedule": ["before 9am on monday"],
+  "labels": ["dependencies"],
+  "rebaseWhen": "conflicted",
+  "prConcurrentLimit": 10,
+  "minimumReleaseAge": "14 days",
+  "mise": {
+    "enabled": true
+  },
+  "packageRules": [
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions",
+      "groupSlug": "gha"
+    },
+    {
+      "matchManagers": ["mise"],
+      "groupName": "mise tools",
+      "groupSlug": "mise"
+    },
+    {
+      "matchManagers": ["swift"],
+      "groupName": "swift packages",
+      "groupSlug": "swift"
+    },
+    {
+      "matchUpdateTypes": ["patch"],
+      "automerge": true
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Update exact-pinned SPM packages in the xcodegen project spec",
+      "managerFilePatterns": ["/^project\\.yml$/"],
+      "matchStrings": [
+        "url: https://github\\.com/(?<depName>[^\\s]+)\\.git\\n\\s+exactVersion: (?<currentValue>[^\\s]+)"
+      ],
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver"
+    }
+  ]
+}

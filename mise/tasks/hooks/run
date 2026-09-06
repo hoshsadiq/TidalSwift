@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Run all prek hook checks on all files"
+set -eo pipefail
+
+exec prek run --all-files

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Update prek hook versions to latest"
+set -eo pipefail
+
+exec prek autoupdate

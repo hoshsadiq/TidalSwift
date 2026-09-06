@@ -4,6 +4,11 @@
 
 Tidal Music Streaming Client & Library written in Swift
 
+[![CI](https://github.com/melgu/TidalSwift/actions/workflows/ci.yml/badge.svg)](https://github.com/melgu/TidalSwift/actions/workflows/ci.yml)
+[![Pre-commit](https://github.com/melgu/TidalSwift/actions/workflows/pre-commit.yml/badge.svg)](https://github.com/melgu/TidalSwift/actions/workflows/pre-commit.yml)
+[![CodeQL](https://github.com/melgu/TidalSwift/actions/workflows/codeql.yml/badge.svg)](https://github.com/melgu/TidalSwift/actions/workflows/codeql.yml)
+[![Release](https://github.com/melgu/TidalSwift/actions/workflows/release.yml/badge.svg)](https://github.com/melgu/TidalSwift/actions/workflows/release.yml)
+
 It supports all major features of the official Tidal app, while adding additional ones, like New Releases, Lyrics, automatic Dark Mode, Downloads & Offline Playback – all while being only 1/10th the size of the official app.
 
 > [!IMPORTANT]
@@ -88,4 +93,3 @@ It even goes a step further. You can download music to your hard drive and do wi
 TidalSwift obviously supports the macOS Dark Mode.
 
 ![Artist View (Dark Mode)](README.assets/ArtistView-DarkMode.png)
-

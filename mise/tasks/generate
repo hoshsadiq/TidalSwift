@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+#MISE description="Generate the Xcode project from project.yml"
+#MISE sources=["project.yml", "TidalSwift/**/*"]
+#MISE outputs=["TidalSwift.xcodeproj/project.pbxproj"]
+set -eo pipefail
+
+exec xcodegen generate --use-cache

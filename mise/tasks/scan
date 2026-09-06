@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="Detect unused code across app and lib targets"
+#MISE depends=["generate"]
+set -eo pipefail
+
+exec periphery scan --project TidalSwift.xcodeproj --schemes TidalSwift
