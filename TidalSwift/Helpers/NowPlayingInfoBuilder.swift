@@ -52,12 +52,17 @@ enum NowPlayingInfoBuilder {
 
 	/// Fetches cover art at 320 px and wraps it in `MPMediaItemArtwork`.
 	/// Returns `nil` on missing cover URL or any network/decode failure — no placeholder image used.
-	/// The `requestHandler` closure returns the pre-fetched image immediately; no network occurs inside it.
 	static func fetchArtwork(session: Session, track: Track) async -> MPMediaItemArtwork? {
 		guard let url = track.getCoverUrl(session: session, resolution: 320) else { return nil }
 		guard let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }
 		guard let image = NSImage(data: data) else { return nil }
-		return MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+		return makeArtwork(image: image)
+	}
+
+	/// `requestHandler` runs on MediaPlayer's non-main queue — this closure MUST stay
+	/// nonisolated or it traps (`dispatch_assert_queue_fail`) on first artwork read.
+	nonisolated private static func makeArtwork(image: NSImage) -> MPMediaItemArtwork {
+		MPMediaItemArtwork(boundsSize: image.size) { _ in image }
 	}
 
 	// MARK: - Clear
