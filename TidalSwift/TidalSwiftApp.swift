@@ -626,7 +626,7 @@ final class TidalSwiftAppModel: ObservableObject {
 	#endif
 
 	func find() {
-		print("Find. Coming soon.")
+		NotificationCenter.default.post(name: .focusSearchField, object: nil)
 	}
 
 	func downloadTrack() {
@@ -1052,7 +1052,7 @@ struct TidalSwiftCommands: Commands {
 		}
 		#endif
 
-		CommandMenu("Edit") {
+		CommandGroup(after: .textEditing) {
 			Button("Find") {
 				appModel.find()
 			}

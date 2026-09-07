@@ -7,7 +7,12 @@
 //
 
 import SwiftUI
+import Combine
 import TidalSwiftLib
+
+extension Notification.Name {
+	static let focusSearchField = Notification.Name("de.melgu.TidalSwift.focusSearchField")
+}
 
 struct TopDetailView: View {
     let session: Session
@@ -85,6 +90,7 @@ struct SearchField: View {
 	@EnvironmentObject var viewState: ViewState
 
 	@State var searchTerm: String
+	@FocusState private var searchFieldFocused: Bool
 
 	var body: some View {
 		TextField("Search", text: $searchTerm, onCommit: {
@@ -95,6 +101,10 @@ struct SearchField: View {
 			}
 		})
 		.textFieldStyle(RoundedBorderTextFieldStyle())
+		.focused($searchFieldFocused)
+		.onReceive(NotificationCenter.default.publisher(for: .focusSearchField)) { _ in
+			searchFieldFocused = true
+		}
 	}
 }
 
