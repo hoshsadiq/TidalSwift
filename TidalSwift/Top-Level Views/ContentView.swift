@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import AppKit
 import TidalSwiftLib
 
 struct ContentView: View {
@@ -55,6 +56,15 @@ struct ContentView: View {
 					print("Couldn't reach Tidal on startup: \(underlying)")
 				} catch {
 					loginInfo.showModal = true
+				}
+			}
+			.onAppear {
+				// macOS 26 SwiftUI auto-focuses the first text field (search bar), which makes
+				// the editing guard swallow menu shortcuts. Give focus back to the window content.
+				DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+					if let window = NSApp.keyWindow, window.firstResponder is NSTextView {
+						window.makeFirstResponder(nil)
+					}
 				}
 			}
 	}
