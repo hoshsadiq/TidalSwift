@@ -8,6 +8,7 @@
 
 import SwiftUI
 import Combine
+import AppKit
 import MediaPlayer
 import TidalSwiftLib
 import UpdateNotification
@@ -68,6 +69,7 @@ final class TidalSwiftAppModel: ObservableObject {
 	private var viewHistoryViewController: NSWindowController?
 	private var playbackHistoryViewController: NSWindowController?
 	private var windowCloseObserver: NSObjectProtocol?
+	private var spaceKeyMonitor: Any?
 	#endif
 
 	// MARK: Cancellables
@@ -174,6 +176,7 @@ final class TidalSwiftAppModel: ObservableObject {
 		#if canImport(AppKit)
 		initSecondaryWindows()
 		registerCloseLastWindowBehavior()
+		registerSpaceKeyMonitor()
 
 		updateCheck(showNoUpdatesAlert: false)
 		#endif
@@ -194,6 +197,10 @@ final class TidalSwiftAppModel: ObservableObject {
 		if let windowCloseObserver {
 			NotificationCenter.default.removeObserver(windowCloseObserver)
 			self.windowCloseObserver = nil
+		}
+		if let spaceKeyMonitor {
+			NSEvent.removeMonitor(spaceKeyMonitor)
+			self.spaceKeyMonitor = nil
 		}
 		nowPlayingController.teardown()
 		NowPlayingInfoBuilder.clear()
@@ -219,6 +226,26 @@ final class TidalSwiftAppModel: ObservableObject {
 					self.quit()
 				}
 			}
+		}
+	}
+
+	// Menu-bar Space shortcuts are unreliable on macOS: focused scroll views consume
+	// Space for page-scrolling before the menu bar matches key equivalents. This monitor
+	// intercepts Space first; consuming the event also prevents double-toggle via the
+	// Play/Pause menu item's .keyboardShortcut(.space).
+	private func registerSpaceKeyMonitor() {
+		guard spaceKeyMonitor == nil else { return }
+		spaceKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+			guard let self,
+				  event.keyCode == 49,
+				  !event.isARepeat,
+				  event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.function, .capsLock]).isEmpty,
+				  let keyWindow = NSApp.keyWindow,
+				  !(keyWindow.firstResponder is NSTextView) else {
+				return event
+			}
+			self.togglePlay()
+			return nil
 		}
 	}
 
@@ -956,7 +983,7 @@ struct TidalSwiftCommands: Commands {
 					appModel.toggleMute()
 				}
 			))
-			.keyboardShortcut("m", modifiers: [.command, .option])
+			.keyboardShortcut("m", modifiers: [.command, .control])
 
 			Divider()
 
@@ -1012,7 +1039,8 @@ struct TidalSwiftCommands: Commands {
 					if success {
 						appModel.session.helpers.offline.asyncSyncFavoriteTracks()
 						appModel.refreshFavoriteState()
-						appModel.viewState.refreshCurrentView()
+						// Keep the row in the current list; only update its heart.
+						NotificationCenter.default.post(name: .favoriteTrackChanged, object: nil, userInfo: ["trackId": trackId, "isFavorite": !isFavorite])
 					}
 				}
 			}
