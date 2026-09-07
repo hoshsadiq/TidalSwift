@@ -79,7 +79,7 @@ struct TrackContextMenu: View {
 							if await session.favorites?.removeTrack(trackId: track.id) == true {
 								session.helpers.offline.asyncSyncFavoriteTracks()
 								isFavorite = false
-								viewState.refreshCurrentView()
+								NotificationCenter.default.post(name: .favoriteTrackChanged, object: nil, userInfo: ["trackId": track.id, "isFavorite": false])
 							}
 						}
 					} label: {
@@ -92,7 +92,7 @@ struct TrackContextMenu: View {
 							if await session.favorites?.addTrack(trackId: track.id) == true {
 								session.helpers.offline.asyncSyncFavoriteTracks()
 								isFavorite = true
-								viewState.refreshCurrentView()
+								NotificationCenter.default.post(name: .favoriteTrackChanged, object: nil, userInfo: ["trackId": track.id, "isFavorite": true])
 							}
 						}
 					} label: {

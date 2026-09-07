@@ -12,6 +12,7 @@ import TidalSwiftLib
 
 extension Notification.Name {
 	static let focusSearchField = Notification.Name("de.melgu.TidalSwift.focusSearchField")
+	static let favoriteTrackChanged = Notification.Name("de.melgu.TidalSwift.favoriteTrackChanged")
 }
 
 struct TopDetailView: View {

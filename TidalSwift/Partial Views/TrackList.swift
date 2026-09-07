@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import Combine
 import TidalSwiftLib
 
 struct TrackList: View {
@@ -172,7 +173,7 @@ struct TrackRow: View {
 								if await session.favorites?.removeTrack(trackId: track.id) == true {
 									session.helpers.offline.asyncSyncFavoriteTracks()
 									isFavorite = false
-									viewState.refreshCurrentView()
+									NotificationCenter.default.post(name: .favoriteTrackChanged, object: nil, userInfo: ["trackId": track.id, "isFavorite": false])
 								}
 							}
 						}
@@ -184,7 +185,7 @@ struct TrackRow: View {
 								if await session.favorites?.addTrack(trackId: track.id) == true {
 									session.helpers.offline.asyncSyncFavoriteTracks()
 									isFavorite = true
-									viewState.refreshCurrentView()
+									NotificationCenter.default.post(name: .favoriteTrackChanged, object: nil, userInfo: ["trackId": track.id, "isFavorite": true])
 								}
 							}
 						}
@@ -192,6 +193,10 @@ struct TrackRow: View {
 				}
 			}
 		.foregroundColor(track.isUnavailable ? .secondary : .primary)
+		.onReceive(NotificationCenter.default.publisher(for: .favoriteTrackChanged)) { note in
+			guard let changedTrackId = note.userInfo?["trackId"] as? Int, changedTrackId == track.id else { return }
+			isFavorite = note.userInfo?["isFavorite"] as? Bool
+		}
 		.task(id: track.id) {
 			isOffline = await track.isOffline(session: session)
 			isFavorite = await track.isInFavorites(session: session)
