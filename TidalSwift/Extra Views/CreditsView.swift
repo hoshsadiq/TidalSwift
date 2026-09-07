@@ -45,7 +45,10 @@ struct CreditsView: View {
 			.padding()
 		}
 		.onAppear {
-			workItem = createWorkItem()
+			// Capture @State values here (MainActor) — the work item runs off-main.
+			let currentTrack = track
+			let currentAlbum = album
+			workItem = createWorkItem(track: currentTrack, album: currentAlbum)
 			DispatchQueue.global(qos: .userInitiated).async(execute: workItem!)
 		}
 		.onDisappear {
@@ -53,13 +56,15 @@ struct CreditsView: View {
 		}
 	}
 
-	func createWorkItem() -> DispatchWorkItem {
-		DispatchWorkItem {
-			Task {
+	// The DispatchWorkItem closure must stay nonisolated: it is invoked on a global
+	// dispatch queue, and an actor-isolated closure traps on dispatch_assert_queue.
+	nonisolated private func createWorkItem(track: Track?, album: Album?) -> DispatchWorkItem {
+		DispatchWorkItem { [session] in
+			Task { @MainActor in
 				var t: [Credit]?
-				if let track = track {
+				if let track {
 					t = await track.getCredits(session: session)
-				} else if let album = album {
+				} else if let album {
 					t = await album.credits(session: session)
 				}
 

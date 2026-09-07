@@ -68,9 +68,11 @@ struct AccountInfoView: View {
 		}
 	}
 
-	func createWorkItem() -> DispatchWorkItem {
-		DispatchWorkItem {
-			Task {
+	// The DispatchWorkItem closure must stay nonisolated: it is invoked on a global
+	// dispatch queue, and an actor-isolated closure traps on dispatch_assert_queue.
+	nonisolated private func createWorkItem() -> DispatchWorkItem {
+		DispatchWorkItem { [session] in
+			Task { @MainActor in
 				var tUser: User?
 				let tSubscription: Subscription?
 

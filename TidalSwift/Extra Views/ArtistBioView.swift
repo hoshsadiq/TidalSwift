@@ -62,9 +62,11 @@ struct ArtistBioView: View {
 		}
 	}
 
-	func createWorkItem() -> DispatchWorkItem {
-		DispatchWorkItem {
-			Task {
+	// The DispatchWorkItem closure must stay nonisolated: it is invoked on a global
+	// dispatch queue, and an actor-isolated closure traps on dispatch_assert_queue.
+	nonisolated private func createWorkItem() -> DispatchWorkItem {
+		DispatchWorkItem { [session] in
+			Task { @MainActor in
 				let t = await artist.bio(session: session)
 				if let t {
 					bio = t
