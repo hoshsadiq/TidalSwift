@@ -99,6 +99,7 @@ final class TidalSwiftAppModel: ObservableObject {
 	var currentIndexCancellable: AnyCancellable?
 	var volumeCancellable: AnyCancellable?
 	var viewStackCancellable: AnyCancellable?
+	var viewStateObjectWillChangeCancellable: AnyCancellable?
 	var npPlayingCancellable: AnyCancellable?
 	var npFractionCancellable: AnyCancellable?
 	var npShuffleCancellable: AnyCancellable?
@@ -507,6 +508,9 @@ final class TidalSwiftAppModel: ObservableObject {
 
 		viewStackCancellable = viewState.$stack.receive(on: DispatchQueue.main).sink { [weak self] _ in
 			self?.saveViewStateOnNextTick = true
+		}
+		viewStateObjectWillChangeCancellable = viewState.objectWillChange.sink { [weak self] _ in
+			self?.objectWillChange.send()
 		}
 
 		favoritePlaylistSortingCancellable = sortingState.$favoritePlaylistSorting.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }

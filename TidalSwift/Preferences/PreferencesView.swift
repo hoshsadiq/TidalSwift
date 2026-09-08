@@ -13,13 +13,14 @@ struct PreferencesView: View {
 		TabView {
 			PlaybackPreferencesTab()
 				.tabItem {
-					Label("Playback", systemImage: "waveform")
+					Label("Playback", systemImage: "speaker.wave.3")
 				}
 			PreferencesGeneralTab()
 				.tabItem {
-					Label("General", systemImage: "switch.2")
+					Label("General", systemImage: "gearshape")
 				}
 		}
+		.frame(width: 450, height: 250)
 	}
 }
 
