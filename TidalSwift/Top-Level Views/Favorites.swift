@@ -122,8 +122,6 @@ struct FavoriteTracks: View {
 	@EnvironmentObject var viewState: ViewState
 	@EnvironmentObject var sortingState: SortingState
 
-	@AppStorage("SaveFavoritesOffline") public var saveFavoritesOffline = false
-
 	var body: some View {
 		ScrollView {
 			VStack(alignment: .leading) {
@@ -134,29 +132,6 @@ struct FavoriteTracks: View {
 							.lineLimit(1)
 						Spacer()
 						LoadingSpinner()
-						if saveFavoritesOffline {
-							Image(systemName: "cloud.fill")
-								.resizable()
-								.scaledToFit()
-								.frame(width: 30)
-								.onTapGesture {
-									print("Remove from Offline")
-									saveFavoritesOffline = false
-									session.helpers.offline.asyncSyncFavoriteTracks()
-									viewState.refreshCurrentView()
-								}
-						} else {
-							Image(systemName: "cloud")
-								.resizable()
-								.scaledToFit()
-								.frame(width: 30)
-								.onTapGesture {
-									print("Add to Offline")
-									saveFavoritesOffline = true
-									session.helpers.offline.asyncSyncFavoriteTracks()
-									viewState.refreshCurrentView()
-								}
-						}
 						Picker(selection: $sortingState.favoriteTrackSorting, label: Spacer(minLength: 0)) {
 							Text("Added").tag(TrackSorting.dateAdded)
 							Text("Title").tag(TrackSorting.title)

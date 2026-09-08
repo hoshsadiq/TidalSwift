@@ -46,6 +46,12 @@ struct TidalSwiftApp: App {
 		.commands {
 			TidalSwiftCommands(appModel: appModel)
 		}
+		#if os(macOS)
+		Settings {
+			PreferencesView()
+				.environmentObject(appModel)
+		}
+		#endif
 	}
 }
 
@@ -121,6 +127,7 @@ final class TidalSwiftAppModel: ObservableObject {
 
 	@Published var trackIsFavorite = false
 	@Published var albumIsFavorite = false
+	@Published private(set) var audioQuality: AudioQuality
 
 	var hasCurrentTrack: Bool {
 		!player.queueInfo.queue.isEmpty
@@ -136,6 +143,7 @@ final class TidalSwiftAppModel: ObservableObject {
 			player = Player(session: session, audioQuality: .high)
 		}
 		nowPlayingController = NowPlayingController(player: player, session: session)
+		audioQuality = player.nextAudioQuality
 
 		var cache = ViewCache()
 		if let data = UserDefaults.standard.data(forKey: "ViewCache") {
@@ -780,10 +788,11 @@ final class TidalSwiftAppModel: ObservableObject {
 		player.setAudioQuality(to: audioQuality)
 		savePlaybackInfoOnNextTick = true
 		objectWillChange.send()
+		self.audioQuality = audioQuality
 	}
 
 	func isAudioQualitySelected(_ audioQuality: AudioQuality) -> Bool {
-		player.nextAudioQuality == audioQuality
+		self.audioQuality == audioQuality
 	}
 
 	func clearQueue() {

@@ -26,7 +26,6 @@ struct NewReleases: View {
 						.font(.largeTitle)
 					Spacer()
 					LoadingSpinner()
-					Toggle("Include EPs and Singles", isOn: $viewState.newReleasesIncludeEps)
 				}
 
 				if let albums = viewState.stack.last?.albums {
