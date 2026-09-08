@@ -250,6 +250,7 @@ final class TidalSwiftAppModel: ObservableObject {
 				  !event.isARepeat,
 				  event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.function, .capsLock]).isEmpty,
 				  let keyWindow = NSApp.keyWindow,
+				  keyWindow.identifier?.rawValue != "com_apple_SwiftUI_Settings_window",
 				  !(keyWindow.firstResponder is NSTextView) else {
 				return event
 			}

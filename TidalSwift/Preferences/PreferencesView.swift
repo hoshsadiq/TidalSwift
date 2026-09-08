@@ -20,7 +20,7 @@ struct PreferencesView: View {
 					Label("General", systemImage: "gearshape")
 				}
 		}
-		.frame(width: 450, height: 250)
+		.frame(width: 450, height: 280)
 	}
 }
 
@@ -35,18 +35,21 @@ private struct PlaybackPreferencesTab: View {
 	}
 
 	var body: some View {
-		VStack(alignment: .leading) {
-			Picker("Audio Quality", selection: audioQualityBinding) {
-				ForEach(AudioQuality.allCases) { quality in
-					Text(label(for: quality)).tag(quality)
+		Form {
+			Section("Audio Quality") {
+				Picker("Audio Quality", selection: audioQualityBinding) {
+					ForEach(AudioQuality.allCases) { quality in
+						Text(label(for: quality)).tag(quality)
+					}
 				}
-			}
-			.pickerStyle(RadioGroupPickerStyle())
+				.pickerStyle(RadioGroupPickerStyle())
+				.labelsHidden()
 
-			Text("Applies to the next track you play.")
-				.foregroundColor(.secondary)
+				Text("Applies to the next track you play.")
+					.foregroundStyle(.secondary)
+			}
 		}
-		.padding()
+		.formStyle(.grouped)
 	}
 
 	private func label(for quality: AudioQuality) -> String {

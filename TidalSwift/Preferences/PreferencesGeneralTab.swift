@@ -12,8 +12,11 @@ struct PreferencesGeneralTab: View {
 
 	var body: some View {
 		Form {
-			Toggle("Include EPs and Singles", isOn: $appModel.viewState.newReleasesIncludeEps)
-			Toggle("Save Favorites Offline", isOn: $saveFavoritesOffline)
+			Section {
+				Toggle("Include EPs and Singles", isOn: $appModel.viewState.newReleasesIncludeEps)
+				Toggle("Save Favorites Offline", isOn: $saveFavoritesOffline)
+			}
 		}
+		.formStyle(.grouped)
 	}
 }
