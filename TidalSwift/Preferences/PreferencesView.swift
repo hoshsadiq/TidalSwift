@@ -15,49 +15,143 @@ struct PreferencesView: View {
 				.tabItem {
 					Label("Playback", systemImage: "speaker.wave.3")
 				}
+			PreferencesDisplayTab()
+				.tabItem {
+					Label("Display", systemImage: "paintbrush.pointed")
+				}
 			PreferencesGeneralTab()
 				.tabItem {
 					Label("General", systemImage: "gearshape")
 				}
 		}
-		.frame(width: 450, height: 280)
+		.frame(width: 520, height: 600)
 	}
 }
 
 private struct PlaybackPreferencesTab: View {
 	@EnvironmentObject private var appModel: TidalSwiftAppModel
 
-	private var audioQualityBinding: Binding<AudioQuality> {
-		Binding(
-			get: { appModel.audioQuality },
-			set: { appModel.setAudioQuality($0) }
-		)
-	}
-
 	var body: some View {
 		Form {
-			Section("Audio Quality") {
-				Picker("Audio Quality", selection: audioQualityBinding) {
-					ForEach(AudioQuality.allCases) { quality in
-						Text(label(for: quality)).tag(quality)
+			Section {
+				HStack {
+					Button {
+						if appModel.audioQuality != .low && appModel.audioQuality != .medium {
+							appModel.setAudioQuality(.medium)
+						}
+					} label: {
+						HStack {
+							Image(systemName: (appModel.audioQuality == .low || appModel.audioQuality == .medium) ? "largecircle.fill.circle" : "circle")
+								.foregroundStyle((appModel.audioQuality == .low || appModel.audioQuality == .medium) ? Color.accentColor : Color.secondary)
+								.imageScale(.large)
+
+							VStack(alignment: .leading) {
+								Text("Low")
+									.foregroundStyle(.primary)
+								Text("Balance audio quality and data consumption")
+									.font(.caption)
+									.foregroundStyle(.secondary)
+							}
+							Spacer()
+						}
+						.contentShape(Rectangle())
+					}
+					.buttonStyle(.plain)
+
+					Picker("", selection: Binding<AudioQuality>(
+						get: {
+							(appModel.audioQuality == .low || appModel.audioQuality == .medium) ? appModel.audioQuality : .medium
+						},
+						set: { newValue in
+							appModel.setAudioQuality(newValue)
+						}
+					)) {
+						Text("96 kbps").tag(AudioQuality.low)
+						Text("320 kbps").tag(AudioQuality.medium)
+					}
+					.labelsHidden()
+					.fixedSize()
+				}
+
+				Button {
+					appModel.setAudioQuality(.high)
+				} label: {
+					HStack {
+						Image(systemName: appModel.audioQuality == .high ? "largecircle.fill.circle" : "circle")
+							.foregroundStyle(appModel.audioQuality == .high ? Color.accentColor : Color.secondary)
+							.imageScale(.large)
+
+						VStack(alignment: .leading) {
+							Text("High")
+								.foregroundStyle(.primary)
+							Text("16-bit, 44.1 kHz")
+								.font(.caption)
+								.foregroundStyle(.secondary)
+						}
+						Spacer()
+					}
+					.contentShape(Rectangle())
+				}
+				.buttonStyle(.plain)
+
+				Button {
+					appModel.setAudioQuality(.max)
+				} label: {
+					HStack {
+						Image(systemName: appModel.audioQuality == .max ? "largecircle.fill.circle" : "circle")
+							.foregroundStyle(appModel.audioQuality == .max ? Color.accentColor : Color.secondary)
+							.imageScale(.large)
+
+						VStack(alignment: .leading) {
+							Text("Max")
+								.foregroundStyle(.primary)
+							Text("Up to 24-bit, 192 kHz")
+								.font(.caption)
+								.foregroundStyle(.secondary)
+						}
+						Spacer()
+					}
+					.contentShape(Rectangle())
+				}
+				.buttonStyle(.plain)
+			} header: {
+				Text("Audio quality")
+			} footer: {
+				Text("Applies to the next track you play.")
+			}
+
+			Section("Playback") {
+				Toggle(isOn: .constant(false)) {
+					VStack(alignment: .leading) {
+						Text("Normalize volume")
+							.foregroundStyle(.secondary)
+						Text("Set the same volume level for all tracks.")
+							.font(.caption)
+							.foregroundStyle(.secondary)
 					}
 				}
-				.pickerStyle(RadioGroupPickerStyle())
-				.labelsHidden()
+				.disabled(true)
 
-				Text("Applies to the next track you play.")
-					.foregroundStyle(.secondary)
+				Picker(selection: .constant(0)) {
+					Text("System Default").tag(0)
+				} label: {
+					Text("Sound output")
+						.foregroundStyle(.secondary)
+				}
+				.disabled(true)
+
+				Toggle(isOn: .constant(false)) {
+					VStack(alignment: .leading) {
+						Text("Autoplay")
+							.foregroundStyle(.secondary)
+						Text("Keep playing similar content when your queue ends.")
+							.font(.caption)
+							.foregroundStyle(.secondary)
+					}
+				}
+				.disabled(true)
 			}
 		}
 		.formStyle(.grouped)
-	}
-
-	private func label(for quality: AudioQuality) -> String {
-		switch quality {
-		case .low: return "Low"
-		case .medium: return "High"
-		case .high: return "HiFi"
-		case .max: return "Max"
-		}
 	}
 }
