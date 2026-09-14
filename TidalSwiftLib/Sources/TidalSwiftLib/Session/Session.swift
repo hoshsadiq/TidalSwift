@@ -28,6 +28,7 @@ public class Session {
 	public var helpers: Helpers!
 	public var playlistEditing: PlaylistEditing!
 	var activeTokenRefresh: Task<Void, Error>?
+	var bestResolvedAudioQualities: [Int: AudioQuality] = [:]
 
 	public init(config: Config?) {
 		if let config = config {

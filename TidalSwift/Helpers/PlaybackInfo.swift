@@ -18,6 +18,7 @@ final class PlaybackInfo: ObservableObject {
 	@Published var shuffle: Bool = false
 	@Published var repeatState: RepeatState = .off
 	@Published var pauseAfter: Bool = false
+	@Published var failedTrackIds: Set<Int> = []
 }
 
 enum RepeatState: Int, CaseIterable, Codable {

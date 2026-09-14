@@ -122,6 +122,10 @@ class Player {
 	}
 
 	func next() {
+		next(resumeAfterSet: playbackInfo.playing)
+	}
+
+	private func next(resumeAfterSet: Bool) {
 		if playbackInfo.repeatState == .single {
 			seek(to: 0)
 			return
@@ -141,10 +145,10 @@ class Player {
 		}
 		if queueInfo.queue[queueInfo.currentIndex].track.streamReady {
 //			print("next(): \(playbackInfo.currentIndex) - \(queueCount())")
-			avSetItem(from: queueInfo.queue[queueInfo.currentIndex].track)
+			avSetItem(from: queueInfo.queue[queueInfo.currentIndex].track, resumeAfterSet: playbackInfo.pauseAfter ? false : resumeAfterSet)
 		} else {
 			print("Not possible to stream \(queueInfo.queue[queueInfo.currentIndex].track.title)")
-			next()
+			next(resumeAfterSet: resumeAfterSet)
 		}
 
 		if playbackInfo.pauseAfter {
@@ -178,15 +182,15 @@ class Player {
 		avPlayer.seek(to: CMTime(seconds: seconds, preferredTimescale: 1))
 	}
 
-	private func avSetItem(from track: Track) {
+	private func avSetItem(from track: Track, resumeAfterSet: Bool? = nil) {
 		Task {
-			await avSetItemAsync(from: track)
+			await avSetItemAsync(from: track, resumeAfterSet: resumeAfterSet)
 		}
 	}
 
-	private func avSetItemAsync(from track: Track) async {
+	private func avSetItemAsync(from track: Track, resumeAfterSet: Bool? = nil) async {
 //		print("avSetItem(): \(track.title)")
-		let wasPlaying = playbackInfo.playing
+		let shouldResume = resumeAfterSet ?? playbackInfo.playing
 		pause()
 
 		func skip() {
@@ -194,7 +198,7 @@ class Player {
 			if failedItems == queueInfo.queue.count {
 				clearQueue()
 			} else {
-				next()
+				next(resumeAfterSet: shouldResume)
 			}
 		}
 
@@ -204,20 +208,22 @@ class Player {
 		}
 
 		let url: URL
-		if let offlineUrl = await session.helpers.offline.url(for: track, audioQuality: nextAudioQuality) {
+		if let offlineUrl = await session.helpers.offline.url(for: track) {
 			print("Play \(track.title) from offline URL: \(offlineUrl)")
 			url = offlineUrl
+			currentAudioQuality = nextAudioQuality
+		} else if let resolved = await session.bestAudioUrl(trackId: track.id, preferredQuality: nextAudioQuality) {
+			print("Play \(track.title) from online URL: \(resolved.url)")
+			url = resolved.url
+			currentAudioQuality = resolved.quality
 		} else {
-			if let onlineUrl = await track.audioUrl(session: session, audioQuality: nextAudioQuality) {
-				url = onlineUrl
-				print("Play \(track.title) from online URL: \(onlineUrl)")
-			} else {
-				print("No URL so skipping \(track.title)")
-				skip()
-				return
-			}
+			print("No URL so skipping \(track.title)")
+			playbackInfo.failedTrackIds.insert(track.id)
+			skip()
+			return
 		}
 		failedItems = 0
+		playbackInfo.failedTrackIds.remove(track.id)
 
 		NotificationCenter.default.removeObserver(self, name: NSNotification.Name.AVPlayerItemDidPlayToEndTime, object: avPlayer.currentItem)
 
@@ -225,9 +231,7 @@ class Player {
 		NotificationCenter.default.addObserver(self, selector: #selector(self.playerDidFinishPlaying(sender:)), name: NSNotification.Name.AVPlayerItemDidPlayToEndTime, object: item)
 		avPlayer.replaceCurrentItem(with: item)
 
-		currentAudioQuality = nextAudioQuality
-
-		if wasPlaying {
+		if shouldResume {
 //			print("Was playing...")
 			play()
 		}

@@ -28,6 +28,25 @@ extension Session {
 		}
 	}
 
+	public func bestAudioUrl(trackId: Int, preferredQuality: AudioQuality) async -> (url: URL, quality: AudioQuality)? {
+		let descending: [AudioQuality] = [.max, .high, .medium, .low]
+		guard let preferredIndex = descending.firstIndex(of: preferredQuality) else {
+			return nil
+		}
+		var startIndex = preferredIndex
+		if let resolvedIndex = bestResolvedAudioQualities[trackId].flatMap({ descending.firstIndex(of: $0) }),
+			resolvedIndex > preferredIndex {
+			startIndex = resolvedIndex
+		}
+		for quality in descending[startIndex...] {
+			if let url = await audioUrl(trackId: trackId, audioQuality: quality) {
+				bestResolvedAudioQualities[trackId] = quality
+				return (url, quality)
+			}
+		}
+		return nil
+	}
+
 	func videoUrl(videoId: Int) async -> URL? {
 		let url = URL(string: "\(AuthInformation.APILocation)/videos/\(videoId)/playbackinfo")!
 		var parameters = sessionParameters

@@ -54,6 +54,7 @@ struct TrackRow: View {
 
 	@EnvironmentObject var viewState: ViewState
 	@EnvironmentObject var queueInfo: QueueInfo
+	@EnvironmentObject var playbackInfo: PlaybackInfo
 	@State private var isOffline: Bool = false
 	@State private var isFavorite: Bool? = nil
 
@@ -192,7 +193,7 @@ struct TrackRow: View {
 				}
 				}
 			}
-		.foregroundColor(track.isUnavailable ? .secondary : .primary)
+		.foregroundColor(track.isUnavailable || playbackInfo.failedTrackIds.contains(track.id) ? .secondary : .primary)
 		.onReceive(NotificationCenter.default.publisher(for: .favoriteTrackChanged)) { note in
 			guard let changedTrackId = note.userInfo?["trackId"] as? Int, changedTrackId == track.id else { return }
 			isFavorite = note.userInfo?["isFavorite"] as? Bool

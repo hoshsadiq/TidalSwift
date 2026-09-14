@@ -189,14 +189,21 @@ public final class Offline {
 		Task { await asyncSync() }
 	}
 
-	public func url(for track: Track, audioQuality: AudioQuality) async -> URL? {
+	public func url(for track: Track) async -> URL? {
 		if await !db.tracks.contains(where: { (t, _) in t == track }) {
 			return nil
 		}
-		guard let path = buildPath(baseLocation: .music, parentFolder: mainPath, name: "\(track.id)", pathExtension: session.pathExtension(for: audioQuality)) else {
-			return nil
+		// A DB entry without a file on disk must return nil so playback falls back to streaming
+		// (a dead file URL stalls AVPlayer silently).
+		for pathExtension in ["flac", "m4a"] {
+			guard let path = buildPath(baseLocation: .music, parentFolder: mainPath, name: "\(track.id)", pathExtension: pathExtension) else {
+				continue
+			}
+			if FileManager.default.fileExists(atPath: path.relativePath) {
+				return path
+			}
 		}
-		return URL(fileURLWithPath: path.path)
+		return nil
 	}
 
 	// The following always show the goal state (planned), i.e., after all downloads have finished
@@ -236,9 +243,11 @@ public final class Offline {
 			}
 			let directoryContents = try FileManager.default.contentsOfDirectory(at: path, includingPropertiesForKeys: nil, options: [])
 			for url in directoryContents {
-				var name = url.lastPathComponent
-				name.removeLast(4) // Remove ".m4a" / ".flac"
-				if let id = Int(name) {
+				// ".flac" is 5 characters while ".m4a" is 4, so strip the extension properly
+				guard ["flac", "m4a"].contains(url.pathExtension.lowercased()) else {
+					continue
+				}
+				if let id = Int(url.deletingPathExtension().lastPathComponent) {
 					localTracksIds.append(id)
 				}
 			}
