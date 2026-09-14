@@ -28,9 +28,18 @@ struct NewReleases: View {
 					LoadingSpinner()
 				}
 
-				if let albums = viewState.stack.last?.albums {
-					AlbumGrid(albums: albums, showArtists: true, showReleaseDate: true, session: session, player: player)
+			if let view = viewState.stack.last,
+				view.loadingState == .successful,
+				view.albums?.isEmpty ?? true {
+				ContentUnavailableView {
+					Label("No Favorite Artists Yet", systemImage: "heart")
+				} description: {
+					Text("New Releases shows new albums from your favorite artists. Add an artist to Favorites and their releases will appear here.")
 				}
+				.frame(maxWidth: .infinity, minHeight: 300)
+			} else if let albums = viewState.stack.last?.albums {
+				AlbumGrid(albums: albums, showArtists: true, showReleaseDate: true, session: session, player: player)
+			}
 				Spacer(minLength: 0)
 			}
 			.padding()
