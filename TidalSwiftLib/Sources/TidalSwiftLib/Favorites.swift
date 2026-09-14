@@ -283,53 +283,23 @@ public class Favorites {
 	// Check
 
 	public func doFavoritesContainArtist(artistId: Int) async -> Bool? {
-		guard let artists = await cache.artists else {
-			return nil
-		}
-		for artist in artists where artist.item.id == artistId {
-			return true
-		}
-		return false
+		await cache.containsArtist(artistId)
 	}
 
 	public func doFavoritesContainAlbum(albumId: Int) async -> Bool? {
-		guard let albums = await cache.albums else {
-			return nil
-		}
-		for album in albums where album.item.id == albumId {
-			return true
-		}
-		return false
+		await cache.containsAlbum(albumId)
 	}
 
 	public func doFavoritesContainTrack(trackId: Int) async -> Bool? {
-		guard let tracks = await cache.tracks else {
-			return nil
-		}
-		for track in tracks where track.item.id == trackId {
-			return true
-		}
-		return false
+		await cache.containsTrack(trackId)
 	}
 
 	public func doFavoritesContainVideo(videoId: Int) async -> Bool? {
-		guard let videos = await cache.videos else {
-			return nil
-		}
-		for video in videos where video.item.id == videoId {
-			return true
-		}
-		return false
+		await cache.containsVideo(videoId)
 	}
 
 	public func doFavoritesContainPlaylist(playlistId: String) async -> Bool? {
-		guard let playlists = await cache.playlists else {
-			return nil
-		}
-		for playlist in playlists where playlist.playlist.id == playlistId {
-			return true
-		}
-		return false
+		await cache.containsPlaylist(playlistId)
 	}
 
 	// Refresh Caches
@@ -365,77 +335,172 @@ class FavoritesCache {
 	}
 
 	private var _artists: [FavoriteArtist]?
+	private var artistIds: Set<Int> = []
 	private var lastCheckedArtists = Date(timeIntervalSince1970: 0)
+	private var artistsRefreshTask: Task<Void, Never>?
+
 	var artists: [FavoriteArtist]? {
 		get async {
 			if Date().timeIntervalSince(lastCheckedArtists) > timeoutInSeconds {
-				self._artists = await favorites.artists()
+				if let artistsRefreshTask {
+					await artistsRefreshTask.value
+				} else {
+					let task = Task {
+						defer { artistsRefreshTask = nil }
+						set(await favorites.artists())
+					}
+					artistsRefreshTask = task
+					await task.value
+				}
 			}
 			return _artists
 		}
 	}
 	func set(_ newValue: [FavoriteArtist]?) {
 		_artists = newValue
+		artistIds = Set(newValue?.map { $0.item.id } ?? [])
 		lastCheckedArtists = .now
+	}
+	func containsArtist(_ artistId: Int) async -> Bool? {
+		guard await artists != nil else {
+			return nil
+		}
+		return artistIds.contains(artistId)
 	}
 
 	private var _albums: [FavoriteAlbum]?
+	private var albumIds: Set<Int> = []
 	private var lastCheckedAlbums = Date(timeIntervalSince1970: 0)
+	private var albumsRefreshTask: Task<Void, Never>?
+
 	var albums: [FavoriteAlbum]? {
 		get async {
 			if Date().timeIntervalSince(lastCheckedAlbums) > timeoutInSeconds {
-				self._albums = await favorites.albums()
+				if let albumsRefreshTask {
+					await albumsRefreshTask.value
+				} else {
+					let task = Task {
+						defer { albumsRefreshTask = nil }
+						set(await favorites.albums())
+					}
+					albumsRefreshTask = task
+					await task.value
+				}
 			}
 			return _albums
 		}
 	}
 	func set(_ newValue: [FavoriteAlbum]?) {
 		_albums = newValue
+		albumIds = Set(newValue?.map { $0.item.id } ?? [])
 		lastCheckedAlbums = .now
+	}
+	func containsAlbum(_ albumId: Int) async -> Bool? {
+		guard await albums != nil else {
+			return nil
+		}
+		return albumIds.contains(albumId)
 	}
 
 	private var _tracks: [FavoriteTrack]?
+	private var trackIds: Set<Int> = []
 	private var lastCheckedTracks = Date(timeIntervalSince1970: 0)
+	private var tracksRefreshTask: Task<Void, Never>?
+
 	var tracks: [FavoriteTrack]? {
 		get async {
 			if Date().timeIntervalSince(lastCheckedTracks) > timeoutInSeconds {
-				self._tracks = await favorites.tracks()
+				if let tracksRefreshTask {
+					await tracksRefreshTask.value
+				} else {
+					let task = Task {
+						defer { tracksRefreshTask = nil }
+						set(await favorites.tracks())
+					}
+					tracksRefreshTask = task
+					await task.value
+				}
 			}
 			return _tracks
 		}
 	}
 	func set(_ newValue: [FavoriteTrack]?) {
 		_tracks = newValue
+		trackIds = Set(newValue?.map { $0.item.id } ?? [])
 		lastCheckedTracks = .now
+	}
+	func containsTrack(_ trackId: Int) async -> Bool? {
+		guard await tracks != nil else {
+			return nil
+		}
+		return trackIds.contains(trackId)
 	}
 
 	private var _videos: [FavoriteVideo]?
+	private var videoIds: Set<Int> = []
 	private var lastCheckedVideos = Date(timeIntervalSince1970: 0)
+	private var videosRefreshTask: Task<Void, Never>?
+
 	var videos: [FavoriteVideo]? {
 		get async {
 			if Date().timeIntervalSince(lastCheckedVideos) > timeoutInSeconds {
-				self._videos = await favorites.videos()
+				if let videosRefreshTask {
+					await videosRefreshTask.value
+				} else {
+					let task = Task {
+						defer { videosRefreshTask = nil }
+						set(await favorites.videos())
+					}
+					videosRefreshTask = task
+					await task.value
+				}
 			}
 			return _videos
 		}
 	}
 	func set(_ newValue: [FavoriteVideo]?) {
 		_videos = newValue
+		videoIds = Set(newValue?.map { $0.item.id } ?? [])
 		lastCheckedVideos = .now
+	}
+	func containsVideo(_ videoId: Int) async -> Bool? {
+		guard await videos != nil else {
+			return nil
+		}
+		return videoIds.contains(videoId)
 	}
 
 	private var _playlists: [FavoritePlaylist]?
+	private var playlistIds: Set<String> = []
 	private var lastCheckedPlaylists = Date(timeIntervalSince1970: 0)
+	private var playlistsRefreshTask: Task<Void, Never>?
+
 	var playlists: [FavoritePlaylist]? {
 		get async {
 			if Date().timeIntervalSince(lastCheckedPlaylists) > timeoutInSeconds {
-				self._playlists = await favorites.playlists()
+				if let playlistsRefreshTask {
+					await playlistsRefreshTask.value
+				} else {
+					let task = Task {
+						defer { playlistsRefreshTask = nil }
+						set(await favorites.playlists())
+					}
+					playlistsRefreshTask = task
+					await task.value
+				}
 			}
 			return _playlists
 		}
 	}
 	func set(_ newValue: [FavoritePlaylist]?) {
 		_playlists = newValue
+		playlistIds = Set(newValue?.map { $0.playlist.id } ?? [])
 		lastCheckedPlaylists = .now
+	}
+	func containsPlaylist(_ playlistId: String) async -> Bool? {
+		guard await playlists != nil else {
+			return nil
+		}
+		return playlistIds.contains(playlistId)
 	}
 }
