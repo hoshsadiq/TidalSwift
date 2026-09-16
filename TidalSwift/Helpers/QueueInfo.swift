@@ -10,10 +10,26 @@ import Foundation
 import Combine
 import TidalSwiftLib
 
+struct QueueSource: Codable, Equatable {
+	enum CollectionType: String, Codable {
+		case playlist
+		case album
+		case artist
+		case favorite
+		case mix
+	}
+
+	var type: CollectionType
+	var title: String
+	var id: String?
+}
+
 final class QueueInfo: ObservableObject {
 	var nonShuffledQueue = [WrappedTrack]()
 	@Published var queue = [WrappedTrack]()
 	@Published var currentIndex: Int = 0
+
+	@Published var source: QueueSource?
 
 	@Published var history: [WrappedTrack] = []
 	var maxHistoryItems: Int = 100

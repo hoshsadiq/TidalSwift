@@ -153,3 +153,19 @@ public struct FavoritePlaylist: Decodable, Equatable {
 		lhs.uuid == rhs.playlist.uuid
 	}
 }
+
+/// Response of `/users/{userId}/favorites/playlists`. Unlike `FavoritePlaylists`
+/// (`playlistsAndFavoritePlaylists`), which wraps the playlist in `playlist` and carries a
+/// single `type`, this endpoint wraps it in `item` and only ever returns favourited playlists.
+struct FavoritePlaylistsOnly: Decodable {
+	let limit: Int
+	let offset: Int
+	let totalNumberOfItems: Int
+	let items: [FavoritePlaylistItem]
+}
+
+struct FavoritePlaylistItem: Decodable {
+	/// Unused, but optional so a missing field doesn't fail the whole decode.
+	let created: Date?
+	let item: Playlist
+}

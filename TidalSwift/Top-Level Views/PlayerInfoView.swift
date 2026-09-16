@@ -17,22 +17,56 @@ struct PlayerInfoView: View {
 
 	@EnvironmentObject var queueInfo: QueueInfo
 	@EnvironmentObject var appModel: TidalSwiftAppModel
+	// Disabled until the Now Playing drawer is built.
+	// @EnvironmentObject var playbackInfo: PlaybackInfo
 
 	var body: some View {
 		VStack {
 			GeometryReader { metrics in
 				HStack {
-					TrackInfoView(player: player, session: session)
-						.frame(width: metrics.size.width / 2 - 100)
-						.contextMenu {
-							if !queueInfo.queue.isEmpty {
-								let track = queueInfo.queue[queueInfo.currentIndex].track
-								TrackContextMenu(track: track, session: session, player: player)
+					HStack {
+						TrackInfoView(player: player, session: session)
+
+						if queueInfo.queue.indices.contains(queueInfo.currentIndex) {
+							let track = queueInfo.queue[queueInfo.currentIndex].track
+							Button {
+								toggleFavorite(track: track)
+							} label: {
+								Image(systemName: appModel.trackIsFavorite ? "heart.fill" : "heart")
+									.foregroundColor(appModel.trackIsFavorite ? .red : .primary)
 							}
+							.buttonStyle(.plain)
+							.help(appModel.trackIsFavorite ? "Remove from Favorites" : "Add to Favorites")
+
+							Menu {
+								TrackContextMenu(track: track, session: session, player: player)
+							} label: {
+								Image(systemName: "ellipsis")
+							}
+							.menuStyle(.borderlessButton)
+							.menuIndicator(.hidden)
+							.fixedSize()
+							.help("More Actions")
 						}
 
+						Spacer()
+							.layoutPriority(-1)
+					}
+					.contentShape(Rectangle())
+					// Disabled until the Now Playing drawer is built.
+					// .onTapGesture {
+					// 	playbackInfo.isNowPlayingExpanded.toggle()
+					// }
+					.contextMenu {
+						if !queueInfo.queue.isEmpty {
+							let track = queueInfo.queue[queueInfo.currentIndex].track
+							TrackContextMenu(track: track, session: session, player: player)
+						}
+					}
+					.frame(width: metrics.size.width / 2 - 100)
+
 					PlaybackControls(player: player)
-						.frame(width: 200)
+						.frame(width: 260)
 					Spacer()
 					VolumeControl(player: player)
 					Spacer()
@@ -45,14 +79,57 @@ struct PlayerInfoView: View {
 						}
 					Image(systemName: "list.dash")
 						.help("Queue")
+						.foregroundColor(appModel.showQueuePanel ? .accentColor : .primary)
 						.onTapGesture {
-							appModel.showQueueWindow()
+							withAnimation {
+								appModel.showQueuePanel.toggle()
+							}
 						}
 					#endif
+					Button {
+					} label: {
+						Image(systemName: "airplayaudio")
+					}
+					.buttonStyle(.plain)
+					.disabled(true)
+					.help("Coming soon")
+
+					Button {
+					} label: {
+						Image(systemName: "rectangle.on.rectangle")
+					}
+					.buttonStyle(.plain)
+					.disabled(true)
+					.help("Coming soon")
+
+					QualityBadge(text: player.currentQualityString(), tint: .orange)
+						.help("Current Quality")
 				}
 			}
-			.frame(height: 30)
+			.frame(height: 64)
 			.padding([.top, .horizontal])
+		}
+	}
+
+	private func toggleFavorite(track: Track) {
+		let wasFavorite = appModel.trackIsFavorite
+		Task {
+			guard let favorites = session.favorites else { return }
+			let success: Bool
+			if wasFavorite {
+				success = await favorites.removeTrack(trackId: track.id)
+			} else {
+				success = await favorites.addTrack(trackId: track.id)
+			}
+			if success {
+				session.helpers.offline.asyncSyncFavoriteTracks()
+				appModel.refreshFavoriteState()
+				NotificationCenter.default.post(
+					name: .favoriteTrackChanged,
+					object: nil,
+					userInfo: ["trackId": track.id, "isFavorite": !wasFavorite]
+				)
+			}
 		}
 	}
 }
@@ -65,7 +142,7 @@ struct TrackInfoView: View {
 
 	var body: some View {
 		HStack {
-			if !player.queueInfo.queue.isEmpty {
+			if queueInfo.queue.indices.contains(queueInfo.currentIndex) {
 				let track = queueInfo.queue[queueInfo.currentIndex].track
 				HStack {
 					if let coverUrlSmall = track.getCoverUrl(session: session, resolution: 320),
@@ -75,11 +152,11 @@ struct TrackInfoView: View {
 						} placeholder: {
 							Rectangle()
 						}
-						.frame(width: 30, height: 30)
+						.frame(width: 40, height: 40)
 						.cornerRadius(CORNERRADIUS)
 						.help("Show cover in new window")
 						#if canImport(AppKit)
-						.onTapGesture {
+						.onTapGesture(count: 2) {
 							print("Big Cover")
 							let title = "\(track.title) – \(track.album.title)"
 							let controller = ImageWindowController(
@@ -94,11 +171,11 @@ struct TrackInfoView: View {
 					} else {
 						Rectangle()
 							.foregroundColor(.black)
-							.frame(width: 30, height: 30)
+							.frame(width: 40, height: 40)
 							.cornerRadius(CORNERRADIUS)
 					}
 
-					VStack(alignment: .leading) {
+					VStack(alignment: .leading, spacing: 3) {
 						HStack {
 							Text("\(track.title)")
 							if let version = track.version {
@@ -107,22 +184,22 @@ struct TrackInfoView: View {
 									.padding(.leading, -5)
 									.layoutPriority(-1)
 							}
-							Text(player.currentQualityString())
-								.fontWeight(.light)
-								.foregroundColor(.orange)
-								.help("Current Quality")
-							Text(player.maxQualityString())
-								.fontWeight(.light)
-								.foregroundColor(.secondary)
-								.help("Maximum available quality")
 						}
 						.help(trackToolTipString(for: track))
 						Text("\(track.artists.formArtistString()) – \(track.album.title)")
 							.foregroundColor(.secondary)
 							.help("\(track.artists.formArtistString()) – \(track.album.title)")
+						if let source = queueInfo.source {
+							HStack(spacing: 3) {
+								Image(systemName: source.type.symbolName)
+								Text("Playing from \(source.title)")
+									.lineLimit(1)
+							}
+							.font(.caption)
+							.foregroundColor(.secondary)
+							.help("Playing from \(source.title)")
+						}
 					}
-					Spacer()
-						.layoutPriority(-1)
 				}
 			} else {
 				Spacer()
@@ -140,29 +217,60 @@ struct TrackInfoView: View {
 	}
 }
 
+extension QueueSource.CollectionType {
+	fileprivate var symbolName: String {
+		switch self {
+		case .playlist:
+			return "music.note.list"
+		case .album:
+			return "square.stack"
+		case .artist:
+			return "person"
+		case .favorite:
+			return "heart.fill"
+		case .mix:
+			return "square.grid.2x2"
+		}
+	}
+}
+
+struct QualityBadge: View {
+	let text: String
+	let tint: Color
+
+	var body: some View {
+		if text.isEmpty {
+			EmptyView()
+		} else {
+			Text(text)
+				.font(.system(size: 9, weight: .semibold))
+				.foregroundColor(tint)
+				.padding(.horizontal, 5)
+				.padding(.vertical, 1)
+				.background(
+					RoundedRectangle(cornerRadius: CORNERRADIUS, style: .continuous)
+						.fill(tint.opacity(0.15))
+				)
+				.overlay(
+					RoundedRectangle(cornerRadius: CORNERRADIUS, style: .continuous)
+						.stroke(tint.opacity(0.35), lineWidth: 0.5)
+				)
+		}
+	}
+}
+
 struct PlaybackControls: View {
 	let player: Player
 
 	@EnvironmentObject var playbackInfo: PlaybackInfo
 
 	var body: some View {
-		VStack(spacing: 8) {
+		VStack(spacing: 6) {
 			HStack {
 				Spacer()
 				Group {
-					if playbackInfo.shuffle {
-						Image(systemName: "shuffle")
-							#if canImport(AppKit)
-							.tint(.controlAccentColor)
-							#else
-							.tint(.secondary)
-							#endif
-					} else {
-						Image(systemName: "shuffle")
-							.onTapGesture {
-								playbackInfo.shuffle.toggle()
-							}
-					}
+					Image(systemName: "shuffle")
+						.foregroundStyle(playbackInfo.shuffle ? Color.controlAccentColor : Color.secondary)
 				}
 				.help("Shuffle")
 				.onTapGesture {
@@ -188,23 +296,10 @@ struct PlaybackControls: View {
 						player.next()
 					}
 				Group {
-					if playbackInfo.repeatState == .single {
-						Image(systemName: "repeat.1")
-							#if canImport(AppKit)
-							.tint(.controlAccentColor)
-							#else
-							.tint(.secondary)
-							#endif
-					} else if playbackInfo.repeatState == .all {
-						Image(systemName: "repeat")
-							#if canImport(AppKit)
-							.tint(.controlAccentColor)
-							#else
-							.tint(.secondary)
-							#endif
-					} else {
-						Image(systemName: "repeat")
-					}
+					Image(systemName: playbackInfo.repeatState == .single ? "repeat.1" : "repeat")
+						.foregroundStyle(
+							playbackInfo.repeatState == .off ? Color.secondary : Color.controlAccentColor
+						)
 				}
 				.help("Repeat")
 				.onTapGesture {
@@ -234,18 +329,18 @@ struct ProgressBar: View {
 			HorizontalValueSliderStyle(track: HorizontalValueTrack(view:
 																	Rectangle()
 																	.foregroundColor(.playbackProgressBarForeground(for: colorScheme))
-																	.frame(height: 5),
+																	.frame(height: 8),
 																   mask: Rectangle()
 			)
 			.background(Color.playbackProgressBarBackground(for: colorScheme))
-			.frame(height: 5)
-			.cornerRadius(3)
+			.frame(height: 8)
+			.cornerRadius(4)
 			.help((playbackInfo.playbackTimeInfo)),
 			thumb: EmptyView(),
 			thumbSize: .zero,
 			options: .interactiveTrack)
 		)
-		.frame(height: 5)
+		.frame(height: 8)
 	}
 }
 

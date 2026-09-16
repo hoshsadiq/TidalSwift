@@ -20,6 +20,10 @@ struct TrackContextMenu: View {
 	@EnvironmentObject var playlistEditingValues: PlaylistEditingValues
 	@State private var isFavorite: Bool? = nil
 
+	private var source: QueueSource? {
+		playlist.map { QueueSource(type: .playlist, title: $0.title, id: $0.uuid) }
+	}
+
 	init(track: Track, indexInPlaylist: Int? = nil, playlist: Playlist? = nil, session: Session, player: Player) {
 		self.track = track
 		self.session = session
@@ -33,17 +37,17 @@ struct TrackContextMenu: View {
 			Group {
 				if track.streamReady {
 					Button {
-						player.add(track: track, .now)
+						player.add(track: track, .now, source: source)
 					} label: {
 						Text("Add Now")
 					}
 					Button {
-						player.add(track: track, .next)
+						player.add(track: track, .next, source: source)
 					} label: {
 						Text("Add Next")
 					}
 					Button {
-						player.add(track: track, .last)
+						player.add(track: track, .last, source: source)
 					} label: {
 						Text("Add Last")
 					}
@@ -134,7 +138,8 @@ struct TrackContextMenu: View {
 						Task {
 							print("Radio")
 							if let radioTracks = await track.radio(session: session) {
-								player.add(tracks: radioTracks, .now)
+								let artistSource = track.artist.map { QueueSource(type: .artist, title: $0.name, id: String($0.id)) }
+								player.add(tracks: radioTracks, .now, source: artistSource)
 							}
 						}
 					} label: {

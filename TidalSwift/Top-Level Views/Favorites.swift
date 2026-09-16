@@ -158,7 +158,8 @@ struct FavoriteTracks: View {
 					TrackList(wrappedTracks: tracks.sortedTracks(by: sortingState.favoriteTrackSorting).reversed(sortingState.favoriteTrackReversed).wrapped(),
 							  showCover: true, showAlbumTrackNumber: false,
 							  showArtist: true, showAlbum: true, playlist: nil,
-							  session: session, player: player)
+							  session: session, player: player,
+							  source: QueueSource(type: .favorite, title: "Favorites", id: nil))
 				}
 				Spacer(minLength: 0)
 			}

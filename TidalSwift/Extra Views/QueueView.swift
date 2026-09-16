@@ -78,3 +78,14 @@ struct QueueView: View {
 		}
 	}
 }
+
+struct QueuePanel: View {
+	unowned let session: Session
+	unowned let player: Player
+
+	var body: some View {
+		QueueView(session: session, player: player)
+			.frame(width: 300)
+			.background(.regularMaterial)
+	}
+}

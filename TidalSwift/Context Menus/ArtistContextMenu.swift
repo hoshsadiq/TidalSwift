@@ -17,20 +17,24 @@ struct ArtistContextMenu: View {
 	@EnvironmentObject var viewState: ViewState
 	@State private var isFavorite: Bool? = nil
 
+	private var source: QueueSource {
+		QueueSource(type: .artist, title: artist.name, id: String(artist.id))
+	}
+
 	var body: some View {
 		Group {
 			Button {
-				player.add(artist: artist, .now)
+				player.add(artist: artist, .now, source: source)
 			} label: {
 				Text("Add Now")
 			}
 			Button {
-				player.add(artist: artist, .next)
+				player.add(artist: artist, .next, source: source)
 			} label: {
 				Text("Add Next")
 			}
 			Button {
-				player.add(artist: artist, .last)
+				player.add(artist: artist, .last, source: source)
 			} label: {
 				Text("Add Last")
 			}
@@ -81,7 +85,7 @@ struct ArtistContextMenu: View {
 					Task {
 						print("Radio")
 						if let radioTracks = await artist.radio(session: session) {
-							player.add(tracks: radioTracks, .now)
+							player.add(tracks: radioTracks, .now, source: source)
 						}
 					}
 				} label: {

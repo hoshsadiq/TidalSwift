@@ -60,29 +60,33 @@ struct PlaylistView: View {
 										Text(playlist.title)
 											.font(.title)
 											.lineLimit(2)
-					if isFavorite ?? true {
-						Image(systemName: "heart.fill")
-							.onTapGesture {
-								Task {
-									print("Remove from Favorites")
-									if await session.favorites?.removePlaylist(playlistId: playlist.uuid) == true {
-										isFavorite = false
-										viewState.refreshCurrentView()
-									}
-								}
-							}
-					} else {
-						Image(systemName: "heart")
-							.onTapGesture {
-								Task {
-									print("Add to Favorites")
-									if await session.favorites?.addPlaylist(playlistId: playlist.uuid) == true {
-										isFavorite = true
-										viewState.refreshCurrentView()
-									}
-								}
-							}
-					}
+										if isFavorite == true {
+											Image(systemName: "heart.fill")
+												.onTapGesture {
+													Task {
+														print("Remove from Favorites")
+														if await session.favorites?.removePlaylist(playlistId: playlist.uuid) == true {
+															isFavorite = false
+															viewState.cache.favoritedPlaylistUuids?.remove(playlist.uuid)
+															NotificationCenter.default.post(name: .favoritePlaylistChanged, object: nil)
+															viewState.refreshCurrentView()
+														}
+													}
+												}
+										} else {
+											Image(systemName: "heart")
+												.onTapGesture {
+													Task {
+														print("Add to Favorites")
+														if await session.favorites?.addPlaylist(playlistId: playlist.uuid) == true {
+															isFavorite = true
+															viewState.cache.favoritedPlaylistUuids?.insert(playlist.uuid)
+															NotificationCenter.default.post(name: .favoritePlaylistChanged, object: nil)
+															viewState.refreshCurrentView()
+														}
+													}
+												}
+										}
 										Image(systemName: "square.and.arrow.up")
 											.onTapGesture {
 												Pasteboard.copy(string: playlist.url.absoluteString)
@@ -138,7 +142,8 @@ struct PlaylistView: View {
 
 						TrackList(wrappedTracks: tracks.wrapped(), showCover: true, showAlbumTrackNumber: false,
 								  showArtist: true, showAlbum: true, playlist: isUserPlaylist ? playlist : nil,
-								  session: session, player: player)
+								  session: session, player: player,
+								  source: QueueSource(type: .playlist, title: playlist.title, id: playlist.uuid))
 					} else {
 						HStack {
 							Spacer()
@@ -153,8 +158,12 @@ struct PlaylistView: View {
 		}
 		.task(id: viewState.stack.last?.playlist?.uuid) {
 			guard let playlist = viewState.stack.last?.playlist else { return }
-			isFavorite = await playlist.isInFavorites(session: session)
+			isFavorite = viewState.cache.favoritedPlaylistUuids?.contains(playlist.uuid)
 			isOffline = await playlist.isOffline(session: session)
+		}
+		.onReceive(NotificationCenter.default.publisher(for: .favoritePlaylistChanged)) { _ in
+			guard let playlist = viewState.stack.last?.playlist else { return }
+			isFavorite = viewState.cache.favoritedPlaylistUuids?.contains(playlist.uuid)
 		}
 	}
 }

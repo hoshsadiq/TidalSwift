@@ -147,6 +147,48 @@ public class Favorites {
 		return tempPlaylists
 	}
 
+	/// - Note: Only includes User Favorited Playlists, unlike `playlists()`, which also includes User Playlists.
+	public func favoritedPlaylists(limit: Int = 999, offset: Int = 0, order: PlaylistOrder? = nil, orderDirection: OrderDirection? = nil) async -> [Playlist]? {
+		guard let userId = session.userId else {
+			return nil
+		}
+		let url = URL(string: "\(AuthInformation.APILocation)/users/\(userId)/favorites/playlists")!
+
+		var tempLimit = limit
+		var tempOffset = offset
+		var tempPlaylists: [Playlist] = []
+		while tempLimit > 0 {
+			var parameters = session.sessionParameters
+			if tempLimit > 50 { // Maximum of 50 allowed by Tidal
+				parameters["limit"] = "50"
+			} else {
+				parameters["limit"] = "\(tempLimit)"
+			}
+			parameters["offset"] = "\(tempOffset)"
+			if let order = order {
+				parameters["order"] = "\(order.rawValue)"
+			}
+			if let orderDirection = orderDirection {
+				parameters["orderDirection"] = "\(orderDirection.rawValue)"
+			}
+			do {
+				let response: FavoritePlaylistsOnly = try await session.get(url: url, parameters: parameters)
+				tempPlaylists += response.items.map(\.item)
+
+				tempOffset += response.items.count
+				tempLimit -= response.items.count
+
+				if response.items.isEmpty || tempOffset >= response.totalNumberOfItems {
+					return tempPlaylists
+				}
+			} catch {
+				return nil
+			}
+		}
+
+		return tempPlaylists
+	}
+
 	public func userPlaylists() async -> [Playlist]? {
 		guard let userId = session.userId else {
 			displayError(title: "User Playlists failed", content: "User ID not set yet.")

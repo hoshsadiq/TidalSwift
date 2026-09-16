@@ -242,50 +242,50 @@ class Player {
 		next()
 	}
 
-	func add(playlists: [Playlist], _ when: When) {
+	func add(playlists: [Playlist], _ when: When, source: QueueSource? = nil) {
 		playlists.forEach { playlist in
-			add(playlist: playlist, when)
+			add(playlist: playlist, when, source: source)
 		}
 	}
 
-	func add(playlist: Playlist, _ when: When) {
+	func add(playlist: Playlist, _ when: When, source: QueueSource? = nil) {
 		Task {
 			let apiTracks = await session.playlistTracks(playlistId: playlist.uuid)
 			let offlineTracks = await session.helpers.offline.getTracks(for: playlist)
 			if let tracks = apiTracks ?? offlineTracks {
-				add(tracks: tracks, when)
+				add(tracks: tracks, when, source: source)
 			}
 		}
 	}
 
-	func add(albums: [Album], _ when: When) {
+	func add(albums: [Album], _ when: When, source: QueueSource? = nil) {
 		albums.forEach { album in
-			add(album: album, when)
+			add(album: album, when, source: source)
 		}
 	}
 
-	func add(album: Album, _ when: When) {
+	func add(album: Album, _ when: When, source: QueueSource? = nil) {
 		Task {
 			let apiTracks = await session.albumTracks(albumId: album.id)
 			let offlineTracks = await session.helpers.offline.getTracks(for: album)
 			if let tracks = apiTracks ?? offlineTracks {
-				add(tracks: tracks, when)
+				add(tracks: tracks, when, source: source)
 			} else if when == .now {
 				clearQueue()
 			}
 		}
 	}
 
-	func add(artist: Artist, _ when: When) {
+	func add(artist: Artist, _ when: When, source: QueueSource? = nil) {
 		Task {
 			if let tracks = await session.artistTopTracks(artistId: artist.id) {
-				add(tracks: tracks, when)
+				add(tracks: tracks, when, source: source)
 			}
 		}
 	}
 
-	func add(track: Track, _ when: When) {
-		add(tracks: [track], when)
+	func add(track: Track, _ when: When, source: QueueSource? = nil) {
+		add(tracks: [track], when, source: source)
 	}
 
 	enum When {
@@ -294,24 +294,25 @@ class Player {
 		case last
 	}
 
-	func add(tracks: [Track], _ when: When, playAt index: Int = 0) {
-		let unavailableCount = tracks[0..<index].filter(\.isUnavailable).count
-		let newIndex = index - unavailableCount
+	func add(tracks: [Track], _ when: When, playAt index: Int = 0, source: QueueSource? = nil) {
+		let safeIndex = min(max(index, 0), tracks.count)
+		let unavailableCount = tracks[0..<safeIndex].filter(\.isUnavailable).count
+		let newIndex = safeIndex - unavailableCount
 		print("New Index: \(newIndex), index: \(index), \(unavailableCount)")
 
 		let tracks = tracks.filter { !$0.isUnavailable }
 		if when == .now {
-			addNow(tracks: tracks, playAt: newIndex)
+			addNow(tracks: tracks, playAt: newIndex, source: source)
 			play(atIndex: newIndex)
 		} else if when == .next {
-			addNext(tracks: tracks)
+			addNext(tracks: tracks, source: source)
 		} else {
-			addLast(tracks: tracks)
+			addLast(tracks: tracks, source: source)
 		}
 	}
 
 	// playAt is only important when in Shuffle, so only items after the one at the index are shuffled.
-	private func addNow(tracks: [Track], playAt index: Int) {
+	private func addNow(tracks: [Track], playAt index: Int, source: QueueSource?) {
 //		print("addNow(): \(tracks.count)")
 		if tracks.isEmpty {
 			return
@@ -320,13 +321,14 @@ class Player {
 		let wasPlaying = playbackInfo.playing
 		clearQueue()
 		if playbackInfo.shuffle {
+			let safeIndex = min(max(index, 0), tracks.count - 1)
 			queueInfo.nonShuffledQueue = tracks.wrapped()
-			addLast(tracks: Array(tracks[0...index]))
-			if index + 1 < tracks.count {
-				addLast(tracks: tracks[index + 1..<tracks.count].shuffled())
+			addLast(tracks: Array(tracks[0...safeIndex]), source: source)
+			if safeIndex + 1 < tracks.count {
+				addLast(tracks: tracks[safeIndex + 1..<tracks.count].shuffled(), source: source)
 			}
 		} else {
-			addLast(tracks: tracks)
+			addLast(tracks: tracks, source: source)
 		}
 		if wasPlaying {
 			play()
@@ -334,7 +336,7 @@ class Player {
 //		print("addNow() finished. Items in Queue: \(playbackInfo.queue.count)")
 	}
 
-	private func addNext(tracks: [Track]) {
+	private func addNext(tracks: [Track], source: QueueSource?) {
 //		print("addNext(): \(tracks.count)")
 		if tracks.isEmpty {
 			return
@@ -342,6 +344,7 @@ class Player {
 		queueInfo.nonShuffledQueue.insert(contentsOf: tracks.wrapped(), at: queueInfo.currentIndex)
 		let newQueueItems = tracks.wrapped()
 		if queueInfo.queue.isEmpty {
+			queueInfo.source = source
 			queueInfo.queue.insert(contentsOf: newQueueItems, at: queueInfo.currentIndex)
 			avSetItem(from: queueInfo.queue[0].track)
 		} else {
@@ -351,7 +354,7 @@ class Player {
 //		print("addNext() finished. Items in Queue: \(queueInfo.queue.count)")
 	}
 
-	private func addLast(tracks: [Track]) {
+	private func addLast(tracks: [Track], source: QueueSource?) {
 //		print("addLast(): \(tracks.count)")
 		if tracks.isEmpty {
 			return
@@ -366,6 +369,7 @@ class Player {
 		queueInfo.queue.append(contentsOf: newQueueItems)
 		queueInfo.assignQueueIndices()
 		if wasEmtpy {
+			queueInfo.source = source
 			avSetItem(from: queueInfo.queue[queueInfo.currentIndex].track)
 		}
 //		print("addLast() finished. Items in Queue: \(queueInfo.queue.count)")
@@ -411,6 +415,7 @@ class Player {
 			avPlayer.replaceCurrentItem(with: nil)
 			queueInfo.queue.removeAll()
 			queueInfo.nonShuffledQueue.removeAll()
+			queueInfo.source = nil
 		}
 	}
 
@@ -498,27 +503,16 @@ class Player {
 		return qualityToString(quality: chosenQuality)
 	}
 
-	func maxQualityString() -> String {
-		guard !queueInfo.queue.isEmpty else {
-			return ""
-		}
-		guard let quality = queueInfo.queue[queueInfo.currentIndex].track.audioQuality else {
-			return ""
-		}
-
-		return qualityToString(quality: quality)
-	}
-
 	private func qualityToString(quality: AudioQuality) -> String {
 		switch quality {
 		case .low:
-			return "LOW"
+			return "96 kbps"
 		case .medium:
-			return "HIGH"
+			return "320 kbps"
 		case .high:
-			return "HIFI"
+			return "16-bit 44.1kHz"
 		case .max:
-			return "MASTER"
+			return "24-bit 192kHz"
 		}
 	}
 }

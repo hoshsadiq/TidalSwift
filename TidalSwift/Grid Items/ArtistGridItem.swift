@@ -51,7 +51,7 @@ struct ArtistGridItem: View {
 		.help(artist.name)
 		.onTapGesture(count: 2) {
 			print("\(artist.name)")
-			player.add(artist: artist, .now)
+			player.add(artist: artist, .now, source: QueueSource(type: .artist, title: artist.name, id: String(artist.id)))
 		}
 		.onTapGesture(count: 1) {
 			print("First Click. \(artist.name)")

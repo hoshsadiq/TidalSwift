@@ -13,6 +13,11 @@ import TidalSwiftLib
 enum ViewType: String, Codable {
 	case search = "Search"
 
+	case music = "Music"
+	case explore = "Explore"
+	case feed = "Feed"
+	case collection = "Collection"
+
 	case newReleases = "New Releases"
 	case myMixes = "My Mixes"
 
@@ -76,7 +81,9 @@ struct TidalSwiftView: Codable, Equatable, Identifiable {
 	}
 
 	func isBase() -> Bool {
-		viewType == .newReleases || viewType == .myMixes ||
+		viewType == .music || viewType == .explore ||
+			viewType == .feed || viewType == .collection ||
+			viewType == .newReleases || viewType == .myMixes ||
 			viewType == .favoriteArtists || viewType == .favoriteAlbums ||
 			viewType == .favoritePlaylists || viewType == .favoriteTracks ||
 			viewType == .favoriteVideos || viewType == .offlineAlbums ||

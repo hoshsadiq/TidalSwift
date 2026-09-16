@@ -18,6 +18,15 @@ extension ViewState {
 		case .search:
 			search()
 
+		case .music:
+			music()
+		case .explore:
+			placeholder(for: .explore)
+		case .feed:
+			placeholder(for: .feed)
+		case .collection:
+			placeholder(for: .collection)
+
 		case .newReleases:
 			newReleases()
 		case .myMixes:
@@ -87,5 +96,11 @@ extension ViewState {
 		print("ViewState doNothing(): \(stack.last?.viewType.rawValue ?? "nil")")
 		refreshTask?.cancel()
 		refreshTask = nil
+	}
+
+	private func placeholder(for viewType: ViewType) {
+		var view = TidalSwiftView(viewType: viewType)
+		view.loadingState = .successful
+		replaceCurrentView(with: view)
 	}
 }

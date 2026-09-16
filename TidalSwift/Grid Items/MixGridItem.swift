@@ -37,7 +37,7 @@ struct MixGridItem: View {
 		print("Second Click. \(mix.title)")
 		Task {
 			if let tracks = await session.mixPlaylistTracks(mixId: mix.id) {
-				player.add(tracks: tracks, .now)
+				player.add(tracks: tracks, .now, source: QueueSource(type: .mix, title: mix.title, id: mix.id))
 			}
 		}
 	}

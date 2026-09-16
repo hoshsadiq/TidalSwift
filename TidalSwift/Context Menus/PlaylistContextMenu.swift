@@ -16,24 +16,31 @@ struct PlaylistContextMenu: View {
 
 	@EnvironmentObject var viewState: ViewState
 	@EnvironmentObject var playlistEditingValues: PlaylistEditingValues
-	@State private var isFavorite: Bool? = nil
 	@State private var isOffline: Bool = false
+
+	private var source: QueueSource {
+		QueueSource(type: .playlist, title: playlist.title, id: playlist.uuid)
+	}
+
+	private var isFavorite: Bool {
+		viewState.cache.favoritedPlaylistUuids?.contains(playlist.uuid) ?? false
+	}
 
 	var body: some View {
 		Group {
 			Group{
 				Button {
-					player.add(playlist: playlist, .now)
+					player.add(playlist: playlist, .now, source: source)
 				} label: {
 					Text("Add Now")
 				}
 				Button {
-					player.add(playlist: playlist, .next)
+					player.add(playlist: playlist, .next, source: source)
 				} label: {
 					Text("Add Next")
 				}
 				Button {
-					player.add(playlist: playlist, .last)
+					player.add(playlist: playlist, .last, source: source)
 				} label: {
 					Text("Add Last")
 				}
@@ -56,12 +63,13 @@ struct PlaylistContextMenu: View {
 						Text("Delete Playlist …")
 					}
 				} else {
-					if isFavorite ?? false {
+					if isFavorite {
 						Button {
 							Task {
 								print("Remove from Favorites")
 								if await session.favorites?.removePlaylist(playlistId: playlist.uuid) == true {
-									isFavorite = false
+									viewState.cache.favoritedPlaylistUuids?.remove(playlist.uuid)
+									NotificationCenter.default.post(name: .favoritePlaylistChanged, object: nil)
 								}
 							}
 						} label: {
@@ -72,7 +80,8 @@ struct PlaylistContextMenu: View {
 							Task {
 								print("Add to Favorites")
 								if await session.favorites?.addPlaylist(playlistId: playlist.uuid) == true {
-									isFavorite = true
+									viewState.cache.favoritedPlaylistUuids?.insert(playlist.uuid)
+									NotificationCenter.default.post(name: .favoritePlaylistChanged, object: nil)
 								}
 							}
 						} label: {
@@ -153,7 +162,6 @@ struct PlaylistContextMenu: View {
 			}
 		}
 		.task(id: playlist.uuid) {
-			isFavorite = await playlist.isInFavorites(session: session)
 			isOffline = await playlist.isOffline(session: session)
 		}
 	}

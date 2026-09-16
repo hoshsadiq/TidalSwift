@@ -19,6 +19,11 @@ final class PlaybackInfo: ObservableObject {
 	@Published var repeatState: RepeatState = .off
 	@Published var pauseAfter: Bool = false
 	@Published var failedTrackIds: Set<Int> = []
+
+	// MARK: Now Playing drawer
+	/// Whether the Now Playing drawer is expanded. Toggled by tapping the player
+	/// bar's artwork/info region.
+	@Published var isNowPlayingExpanded: Bool = false
 }
 
 enum RepeatState: Int, CaseIterable, Codable {
@@ -48,6 +53,7 @@ struct CodablePlaybackInfo: Codable {
 	var nonShuffledQueue: [WrappedTrack]
 	var queue: [WrappedTrack]
 	var currentIndex: Int
+	var source: QueueSource?
 
 	var history: [WrappedTrack]
 	var maxHistoryItems: Int

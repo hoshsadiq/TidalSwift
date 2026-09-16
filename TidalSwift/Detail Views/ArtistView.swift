@@ -168,7 +168,8 @@ struct ArtistView: View {
 		ScrollView {
 			TrackList(wrappedTracks: topTracks, showCover: true, showAlbumTrackNumber: false,
 					  showArtist: true, showAlbum: true, playlist: nil,
-					  session: session, player: player)
+					  session: session, player: player,
+					  source: artist.map { QueueSource(type: .artist, title: $0.name, id: String($0.id)) })
 		}
 		.frame(height: 155)
 	}

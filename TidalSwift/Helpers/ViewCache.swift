@@ -21,6 +21,10 @@ struct ViewCache: Codable {
 	var favoriteTracks: [Track]?
 	var favoriteVideos: [Video]?
 
+	var allPlaylists: [Playlist]?
+	/// Uuids of the favourited subset of `allPlaylists` (which also holds user-created playlists).
+	var favoritedPlaylistUuids: Set<String>?
+
 //	var artist: [Int: Artist] = [:]
 //	var album: [Int: Album] = [:]
 //	var playlist: [String: Playlist] = [:]

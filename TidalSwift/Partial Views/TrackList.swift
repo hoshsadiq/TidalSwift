@@ -19,24 +19,85 @@ struct TrackList: View {
 	let playlist: Playlist? // Has to be nil if not displaying User Playlist
 	let session: Session
 	let player: Player
+	var source: QueueSource?
+
+	@State private var selectedTrackId: Int?
+	@State private var hoveringTrackId: Int?
+	@FocusState private var focusedTrackId: Int?
 
 	var body: some View {
 		LazyVStack {
 			ForEach(wrappedTracks) { wrappedTrack in
 				TrackRow(track: wrappedTrack.track, showCover: showCover, showArtist: showArtist, showAlbum: showAlbum,
 						 trackNumber: showAlbumTrackNumber ? nil : wrappedTrack.id, session: session)
+				.padding(.horizontal, 8)
+				.background(
+					RoundedRectangle(cornerRadius: CORNERRADIUS)
+						.fill(rowBackground(for: wrappedTrack.id))
+						.padding(.vertical, -8)
+				)
+				.padding(.horizontal, 10)
+				.contentShape(Rectangle())
+				.onHover { hovering in
+					if hovering {
+						hoveringTrackId = wrappedTrack.id
+					} else if hoveringTrackId == wrappedTrack.id {
+						hoveringTrackId = nil
+					}
+				}
 				.onTapGesture(count: 2) {
 					if wrappedTrack.track.isUnavailable { return }
 					print("\(wrappedTrack.track.id) \(wrappedTrack.track.title)")
-					player.add(tracks: wrappedTracks.unwrapped(), .now, playAt: wrappedTrack.id)
+					player.add(tracks: wrappedTracks.unwrapped(), .now, playAt: wrappedTrack.id, source: source)
+				}
+				.onTapGesture(count: 1) {
+					selectedTrackId = wrappedTrack.id
+					focusedTrackId = wrappedTrack.id
 				}
 				.contextMenu {
 					TrackContextMenu(track: wrappedTrack.track, indexInPlaylist: playlist != nil ? wrappedTrack.id : nil, playlist: playlist, session: session, player: player)
 				}
+				.focusable()
+				.focused($focusedTrackId, equals: wrappedTrack.id)
+				.focusEffectDisabled()
+				.onKeyPress(.upArrow) {
+					moveFocus(from: wrappedTrack.id, by: -1)
+					return .handled
+				}
+				.onKeyPress(.downArrow) {
+					moveFocus(from: wrappedTrack.id, by: 1)
+					return .handled
+				}
 				Divider()
+					.padding(.horizontal, 18)
 			}
 		}
-		.padding(.horizontal)
+		.onChange(of: focusedTrackId) { _, newValue in
+			// Keyboard focus and selection are unified, like an NSTableView: moving
+			// focus with Tab or the arrow keys also moves the selection highlight.
+			if let newValue {
+				selectedTrackId = newValue
+			}
+		}
+	}
+
+	private func rowBackground(for trackId: Int) -> Color {
+		if selectedTrackId == trackId {
+			return Color.controlAccentColor.opacity(0.25)
+		}
+		if hoveringTrackId == trackId {
+			return Color.primary.opacity(0.08)
+		}
+		return .clear
+	}
+
+	private func moveFocus(from trackId: Int, by offset: Int) {
+		guard let index = wrappedTracks.firstIndex(where: { $0.id == trackId }) else { return }
+		let newIndex = index + offset
+		guard wrappedTracks.indices.contains(newIndex) else { return }
+		let newId = wrappedTracks[newIndex].id
+		focusedTrackId = newId
+		selectedTrackId = newId
 	}
 }
 

@@ -161,6 +161,28 @@ public class Download {
 	}
 }
 
+/// Sanitizes a single path component derived from untrusted API data (e.g. a title).
+/// Removes path separators, `..` sequences, leading dots and control characters.
+private func sanitizedPathComponent(_ component: String) -> String {
+	var sanitized = component
+		.replacingOccurrences(of: "/", with: ":")
+		.replacingOccurrences(of: "\\", with: ":")
+		.replacingOccurrences(of: "..", with: "")
+	sanitized = sanitized.components(separatedBy: .controlCharacters).joined()
+	sanitized = String(sanitized.drop(while: { $0 == "." }))
+	return sanitized
+}
+
+/// Sanitizes a parent folder path. `/` separators between components are kept,
+/// but every component is sanitized individually, so `..` can't escape the root.
+private func sanitizedParentFolder(_ parentFolder: String) -> String {
+	parentFolder
+		.split(separator: "/", omittingEmptySubsequences: true)
+		.map { sanitizedPathComponent(String($0)) }
+		.filter { !$0.isEmpty }
+		.joined(separator: "/")
+}
+
 func buildPath(baseLocation: DownloadLocation, parentFolder: String?, name: String, pathExtension: String?) -> URL? {
 
 //	if !parentFolder.isEmpty {
@@ -189,12 +211,23 @@ func buildPath(baseLocation: DownloadLocation, parentFolder: String?, name: Stri
 											   appropriateFor: nil,
 											   create: false)
 		}
+		let root = path
 		if let parentFolder = parentFolder {
-			path.appendPathComponent(parentFolder)
+			let sanitizedFolder = sanitizedParentFolder(parentFolder)
+			if !sanitizedFolder.isEmpty {
+				path.appendPathComponent(sanitizedFolder)
+			}
 		}
-		path.appendPathComponent(name.replacingOccurrences(of: "/", with: ":"))
+		path.appendPathComponent(sanitizedPathComponent(name))
 		if let pathExtension = pathExtension {
 			path.appendPathExtension(pathExtension)
+		}
+		// Defense in depth: never return a path outside of the download root.
+		let rootPath = root.standardizedFileURL.path
+		let resolvedPath = path.standardizedFileURL.path
+		guard resolvedPath.hasPrefix(rootPath + "/") else {
+			displayError(title: "Path Building Error", content: "Refusing to build path outside of download root: \(name)")
+			return nil
 		}
 	} catch {
 		displayError(title: "Path Building Error", content: "File Error: \(error)")

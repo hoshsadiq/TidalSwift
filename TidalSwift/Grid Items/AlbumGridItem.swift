@@ -113,7 +113,7 @@ struct AlbumGridItem: View {
 		.help(toolTipString)
 		.onTapGesture(count: 2) {
 			print("Second Click. \(album.title)")
-			player.add(album: album, .now)
+			player.add(album: album, .now, source: QueueSource(type: .album, title: album.title, id: String(album.id)))
 		}
 		.onTapGesture(count: 1) {
 			print("First Click. \(album.title)")

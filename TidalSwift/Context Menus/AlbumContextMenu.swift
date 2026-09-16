@@ -19,22 +19,26 @@ struct AlbumContextMenu: View {
 	@State private var isFavorite: Bool? = nil
 	@State private var isOffline: Bool = false
 
+	private var source: QueueSource {
+		QueueSource(type: .album, title: album.title, id: String(album.id))
+	}
+
 	var body: some View {
 		Group {
 			Group {
 				if album.streamReady ?? false {
 					Button {
-						player.add(album: album, .now)
+						player.add(album: album, .now, source: source)
 					} label: {
 						Text("Add Now")
 					}
 					Button {
-						player.add(album: album, .next)
+						player.add(album: album, .next, source: source)
 					} label: {
 						Text("Add Next")
 					}
 					Button {
-						player.add(album: album, .last)
+						player.add(album: album, .last, source: source)
 					} label: {
 						Text("Add Last")
 					}

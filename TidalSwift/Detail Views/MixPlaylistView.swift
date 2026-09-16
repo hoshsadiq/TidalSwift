@@ -48,7 +48,8 @@ struct MixPlaylistView: View {
 
 						TrackList(wrappedTracks: tracks.wrapped(), showCover: true, showAlbumTrackNumber: false,
 								  showArtist: true, showAlbum: true, playlist: nil,
-								  session: session, player: player)
+								  session: session, player: player,
+								  source: QueueSource(type: .mix, title: mix.title, id: mix.id))
 					}
 					Spacer(minLength: 0)
 				}

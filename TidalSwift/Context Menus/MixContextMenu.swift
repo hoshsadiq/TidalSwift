@@ -16,12 +16,16 @@ struct MixContextMenu: View {
 
 	@EnvironmentObject var playlistEditingValues: PlaylistEditingValues
 
+	private var source: QueueSource {
+		QueueSource(type: .mix, title: mix.title, id: mix.id)
+	}
+
 	var body: some View {
 		Group {
 			Button {
 				Task {
 					if let tracks = await session.mixPlaylistTracks(mixId: mix.id) {
-						player.add(tracks: tracks, .now)
+						player.add(tracks: tracks, .now, source: source)
 					}
 				}
 			} label: {
@@ -30,7 +34,7 @@ struct MixContextMenu: View {
 			Button {
 				Task {
 					if let tracks = await session.mixPlaylistTracks(mixId: mix.id) {
-						player.add(tracks: tracks, .next)
+						player.add(tracks: tracks, .next, source: source)
 					}
 				}
 			} label: {
@@ -39,7 +43,7 @@ struct MixContextMenu: View {
 			Button {
 				Task {
 					if let tracks = await session.mixPlaylistTracks(mixId: mix.id) {
-						player.add(tracks: tracks, .last)
+						player.add(tracks: tracks, .last, source: source)
 					}
 				}
 			} label: {

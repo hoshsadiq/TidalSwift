@@ -71,7 +71,6 @@ final class TidalSwiftAppModel: ObservableObject {
 
 	#if canImport(AppKit)
 	private var lyricsViewController: NSWindowController?
-	private var queueViewController: NSWindowController?
 	private var viewHistoryViewController: NSWindowController?
 	private var playbackHistoryViewController: NSWindowController?
 	private var windowCloseObserver: NSObjectProtocol?
@@ -128,6 +127,7 @@ final class TidalSwiftAppModel: ObservableObject {
 
 	@Published var trackIsFavorite = false
 	@Published var albumIsFavorite = false
+	@Published var showQueuePanel = false
 	@Published private(set) var audioQuality: AudioQuality
 
 	var hasCurrentTrack: Bool {
@@ -269,14 +269,6 @@ final class TidalSwiftAppModel: ObservableObject {
 		)
 		lyricsViewController?.window?.title = "Lyrics"
 
-		queueViewController = ResizableWindowControllerFactory.create(rootView:
-			QueueView(session: session, player: player)
-				.environmentObject(viewState)
-				.environmentObject(player.queueInfo)
-				.environmentObject(playlistEditingValues)
-		)
-		queueViewController?.window?.title = "Queue"
-
 		viewHistoryViewController = ResizableWindowControllerFactory.create(rootView:
 			ViewHistoryView()
 				.environmentObject(viewState)
@@ -293,17 +285,12 @@ final class TidalSwiftAppModel: ObservableObject {
 
 	func closeAllSecondaryWindows() {
 		lyricsViewController?.close()
-		queueViewController?.close()
 		viewHistoryViewController?.close()
 		playbackHistoryViewController?.close()
 	}
 
 	func showLyricsWindow() {
 		lyricsViewController?.showWindow(nil)
-	}
-
-	func showQueueWindow() {
-		queueViewController?.showWindow(nil)
 	}
 
 	func showPlaybackHistoryWindow() {
@@ -327,6 +314,7 @@ final class TidalSwiftAppModel: ObservableObject {
 
 				player.queueInfo.nonShuffledQueue = codablePI.nonShuffledQueue
 				player.queueInfo.queue = codablePI.queue
+				player.queueInfo.source = codablePI.source
 				player.queueInfo.history = codablePI.history
 				player.queueInfo.maxHistoryItems = codablePI.maxHistoryItems
 
@@ -366,6 +354,11 @@ final class TidalSwiftAppModel: ObservableObject {
 			}
 		}
 
+		// Land on the Music view when there is no persisted non-base view to restore.
+		if !viewState.stack.contains(where: { !$0.isBase() }) {
+			viewState.stack = [TidalSwiftView(viewType: .music)]
+		}
+
 		if let searchTerm = UserDefaults.standard.string(forKey: "SearchTerm") {
 			viewState.searchTerm = searchTerm
 			viewState.lastSearchTerm = searchTerm
@@ -396,6 +389,7 @@ final class TidalSwiftAppModel: ObservableObject {
 			nonShuffledQueue: player.queueInfo.nonShuffledQueue,
 			queue: player.queueInfo.queue,
 			currentIndex: player.queueInfo.currentIndex,
+			source: player.queueInfo.source,
 			history: player.queueInfo.history,
 			maxHistoryItems: player.queueInfo.maxHistoryItems
 		)
@@ -1083,7 +1077,9 @@ struct TidalSwiftCommands: Commands {
 				appModel.showLyricsWindow()
 			}
 			Button("Queue") {
-				appModel.showQueueWindow()
+				withAnimation {
+					appModel.showQueuePanel.toggle()
+				}
 			}
 			Button("Playback History") {
 				appModel.showPlaybackHistoryWindow()
