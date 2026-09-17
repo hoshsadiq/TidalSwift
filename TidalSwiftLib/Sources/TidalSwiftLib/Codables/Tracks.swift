@@ -53,6 +53,42 @@ public struct Track: Codable, Equatable, Identifiable, Hashable {
 	public let dateAdded: Date?
 	public let index: Int?
 	public let itemUuid: UUID?
+	public let bpm: Int?
+	public let key: String?
+	public let keyScale: String?
+
+	/// Musical key converted to Camelot notation (e.g. "11A", "7B"), or "-" when unknown.
+	public var camelotKey: String {
+		guard let key else { return "-" }
+		let normalized = Track.normalizeKey(key)
+		switch keyScale?.uppercased() {
+		case "MAJOR":
+			return Track.majorCamelot[normalized] ?? "-"
+		case "MINOR":
+			return Track.minorCamelot[normalized] ?? "-"
+		default:
+			return "-"
+		}
+	}
+
+	private static let majorCamelot: [String: String] = [
+		"C": "8B", "G": "9B", "D": "10B", "A": "11B", "E": "12B", "B": "1B",
+		"F#": "2B", "C#": "3B", "G#": "4B", "D#": "5B", "A#": "6B", "F": "7B"
+	]
+
+	private static let minorCamelot: [String: String] = [
+		"A": "8A", "E": "9A", "B": "10A", "F#": "11A", "C#": "12A", "G#": "1A",
+		"D#": "2A", "A#": "3A", "F": "4A", "C": "5A", "G": "6A", "D": "7A"
+	]
+
+	private static func normalizeKey(_ key: String) -> String {
+		let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+		let flats: [String: String] = [
+			"DB": "C#", "EB": "D#", "GB": "F#", "AB": "G#", "BB": "A#",
+			"CB": "B", "FB": "E"
+		]
+		return flats[trimmed] ?? trimmed
+	}
 
 	public func isInFavorites(session: Session) async -> Bool? {
 		await session.favorites?.doFavoritesContainTrack(trackId: id)

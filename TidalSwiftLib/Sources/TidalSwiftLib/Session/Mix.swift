@@ -15,12 +15,7 @@ extension Session {
 		let url = URL(string: "\(AuthInformation.APILocation)/pages/my_collection_my_mixes")!
 		do {
 			let response: Mixes = try await get(url: url, parameters: parameters)
-
-			// Filter out Video Mixes for now
-			// TODO: Add support for Video Mixes
-			let audioOnlyMixes = response.rows[0].modules[0].pagedList.items.filter { $0.mixType == .audio }
-
-			return audioOnlyMixes
+			return response.rows[0].modules[0].pagedList.items
 		} catch {
 			return nil
 		}

@@ -34,6 +34,11 @@ let package = Package(
 				.enableUpcomingFeature("NonisolatedNonsendingByDefault")
 			]
 		),
+		.testTarget(
+			name: "TidalSwiftLibTests",
+			dependencies: ["TidalSwiftLib"],
+			resources: [.copy("Fixtures")]
+		),
 
     ]
 )

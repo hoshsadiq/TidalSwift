@@ -37,21 +37,66 @@ struct MixesPagedList: Decodable {
 
 public enum MixType: String, Codable {
 	case header = "MIX_HEADER" // Because  of how Tidal structures its data
-	case audio = "DAILY_MIX"
+	case welcome = "WELCOME_MIX"
 	case video = "VIDEO_DAILY_MIX"
+	case audio = "DAILY_MIX"
 	case discovery = "DISCOVERY_MIX"
+	case newRelease = "NEW_RELEASE_MIX"
+	case track = "TRACK_MIX"
+	case artist = "ARTIST_MIX"
+	case songwriter = "SONGWRITER_MIX"
+	case producer = "PRODUCER_MIX"
+	case historyAllTime = "HISTORY_ALLTIME_MIX"
+	case historyMonthly = "HISTORY_MONTHLY_MIX"
+	case historyYearly = "HISTORY_YEARLY_MIX"
+	case unknown = "UNKNOWN"
+
+	// Tidal adds new mix types over time; unknown values must not break decoding.
+	public init(from decoder: Decoder) throws {
+		let container = try decoder.singleValueContainer()
+		let rawValue = try container.decode(String.self)
+		self = MixType(rawValue: rawValue) ?? .unknown
+	}
+
+	public func encode(to encoder: Encoder) throws {
+		var container = encoder.singleValueContainer()
+		try container.encode(rawValue)
+	}
 }
 
 public struct MixesItem: Codable, Equatable, Identifiable {
 	public let id: String
 	public let title: String
 	public let subTitle: String
-	public let graphic: MixesGraphic
+	public let graphic: MixesGraphic?
+	public let images: MixesImages?
 	public let mixType: MixType
 
 	public static func == (lhs: MixesItem, rhs: MixesItem) -> Bool {
 		lhs.id == rhs.id
 	}
+}
+
+public struct MixesImages: Codable {
+	public let small: MixesImage?
+	public let medium: MixesImage?
+	public let large: MixesImage?
+
+	enum CodingKeys: String, CodingKey {
+		case small = "SMALL"
+		case medium = "MEDIUM"
+		case large = "LARGE"
+	}
+}
+
+public struct MixesImage: Codable {
+	public let url: URL
+	public let width: Int?
+	public let height: Int?
+}
+
+struct MixIdResponse: Decodable {
+	let id: String
 }
 
 public enum MixesGraphicType: String, Codable {

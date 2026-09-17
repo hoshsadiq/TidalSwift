@@ -36,6 +36,7 @@ enum ViewType: String, Codable {
 	case album = "Album"
 	case playlist = "Playlist"
 	case mix = "Mix"
+	case viewAll = "View All"
 }
 
 struct TidalSwiftView: Codable, Equatable, Identifiable {
@@ -43,7 +44,8 @@ struct TidalSwiftView: Codable, Equatable, Identifiable {
 		String(describing: artist?.id) +
 		String(describing: album?.id) +
 		String(describing: playlist?.uuid) +
-		String(describing: mix?.id)
+		String(describing: mix?.id) +
+		String(describing: viewAllTarget?.path)
 	}
 
 	var viewType: ViewType
@@ -51,6 +53,8 @@ struct TidalSwiftView: Codable, Equatable, Identifiable {
 	var album: Album?
 	var playlist: Playlist?
 	var mix: MixesItem?
+	/// Payload of the `.viewAll` route.
+	var viewAllTarget: ViewAllTarget?
 
 	var loadingState: LoadingState = .loading
 
@@ -67,7 +71,8 @@ struct TidalSwiftView: Codable, Equatable, Identifiable {
 	static func == (lhs: TidalSwiftView, rhs: TidalSwiftView) -> Bool {
 		lhs.viewType == rhs.viewType && lhs.artist == rhs.artist &&
 			lhs.album == rhs.album && lhs.playlist == rhs.playlist &&
-			lhs.mix == rhs.mix && lhs.loadingState == rhs.loadingState &&
+			lhs.mix == rhs.mix && lhs.viewAllTarget == rhs.viewAllTarget &&
+			lhs.loadingState == rhs.loadingState &&
 			lhs.searchResponse == rhs.searchResponse && lhs.mixes == rhs.mixes &&
 			lhs.artists == rhs.artists && lhs.albums == rhs.albums &&
 			lhs.playlists == rhs.playlists && lhs.tracks == rhs.tracks &&
@@ -77,7 +82,7 @@ struct TidalSwiftView: Codable, Equatable, Identifiable {
 	static func equateBase(_ lhs: TidalSwiftView, _ rhs: TidalSwiftView) -> Bool {
 		lhs.viewType == rhs.viewType && lhs.artist == rhs.artist &&
 			lhs.album == rhs.album && lhs.playlist == rhs.playlist &&
-			lhs.mix == rhs.mix
+			lhs.mix == rhs.mix && lhs.viewAllTarget == rhs.viewAllTarget
 	}
 
 	func isBase() -> Bool {
@@ -99,6 +104,7 @@ final class ViewState: ObservableObject {
 	@Published var newReleasesIncludeEps: Bool = false
 	@Published var stack: [TidalSwiftView] = []
 	@Published var history: [TidalSwiftView] = []
+	@Published var forwardStack: [TidalSwiftView] = []
 	var maxHistoryItems: Int = 100
 
 	var refreshTask: Task<Void, Never>?
@@ -138,13 +144,32 @@ final class ViewState: ObservableObject {
 		push(view: view)
 	}
 
-	func pop() {
-		stack.removeLast()
+	var canGoBack: Bool { stack.count > 1 }
+	var canGoForward: Bool { !forwardStack.isEmpty }
+
+	func back() {
+		guard stack.count > 1 else { return }
+		refreshTask?.cancel()
+		let removed = stack.removeLast()
+		forwardStack.append(removed)
 		refreshCurrentView()
+	}
+
+	func forward() {
+		guard let next = forwardStack.popLast() else { return }
+		refreshTask?.cancel()
+		stack.append(next)
+		addToHistory(next)
+		refreshCurrentView()
+	}
+
+	func pop() {
+		back()
 	}
 
 	func clearStack() {
 		stack.removeAll()
+		forwardStack.removeAll()
 	}
 
 	func addToHistory(_ view: TidalSwiftView) {

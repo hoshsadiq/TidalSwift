@@ -63,14 +63,14 @@ struct MixImage: View {
 
 	var body: some View {
 		GeometryReader { metrics in
-			if mix.graphic.images.count >= 5 {
+			if let graphic = mix.graphic, graphic.images.count >= 5 {
 				ZStack {
 					VStack {
 						HStack {
 							Text(mix.title)
 								.font(.system(size: metrics.size.width * 0.1))
 								.bold()
-								.foregroundColor(Color(hex: mix.graphic.images[0].vibrantColor) ?? Color.gray)
+								.foregroundColor(Color(hex: graphic.images[0].vibrantColor) ?? Color.gray)
 								.padding(metrics.size.width * 0.1)
 							Spacer()
 						}
@@ -81,7 +81,7 @@ struct MixImage: View {
 					VStack {
 						HStack {
 							// 4
-							if let imageUrl = mix.graphic.images[4].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
+							if let imageUrl = graphic.images[4].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
 								AsyncImage(url: imageUrl, content: { image in
 									image.resizable().scaledToFit()
 								}, placeholder: {
@@ -92,7 +92,7 @@ struct MixImage: View {
 							}
 
 							// 0 1
-							if let imageUrl = mix.graphic.images[0].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
+							if let imageUrl = graphic.images[0].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
 								AsyncImage(url: imageUrl, content: { image in
 									image.resizable().scaledToFit()
 								}, placeholder: {
@@ -101,7 +101,7 @@ struct MixImage: View {
 								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
 								.padding(metrics.size.width * 0.01)
 							}
-							if let imageUrl = mix.graphic.images[1].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
+							if let imageUrl = graphic.images[1].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
 								AsyncImage(url: imageUrl, content: { image in
 									image.resizable().scaledToFit()
 								}, placeholder: {
@@ -112,7 +112,7 @@ struct MixImage: View {
 							}
 
 							// 2 3 4
-							if let imageUrl = mix.graphic.images[2].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
+							if let imageUrl = graphic.images[2].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
 								AsyncImage(url: imageUrl, content: { image in
 									image.resizable().scaledToFit()
 								}, placeholder: {
@@ -121,7 +121,7 @@ struct MixImage: View {
 								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
 								.padding(metrics.size.width * 0.01)
 							}
-							if let imageUrl = mix.graphic.images[3].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
+							if let imageUrl = graphic.images[3].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
 								AsyncImage(url: imageUrl, content: { image in
 									image.resizable().scaledToFit()
 								}, placeholder: {
@@ -130,7 +130,7 @@ struct MixImage: View {
 								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
 								.padding(metrics.size.width * 0.01)
 							}
-							if let imageUrl = mix.graphic.images[4].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
+							if let imageUrl = graphic.images[4].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
 								AsyncImage(url: imageUrl, content: { image in
 									image.resizable().scaledToFit()
 								}, placeholder: {
@@ -141,7 +141,7 @@ struct MixImage: View {
 							}
 
 							// 0 1
-							if let imageUrl = mix.graphic.images[0].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
+							if let imageUrl = graphic.images[0].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
 								AsyncImage(url: imageUrl, content: { image in
 									image.resizable().scaledToFit()
 								}, placeholder: {
@@ -150,7 +150,7 @@ struct MixImage: View {
 								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
 								.padding(metrics.size.width * 0.01)
 							}
-							if let imageUrl = mix.graphic.images[1].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
+							if let imageUrl = graphic.images[1].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
 								AsyncImage(url: imageUrl, content: { image in
 									image.resizable().scaledToFit()
 								}, placeholder: {
@@ -168,7 +168,7 @@ struct MixImage: View {
 								.frame(width: metrics.size.width * 0.2)
 
 							// 2 3 4
-							if let imageUrl = mix.graphic.images[2].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
+							if let imageUrl = graphic.images[2].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
 								AsyncImage(url: imageUrl, content: { image in
 									image.resizable().scaledToFit()
 								}, placeholder: {
@@ -177,7 +177,7 @@ struct MixImage: View {
 								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
 								.padding(.trailing, metrics.size.width * 0.01)
 							}
-							if let imageUrl = mix.graphic.images[3].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
+							if let imageUrl = graphic.images[3].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
 								AsyncImage(url: imageUrl, content: { image in
 									image.resizable().scaledToFit()
 								}, placeholder: {
@@ -186,7 +186,7 @@ struct MixImage: View {
 								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
 								.padding(metrics.size.width * 0.01)
 							}
-							if let imageUrl = mix.graphic.images[4].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
+							if let imageUrl = graphic.images[4].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
 								AsyncImage(url: imageUrl, content: { image in
 									image.resizable().scaledToFit()
 								}, placeholder: {
@@ -197,7 +197,7 @@ struct MixImage: View {
 							}
 
 							// 0 1
-							if let imageUrl = mix.graphic.images[0].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
+							if let imageUrl = graphic.images[0].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
 								AsyncImage(url: imageUrl, content: { image in
 									image.resizable().scaledToFit()
 								}, placeholder: {
@@ -206,7 +206,7 @@ struct MixImage: View {
 								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
 								.padding(metrics.size.width * 0.01)
 							}
-							if let imageUrl = mix.graphic.images[1].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
+							if let imageUrl = graphic.images[1].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
 								AsyncImage(url: imageUrl, content: { image in
 									image.resizable().scaledToFit()
 								}, placeholder: {
@@ -217,7 +217,7 @@ struct MixImage: View {
 							}
 
 							// 2 3 4
-							if let imageUrl = mix.graphic.images[2].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
+							if let imageUrl = graphic.images[2].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
 								AsyncImage(url: imageUrl, content: { image in
 									image.resizable().scaledToFit()
 								}, placeholder: {
@@ -226,7 +226,7 @@ struct MixImage: View {
 								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
 								.padding(metrics.size.width * 0.01)
 							}
-							if let imageUrl = mix.graphic.images[3].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
+							if let imageUrl = graphic.images[3].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
 								AsyncImage(url: imageUrl, content: { image in
 									image.resizable().scaledToFit()
 								}, placeholder: {
@@ -235,7 +235,7 @@ struct MixImage: View {
 								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
 								.padding(metrics.size.width * 0.01)
 							}
-							if let imageUrl = mix.graphic.images[4].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
+							if let imageUrl = graphic.images[4].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
 								AsyncImage(url: imageUrl, content: { image in
 									image.resizable().scaledToFit()
 								}, placeholder: {
@@ -261,12 +261,29 @@ struct MixImage: View {
 				.clipped()
 				.overlay(
 					RoundedRectangle(cornerRadius: CORNERRADIUS)
-						.stroke(Color(hex: mix.graphic.images[0].vibrantColor) ?? Color.gray, lineWidth: metrics.size.width * 0.1)
+						.stroke(Color(hex: graphic.images[0].vibrantColor) ?? Color.gray, lineWidth: metrics.size.width * 0.1)
 				)
-				.background((Color(hex: mix.graphic.images[0].vibrantColor) ?? Color.gray).colorMultiply(Color.gray))
+				.background((Color(hex: graphic.images[0].vibrantColor) ?? Color.gray).colorMultiply(Color.gray))
+			} else if let imageUrl = mix.images?.medium?.url ?? mix.images?.large?.url ?? mix.images?.small?.url {
+				// Page mixes ship finished square artwork in `images` rather than a
+				// client-assembled `graphic` collage.
+				AsyncImage(url: imageUrl) { image in
+					image.resizable().scaledToFill()
+				} placeholder: {
+					Rectangle()
+				}
+				.frame(width: metrics.size.width, height: metrics.size.width)
+				.clipped()
 			} else {
-				Rectangle()
-					.foregroundColor(Color.black)
+				// No cover art: fill the same footprint as the real artwork with a
+				// neutral placeholder so the card keeps its size and alignment.
+				ZStack {
+					Rectangle()
+						.foregroundColor(Color.gray.opacity(0.3))
+					Image(systemName: "music.note")
+						.font(.system(size: metrics.size.width * 0.3))
+						.foregroundColor(.secondary)
+				}
 			}
 		}
 	}

@@ -14,6 +14,9 @@ struct ViewCache: Codable {
 
 	var newReleases: [Album]?
 	var mixes: [MixesItem]?
+	var homePageForYou: Page?
+	var homePageStaffPicks: Page?
+	var homePageUploads: Page?
 
 	var favoriteArtists: [Artist]?
 	var favoriteAlbums: [Album]?

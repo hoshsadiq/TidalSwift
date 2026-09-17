@@ -58,6 +58,9 @@ extension ViewState {
 			playlist()
 		case .mix:
 			mix()
+		case .viewAll:
+			// ViewAllPage fetches its own page on appear.
+			doNothing()
 
 		case nil:
 			doNothing()

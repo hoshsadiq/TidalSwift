@@ -67,4 +67,14 @@ extension Session {
 			return nil
 		}
 	}
+
+	public func trackMix(trackId: Int) async -> String? {
+		let url = URL(string: "\(AuthInformation.APILocation)/tracks/\(trackId)/mix")!
+		do {
+			let response: MixIdResponse = try await get(url: url, parameters: sessionParameters)
+			return response.id
+		} catch {
+			return nil
+		}
+	}
 }

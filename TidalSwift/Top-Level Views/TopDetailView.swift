@@ -112,13 +112,37 @@ struct TopDetailView: View {
 	// MARK: - Toolbar Navigation
 
 	private var navigationControls: some View {
-		HStack(spacing: 4) {
-			Image(systemName: "chevron.left")
-			Image(systemName: "chevron.right")
+		HStack(spacing: 6) {
+			Button {
+				viewState.back()
+			} label: {
+				Image(systemName: "chevron.left")
+					.font(.system(size: 11, weight: .bold))
+					.frame(width: 26, height: 26)
+					.background(Circle().fill(Color.secondary.opacity(viewState.canGoBack ? 0.12 : 0.05)))
+					.foregroundStyle(viewState.canGoBack ? Color.primary : Color.secondary)
+					.contentShape(Circle())
+			}
+			.buttonStyle(.plain)
+			.disabled(!viewState.canGoBack)
+			.help("Back")
+			.accessibilityLabel("Back")
+
+			Button {
+				viewState.forward()
+			} label: {
+				Image(systemName: "chevron.right")
+					.font(.system(size: 11, weight: .bold))
+					.frame(width: 26, height: 26)
+					.background(Circle().fill(Color.secondary.opacity(viewState.canGoForward ? 0.12 : 0.05)))
+					.foregroundStyle(viewState.canGoForward ? Color.primary : Color.secondary)
+					.contentShape(Circle())
+			}
+			.buttonStyle(.plain)
+			.disabled(!viewState.canGoForward)
+			.help("Forward")
+			.accessibilityLabel("Forward")
 		}
-		.font(.system(size: 14, weight: .semibold))
-		.secondaryIconColor()
-		.help("Navigation controls coming soon")
 	}
 
 	// MARK: - Search
@@ -309,7 +333,7 @@ struct DetailView: View {
 					Group {
 						// Primary
 						if viewType == .music {
-							MusicHomeView()
+							MusicHomeView(session: session, player: player)
 						} else if viewType == .explore {
 							ComingSoonView(title: "Explore")
 						} else if viewType == .feed {
@@ -360,6 +384,10 @@ struct DetailView: View {
 							PlaylistView(session: session, player: player)
 						} else if viewType == .mix {
 							MixPlaylistView(session: session, player: player)
+						} else if viewType == .viewAll {
+							if let target = viewState.stack.last?.viewAllTarget {
+								ViewAllPage(target: target, session: session, player: player)
+							}
 						}
 					}
 				} else {
@@ -367,13 +395,6 @@ struct DetailView: View {
 				}
 			}
 		}
-	}
-}
-
-// Placeholder until the Music tab home page is implemented.
-struct MusicHomeView: View {
-	var body: some View {
-		ComingSoonView(title: "Music")
 	}
 }
 

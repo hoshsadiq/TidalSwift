@@ -117,4 +117,14 @@ extension Session {
 			return nil
 		}
 	}
+
+	public func artistMix(artistId: Int) async -> String? {
+		let url = URL(string: "\(AuthInformation.APILocation)/artists/\(artistId)/mix")!
+		do {
+			let response: MixIdResponse = try await get(url: url, parameters: sessionParameters)
+			return response.id
+		} catch {
+			return nil
+		}
+	}
 }

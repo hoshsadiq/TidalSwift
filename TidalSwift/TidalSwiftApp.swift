@@ -354,9 +354,16 @@ final class TidalSwiftAppModel: ObservableObject {
 			}
 		}
 
+		if let data = UserDefaults.standard.data(forKey: "ViewStateForwardStack") {
+			if let tempForwardStack = try? JSONDecoder().decode([TidalSwiftView].self, from: data) {
+				viewState.forwardStack = tempForwardStack
+			}
+		}
+
 		// Land on the Music view when there is no persisted non-base view to restore.
 		if !viewState.stack.contains(where: { !$0.isBase() }) {
 			viewState.stack = [TidalSwiftView(viewType: .music)]
+			viewState.forwardStack.removeAll()
 		}
 
 		if let searchTerm = UserDefaults.standard.string(forKey: "SearchTerm") {
@@ -403,6 +410,8 @@ final class TidalSwiftAppModel: ObservableObject {
 		UserDefaults.standard.set(viewState.newReleasesIncludeEps, forKey: "NewReleasesIncludeEps")
 		let viewStackData = try? JSONEncoder().encode(viewState.stack)
 		UserDefaults.standard.set(viewStackData, forKey: "ViewStateStack")
+		let viewForwardStackData = try? JSONEncoder().encode(viewState.forwardStack)
+		UserDefaults.standard.set(viewForwardStackData, forKey: "ViewStateForwardStack")
 		let viewHistoryData = try? JSONEncoder().encode(viewState.history)
 		UserDefaults.standard.set(viewHistoryData, forKey: "ViewStateHistory")
 		UserDefaults.standard.set(viewState.maxHistoryItems, forKey: "ViewStateHistoryMaxItems")
