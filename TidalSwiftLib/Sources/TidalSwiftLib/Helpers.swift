@@ -22,29 +22,4 @@ public class Helpers {
 		self.offline = Offline(session: session, downloadStatus: downloadStatus)
 		self.download = Download(session: session, metadata: self.metadata, downloadStatus: downloadStatus)
 	}
-
-	public func newReleasesFromFavoriteArtists(number: Int = 30, includeEps: Bool) async -> [Album]? {
-		guard let favoriteArtists = await session.favorites?.artists() else {
-			return nil
-		}
-
-		let albums = await withTaskGroup(of: [Album]?.self, returning: [Album].self) { [session] group in
-			for artist in favoriteArtists {
-				group.addTask { await session.artistAlbums(artistId: artist.item.id, filter: nil, limit: number) }
-				if includeEps {
-					group.addTask { await session.artistAlbums(artistId: artist.item.id, filter: .epsAndSingles, limit: number) }
-				}
-			}
-
-			var allReleases = Set<Album>()
-			for await albums in group {
-				guard let albums else { continue }
-				allReleases.formUnion(albums)
-			}
-
-			return Array(allReleases).sorted { $0.releaseDate ?? Date.distantPast > $1.releaseDate ?? Date.distantPast }
-		}
-
-		return Array(albums.prefix(number))
-	}
 }

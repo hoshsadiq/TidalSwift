@@ -12,11 +12,9 @@ import TidalSwiftLib
 struct ViewCache: Codable {
 	var searchResponses: [String: SearchResponse] = [:]
 
-	var newReleases: [Album]?
-	var mixes: [MixesItem]?
-	var homePageForYou: Page?
-	var homePageStaffPicks: Page?
-	var homePageUploads: Page?
+	var homeFeedForYou: HomeFeedV2?
+	var homeFeedStaffPicks: HomeFeedV2?
+	var homeFeedUploads: HomeFeedV2?
 
 	var favoriteArtists: [Artist]?
 	var favoriteAlbums: [Album]?
@@ -41,4 +39,28 @@ struct ViewCache: Codable {
 	var artistVideos: [Int: [Video]] = [:]
 	var albumTracks: [Int: [Track]] = [:]
 	var playlistTracks: [String: [Track]] = [:]
+}
+
+extension ViewCache {
+	func homeFeed(for tab: MusicTab) -> HomeFeedV2? {
+		switch tab {
+		case .forYou:
+			return homeFeedForYou
+		case .staffPicks:
+			return homeFeedStaffPicks
+		case .uploads:
+			return homeFeedUploads
+		}
+	}
+
+	mutating func setHomeFeed(_ feed: HomeFeedV2, for tab: MusicTab) {
+		switch tab {
+		case .forYou:
+			homeFeedForYou = feed
+		case .staffPicks:
+			homeFeedStaffPicks = feed
+		case .uploads:
+			homeFeedUploads = feed
+		}
+	}
 }

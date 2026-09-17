@@ -13,7 +13,17 @@ enum AuthInformation {
     static let OAuthClientSecret = "7cNdrLt3NIQg0CHEpMDjcbV38XlwVdstczHqf59QiI0="
 	static let scope = "r_usr+w_usr"
     static let APILocation = "https://api.tidal.com/v1"
-    static let APIV2Location = "https://api.tidal.com/v2"
+	// The official desktop client asks the v2 feed on `tidal.com` (not
+	// `api.tidal.com`); both hosts answer identically.
+    static let APIV2Location = "https://tidal.com/v2"
+	// Required by the v2 API (`x-tidal-client-version`); without it it answers HTTP 400.
+	//
+	// The value also gates the home feed: a value parsed as semver below ~2026.4
+	// (e.g. the old `2026.1.5`) is treated as a legacy client and gets a reduced
+	// feed — fewer sections, and track rows typed `TRACK_LIST`/`VERTICAL_LIST`
+	// instead of `COMPACT_GRID_CARD`. `2026.09.15` is the official desktop
+	// client's version and returns the full feed.
+	static let clientVersion = "2026.09.15"
     static let AuthLocation = "https://auth.tidal.com/v1/oauth2"
     static let ImageLocation = "https://resources.tidal.com/images"
 }

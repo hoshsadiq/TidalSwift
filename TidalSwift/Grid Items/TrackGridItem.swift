@@ -14,28 +14,22 @@ struct TrackGridItem: View {
 	let showArtist: Bool
 	let session: Session
 	let player: Player
+	var artworkSize: CGFloat = 160
 
 	var body: some View {
 		VStack {
 			if let coverUrl = track.album.getCoverUrl(session: session, resolution: 320) {
-				AsyncImage(url: coverUrl) { image in
-					image.resizable().scaledToFit()
-				} placeholder: {
-					Rectangle()
-				}
-				.aspectRatio(contentMode: .fit)
-				.frame(width: 160, height: 160)
-				.cornerRadius(CORNERRADIUS)
-				.accessibilityHidden(true)
+				ArtworkImage(url: coverUrl, size: artworkSize, showsShadow: false)
 			} else {
 				ZStack {
 					Rectangle()
-						.frame(width: 160, height: 160)
+						.foregroundColor(Color.secondary.opacity(0.15))
+						.frame(width: artworkSize, height: artworkSize)
 					Text(track.title)
-						.foregroundColor(.white)
+						.foregroundColor(.primary)
 						.multilineTextAlignment(.center)
 						.lineLimit(5)
-						.frame(width: 160)
+						.frame(width: artworkSize)
 				}
 			}
 			HStack {
@@ -50,13 +44,13 @@ struct TrackGridItem: View {
 					.layoutPriority(1)
 			}
 			.lineLimit(1)
-			.frame(width: 160)
+			.frame(width: artworkSize)
 			if showArtist {
 				Text(track.artists.formArtistString())
 					.fontWeight(.light)
 					.foregroundColor(Color.secondary)
 					.lineLimit(1)
-					.frame(width: 160)
+					.frame(width: artworkSize)
 					.padding(.top, track.hasAttributes ? -6.5 : 0)
 			}
 		}

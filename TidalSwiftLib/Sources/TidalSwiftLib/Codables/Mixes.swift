@@ -72,6 +72,15 @@ public struct MixesItem: Codable, Equatable, Identifiable {
 	public let images: MixesImages?
 	public let mixType: MixType
 
+	public init(id: String, title: String, subTitle: String, graphic: MixesGraphic?, images: MixesImages?, mixType: MixType) {
+		self.id = id
+		self.title = title
+		self.subTitle = subTitle
+		self.graphic = graphic
+		self.images = images
+		self.mixType = mixType
+	}
+
 	public static func == (lhs: MixesItem, rhs: MixesItem) -> Bool {
 		lhs.id == rhs.id
 	}

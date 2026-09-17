@@ -1,0 +1,72 @@
+{
+	"uuid": "module-types-fixture",
+	"page": {
+		"cursor": null
+	},
+	"header": {
+		"vibes": {
+			"items": []
+		}
+	},
+	"items": [
+		{
+			"type": "HORIZONTAL_LIST",
+			"moduleId": "HORIZONTAL_LIST_MODULE",
+			"title": "Horizontal list",
+			"subtitle": "Albums and playlists",
+			"viewAll": "home/pages/HORIZONTAL_LIST_MODULE/view-all",
+			"items": [
+				{
+					"type": "ALBUM",
+					"data": {
+						"id": 12345678,
+						"title": "Fixture Album",
+						"duration": 2400,
+						"numberOfTracks": 10,
+						"numberOfVolumes": 1,
+						"releaseDate": "2026-01-15",
+						"cover": "fixture-album-cover",
+						"artists": [
+							{
+								"id": 111,
+								"name": "Fixture Artist"
+							}
+						]
+					}
+				},
+				{
+					"type": "PLAYLIST",
+					"data": {
+						"uuid": "fixture-playlist-uuid",
+						"title": "Fixture Playlist",
+						"numberOfTracks": 12,
+						"duration": 3000,
+						"sharingLevel": "PUBLIC",
+						"type": "EDITORIAL"
+					}
+				}
+			]
+		},
+		{
+			"type": "TRACK_LIST",
+			"moduleId": "TRACK_LIST_MODULE",
+			"title": "Track list",
+			"items": [
+				{
+					"type": "TRACK",
+					"data": {
+						"id": 987654,
+						"title": "Fixture Track",
+						"duration": 180,
+						"trackNumber": 1,
+						"volumeNumber": 1,
+						"album": {
+							"id": 12345678,
+							"title": "Fixture Album"
+						}
+					}
+				}
+			]
+		}
+	]
+}

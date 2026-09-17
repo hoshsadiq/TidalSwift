@@ -13,24 +13,25 @@ struct MixGridItem: View {
 	let mix: MixesItem
 	let session: Session
 	let player: Player
+	var artworkSize: CGFloat = 160
 
 	@EnvironmentObject var viewState: ViewState
 
 	var body: some View {
 		VStack {
 			MixImage(mix: mix, highResolutionImages: false, session: session)
-				.frame(width: 160, height: 160)
+				.frame(width: artworkSize, height: artworkSize)
 				.cornerRadius(CORNERRADIUS)
 				.shadow(radius: SHADOWRADIUS, y: SHADOWY)
 				.accessibilityHidden(true)
 
 			Text(mix.title)
-				.frame(width: 160)
+				.frame(width: artworkSize)
 			Text(mix.subTitle)
 				.fontWeight(.light)
 				.foregroundColor(Color.secondary)
 				.lineLimit(1)
-				.frame(width: 160)
+				.frame(width: artworkSize)
 		}
 		.padding(5)
 	.onTapGesture(count: 2) {
@@ -82,82 +83,42 @@ struct MixImage: View {
 						HStack {
 							// 4
 							if let imageUrl = graphic.images[4].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
-								AsyncImage(url: imageUrl, content: { image in
-									image.resizable().scaledToFit()
-								}, placeholder: {
-									Rectangle()
-								})
-								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
-								.padding(metrics.size.width * 0.01)
+								collageTile(imageUrl, width: metrics.size.width)
+									.padding(metrics.size.width * 0.01)
 							}
 
 							// 0 1
 							if let imageUrl = graphic.images[0].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
-								AsyncImage(url: imageUrl, content: { image in
-									image.resizable().scaledToFit()
-								}, placeholder: {
-									Rectangle()
-								})
-								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
-								.padding(metrics.size.width * 0.01)
+								collageTile(imageUrl, width: metrics.size.width)
+									.padding(metrics.size.width * 0.01)
 							}
 							if let imageUrl = graphic.images[1].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
-								AsyncImage(url: imageUrl, content: { image in
-									image.resizable().scaledToFit()
-								}, placeholder: {
-									Rectangle()
-								})
-								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
-								.padding(metrics.size.width * 0.01)
+								collageTile(imageUrl, width: metrics.size.width)
+									.padding(metrics.size.width * 0.01)
 							}
 
 							// 2 3 4
 							if let imageUrl = graphic.images[2].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
-								AsyncImage(url: imageUrl, content: { image in
-									image.resizable().scaledToFit()
-								}, placeholder: {
-									Rectangle()
-								})
-								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
-								.padding(metrics.size.width * 0.01)
+								collageTile(imageUrl, width: metrics.size.width)
+									.padding(metrics.size.width * 0.01)
 							}
 							if let imageUrl = graphic.images[3].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
-								AsyncImage(url: imageUrl, content: { image in
-									image.resizable().scaledToFit()
-								}, placeholder: {
-									Rectangle()
-								})
-								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
-								.padding(metrics.size.width * 0.01)
+								collageTile(imageUrl, width: metrics.size.width)
+									.padding(metrics.size.width * 0.01)
 							}
 							if let imageUrl = graphic.images[4].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
-								AsyncImage(url: imageUrl, content: { image in
-									image.resizable().scaledToFit()
-								}, placeholder: {
-									Rectangle()
-								})
-								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
-								.padding(metrics.size.width * 0.01)
+								collageTile(imageUrl, width: metrics.size.width)
+									.padding(metrics.size.width * 0.01)
 							}
 
 							// 0 1
 							if let imageUrl = graphic.images[0].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
-								AsyncImage(url: imageUrl, content: { image in
-									image.resizable().scaledToFit()
-								}, placeholder: {
-									Rectangle()
-								})
-								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
-								.padding(metrics.size.width * 0.01)
+								collageTile(imageUrl, width: metrics.size.width)
+									.padding(metrics.size.width * 0.01)
 							}
 							if let imageUrl = graphic.images[1].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
-								AsyncImage(url: imageUrl, content: { image in
-									image.resizable().scaledToFit()
-								}, placeholder: {
-									Rectangle()
-								})
-								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
-								.padding(metrics.size.width * 0.01)
+								collageTile(imageUrl, width: metrics.size.width)
+									.padding(metrics.size.width * 0.01)
 							}
 
 							Spacer()
@@ -169,80 +130,40 @@ struct MixImage: View {
 
 							// 2 3 4
 							if let imageUrl = graphic.images[2].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
-								AsyncImage(url: imageUrl, content: { image in
-									image.resizable().scaledToFit()
-								}, placeholder: {
-									Rectangle()
-								})
-								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
-								.padding(.trailing, metrics.size.width * 0.01)
+								collageTile(imageUrl, width: metrics.size.width)
+									.padding(.trailing, metrics.size.width * 0.01)
 							}
 							if let imageUrl = graphic.images[3].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
-								AsyncImage(url: imageUrl, content: { image in
-									image.resizable().scaledToFit()
-								}, placeholder: {
-									Rectangle()
-								})
-								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
-								.padding(metrics.size.width * 0.01)
+								collageTile(imageUrl, width: metrics.size.width)
+									.padding(metrics.size.width * 0.01)
 							}
 							if let imageUrl = graphic.images[4].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
-								AsyncImage(url: imageUrl, content: { image in
-									image.resizable().scaledToFit()
-								}, placeholder: {
-									Rectangle()
-								})
-								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
-								.padding(metrics.size.width * 0.01)
+								collageTile(imageUrl, width: metrics.size.width)
+									.padding(metrics.size.width * 0.01)
 							}
 
 							// 0 1
 							if let imageUrl = graphic.images[0].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
-								AsyncImage(url: imageUrl, content: { image in
-									image.resizable().scaledToFit()
-								}, placeholder: {
-									Rectangle()
-								})
-								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
-								.padding(metrics.size.width * 0.01)
+								collageTile(imageUrl, width: metrics.size.width)
+									.padding(metrics.size.width * 0.01)
 							}
 							if let imageUrl = graphic.images[1].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
-								AsyncImage(url: imageUrl, content: { image in
-									image.resizable().scaledToFit()
-								}, placeholder: {
-									Rectangle()
-								})
-								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
-								.padding(metrics.size.width * 0.01)
+								collageTile(imageUrl, width: metrics.size.width)
+									.padding(metrics.size.width * 0.01)
 							}
 
 							// 2 3 4
 							if let imageUrl = graphic.images[2].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
-								AsyncImage(url: imageUrl, content: { image in
-									image.resizable().scaledToFit()
-								}, placeholder: {
-									Rectangle()
-								})
-								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
-								.padding(metrics.size.width * 0.01)
+								collageTile(imageUrl, width: metrics.size.width)
+									.padding(metrics.size.width * 0.01)
 							}
 							if let imageUrl = graphic.images[3].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
-								AsyncImage(url: imageUrl, content: { image in
-									image.resizable().scaledToFit()
-								}, placeholder: {
-									Rectangle()
-								})
-								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
-								.padding(metrics.size.width * 0.01)
+								collageTile(imageUrl, width: metrics.size.width)
+									.padding(metrics.size.width * 0.01)
 							}
 							if let imageUrl = graphic.images[4].getImageUrl(session: session, resolution: highResolutionImages ? highResolution : lowResolution) {
-								AsyncImage(url: imageUrl, content: { image in
-									image.resizable().scaledToFit()
-								}, placeholder: {
-									Rectangle()
-								})
-								.frame(width: metrics.size.width * 0.4, height: metrics.size.width * 0.4)
-								.padding(metrics.size.width * 0.01)
+								collageTile(imageUrl, width: metrics.size.width)
+									.padding(metrics.size.width * 0.01)
 							}
 						}
 					}
@@ -267,24 +188,25 @@ struct MixImage: View {
 			} else if let imageUrl = mix.images?.medium?.url ?? mix.images?.large?.url ?? mix.images?.small?.url {
 				// Page mixes ship finished square artwork in `images` rather than a
 				// client-assembled `graphic` collage.
-				AsyncImage(url: imageUrl) { image in
-					image.resizable().scaledToFill()
-				} placeholder: {
-					Rectangle()
-				}
-				.frame(width: metrics.size.width, height: metrics.size.width)
-				.clipped()
+				ArtworkImage(url: imageUrl, size: metrics.size.width, cornerRadius: 0, showsShadow: false)
 			} else {
 				// No cover art: fill the same footprint as the real artwork with a
 				// neutral placeholder so the card keeps its size and alignment.
 				ZStack {
 					Rectangle()
-						.foregroundColor(Color.gray.opacity(0.3))
+						.foregroundColor(Color.secondary.opacity(0.15))
 					Image(systemName: "music.note")
 						.font(.system(size: metrics.size.width * 0.3))
 						.foregroundColor(.secondary)
 				}
 			}
 		}
+	}
+
+	/// One collage tile. The tiles never had a shadow or corner radius of their
+	/// own (the enclosing `MixGridItem` supplies both), so both are disabled to
+	/// keep the exact previous geometry.
+	private func collageTile(_ imageUrl: URL, width: CGFloat) -> some View {
+		ArtworkImage(url: imageUrl, size: width * 0.4, cornerRadius: 0, showsShadow: false)
 	}
 }

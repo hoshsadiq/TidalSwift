@@ -347,13 +347,6 @@ struct DetailView: View {
 							SearchView(session: session, player: player)
 						}
 
-						// News
-						else if viewType == .newReleases {
-							NewReleases(session: session, player: player)
-						} else if viewType == .myMixes {
-							MyMixes(session: session, player: player)
-						}
-
 						// Favorites
 						else if viewType == .favoritePlaylists {
 							FavoritePlaylists(session: session, player: player)

@@ -15,50 +15,43 @@ struct AlbumGridItem: View {
 	let showReleaseDate: Bool
 	let session: Session
 	let player: Player
+	var artworkSize: CGFloat = 160
 
 	@EnvironmentObject var viewState: ViewState
 	@State private var isOffline: Bool = false
 
-	init(album: Album, showArtists: Bool, showReleaseDate: Bool = false, session: Session, player: Player) {
+	init(album: Album, showArtists: Bool, showReleaseDate: Bool = false, session: Session, player: Player, artworkSize: CGFloat = 160) {
 		self.album = album
 		self.showArtists = showArtists
 		self.showReleaseDate = showReleaseDate
 		self.session = session
 		self.player = player
+		self.artworkSize = artworkSize
 	}
 
 	var body: some View {
 		VStack {
 			ZStack(alignment: .bottomTrailing) {
 				if let albumUrl = album.getCoverUrl(session: session, resolution: 320) {
-					AsyncImage(url: albumUrl) { image in
-						image.resizable().scaledToFit()
-					} placeholder: {
-						Rectangle()
-					}
-					.aspectRatio(contentMode: .fill)
-					.frame(width: 160, height: 160)
-					.cornerRadius(CORNERRADIUS)
-					.shadow(radius: SHADOWRADIUS, y: SHADOWY)
-					.accessibilityHidden(true)
+					ArtworkImage(url: albumUrl, size: artworkSize)
 				} else {
 					ZStack {
 						Rectangle()
-							.foregroundColor(.black)
-							.frame(width: 160, height: 160)
+							.foregroundColor(Color.secondary.opacity(0.15))
+							.frame(width: artworkSize, height: artworkSize)
 							.cornerRadius(CORNERRADIUS)
 							.shadow(radius: SHADOWRADIUS, y: SHADOWY)
 						if album.streamReady ?? false {
 							Text(album.title)
-								.foregroundColor(.white)
+								.foregroundColor(.primary)
 								.multilineTextAlignment(.center)
 								.lineLimit(5)
-								.frame(width: 160)
+								.frame(width: artworkSize)
 						} else {
 							Text("Album not available")
 								.foregroundColor(.white)
 								.multilineTextAlignment(.center)
-								.frame(width: 160)
+								.frame(width: artworkSize)
 						}
 					}
 				}
@@ -78,27 +71,27 @@ struct AlbumGridItem: View {
 					.padding(.leading, -5)
 					.layoutPriority(1)
 			}
-			.frame(width: 160)
+			.frame(width: artworkSize)
 			if showArtists {
 				if let artists = album.artists { // Multiple Artists
 					Text(artists.formArtistString())
 						.fontWeight(.light)
 						.foregroundColor(Color.secondary)
 						.lineLimit(1)
-						.frame(width: 160)
+						.frame(width: artworkSize)
 						.padding(.top, album.hasAttributes ? -6.5 : 0)
 				} else if let artist = album.artist { // Single Artist
 					Text(artist.name)
 						.fontWeight(.light)
 						.foregroundColor(Color.secondary)
 						.lineLimit(1)
-						.frame(width: 160)
+						.frame(width: artworkSize)
 				} else {
 					Text("Unknown Artist")
 						.fontWeight(.light)
 						.foregroundColor(Color.secondary)
 						.lineLimit(1)
-						.frame(width: 160)
+						.frame(width: artworkSize)
 				}
 			}
 			if showReleaseDate, let releaseDate = album.releaseDate {
@@ -106,7 +99,7 @@ struct AlbumGridItem: View {
 					.fontWeight(.light)
 					.foregroundColor(Color.secondary)
 					.lineLimit(1)
-					.frame(width: 160)
+					.frame(width: artworkSize)
 			}
 		}
 		.padding(5)

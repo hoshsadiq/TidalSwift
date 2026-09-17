@@ -13,6 +13,7 @@ struct PlaylistGridItem: View {
 	let playlist: Playlist
 	let session: Session
 	let player: Player
+	var artworkSize: CGFloat = 160
 
 	@EnvironmentObject var viewState: ViewState
 	@State private var isOffline: Bool = false
@@ -21,30 +22,21 @@ struct PlaylistGridItem: View {
 		VStack {
 			ZStack(alignment: .bottomTrailing) {
 				if let imageUrl = playlist.imageUrl(session: session, resolution: 320) {
-					AsyncImage(url: imageUrl) { image in
-						image.resizable().scaledToFit()
-					} placeholder: {
-						Rectangle()
-					}
-					.aspectRatio(contentMode: .fill)
-					.frame(width: 160, height: 160)
-					.contentShape(Rectangle())
-					.clipped()
-					.cornerRadius(CORNERRADIUS)
-					.shadow(radius: SHADOWRADIUS, y: SHADOWY)
-					.accessibilityHidden(true)
+					ArtworkImage(url: imageUrl, size: artworkSize)
+						.contentShape(Rectangle())
+						.clipped()
 				} else {
 					ZStack {
 						Rectangle()
-							.foregroundColor(.black)
-							.frame(width: 160, height: 160)
+							.foregroundColor(Color.secondary.opacity(0.15))
+							.frame(width: artworkSize, height: artworkSize)
 							.cornerRadius(CORNERRADIUS)
 							.shadow(radius: SHADOWRADIUS, y: SHADOWY)
 						Text(playlist.title)
-							.foregroundColor(.white)
+							.foregroundColor(.primary)
 							.multilineTextAlignment(.center)
 							.lineLimit(2)
-							.frame(width: 160)
+							.frame(width: artworkSize)
 					}
 				}
 				if isOffline {
@@ -58,7 +50,7 @@ struct PlaylistGridItem: View {
 			}
 			Text(playlist.title)
 				.lineLimit(1)
-				.frame(width: 160)
+				.frame(width: artworkSize)
 		}
 		.padding(5)
 		.help(playlist.title)

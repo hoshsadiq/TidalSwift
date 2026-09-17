@@ -9,78 +9,90 @@
 import SwiftUI
 import TidalSwiftLib
 
-/// Maps a page module and one of its items to the existing grid-item card for
-/// that content type.
+/// A `HomeFeedItem` paired with a stable id, since `HomeFeedItem` itself is not
+/// `Identifiable`. Items without a known payload are dropped.
+struct HomeFeedShelfItem: Identifiable {
+	let id: String
+	let item: HomeFeedItem
+
+	init?(_ feedItem: HomeFeedItem) {
+		guard let id = Self.identifier(for: feedItem) else { return nil }
+		self.id = id
+		self.item = feedItem
+	}
+
+	private static func identifier(for item: HomeFeedItem) -> String? {
+		if let mix = item.mix { return "mix-\(mix.id)" }
+		if let album = item.album { return "album-\(album.id)" }
+		if let track = item.track { return "track-\(track.id)" }
+		if let artist = item.artist { return "artist-\(artist.id)" }
+		if let playlist = item.playlist { return "playlist-\(playlist.uuid)" }
+		if let magazine = item.magazine { return "magazine-\(magazine.id)" }
+		return nil
+	}
+}
+
+/// Maps a v2 home-feed item to the existing grid-item card for its kind.
 ///
-/// Cards are reused as-is. Page payloads that are tolerant subsets of the full
-/// models (`PagePlaylist`, `PageMix`, `PageVideo`) are adapted through the
-/// `init(page…)` initializers in `TidalSwiftLib`.
-///
-/// Unknown module types, and items whose payload is missing, render `EmptyView()`.
+/// The v2 payloads are adapted to the shared models through the `as*`
+/// accessors in `TidalSwiftLib`. Items with no payload (unknown kinds) render
+/// `EmptyView()`.
 @ViewBuilder
-func moduleCard(
-	for item: PageItem,
-	moduleType: PageModuleType,
+func homeFeedCard(
+	for item: HomeFeedItem,
 	showReleaseDate: Bool = false,
+	artworkSize: CGFloat = 160,
+	mixSubtitle: String? = nil,
 	session: Session,
 	player: Player
 ) -> some View {
-	switch moduleType {
-	case .albumList:
-		card(for: .album, item: item, showReleaseDate: showReleaseDate, session: session, player: player)
-	case .artistList:
-		card(for: .artist, item: item, session: session, player: player)
-	case .playlistList:
-		card(for: .playlist, item: item, session: session, player: player)
-	case .trackList:
-		card(for: .track, item: item, session: session, player: player)
-	case .mixList:
-		card(for: .mix, item: item, session: session, player: player)
-	case .videoList:
-		card(for: .video, item: item, session: session, player: player)
-	case .mixedTypesList:
-		if let kind = item.kind {
-			card(for: kind, item: item, showReleaseDate: showReleaseDate, session: session, player: player)
+	switch item.type {
+	case "MIX":
+		if let mix = item.mix {
+			MixGridItem(
+				mix: mixCardItem(mix, subtitle: mixSubtitle),
+				session: session,
+				player: player,
+				artworkSize: artworkSize
+			)
+		}
+	case "ALBUM":
+		if let album = item.album {
+			AlbumGridItem(album: album.asAlbum, showArtists: true, showReleaseDate: showReleaseDate, session: session, player: player, artworkSize: artworkSize)
+		}
+	case "ARTIST":
+		if let artist = item.artist {
+			ArtistGridItem(artist: artist, session: session, player: player, artworkSize: artworkSize)
+		}
+	case "PLAYLIST":
+		if let playlist = item.playlist {
+			PlaylistGridItem(playlist: playlist.asPlaylist, session: session, player: player, artworkSize: artworkSize)
+		}
+	case "TRACK":
+		if let track = item.track {
+			TrackGridItem(track: track.asTrack, showArtist: true, session: session, player: player, artworkSize: artworkSize)
+		}
+	case "MAGAZINE":
+		if let magazine = item.magazine {
+			MagazineGridItem(magazine: magazine, session: session, player: player, artworkSize: artworkSize)
 		}
 	default:
 		EmptyView()
 	}
 }
 
-/// Builds the card for a concrete item kind. Shared by the typed module cases
-/// and `MIXED_TYPES_LIST`, which dispatches per item.
-@ViewBuilder
-private func card(
-	for kind: PageItemKind,
-	item: PageItem,
-	showReleaseDate: Bool = false,
-	session: Session,
-	player: Player
-) -> some View {
-	switch kind {
-	case .album:
-		if let album = item.album {
-			AlbumGridItem(album: album, showArtists: true, showReleaseDate: showReleaseDate, session: session, player: player)
-		}
-	case .artist:
-		if let artist = item.artist {
-			ArtistGridItem(artist: artist, session: session, player: player)
-		}
-	case .playlist:
-		if let playlist = item.playlist {
-			PlaylistGridItem(playlist: Playlist(pagePlaylist: playlist), session: session, player: player)
-		}
-	case .track:
-		if let track = item.track {
-			TrackGridItem(track: track, showArtist: true, session: session, player: player)
-		}
-	case .mix:
-		if let mix = item.mix {
-			MixGridItem(mix: MixesItem(pageMix: mix), session: session, player: player)
-		}
-	case .video:
-		if let video = item.video {
-			VideoGridItem(video: Video(pageVideo: video), showArtist: true, session: session, player: player)
-		}
-	}
+/// The mix as a `MixesItem`, optionally overriding its second line. The
+/// View-all page shows TIDAL's genre description there, while the Music tab's
+/// shelves keep the artist list from `asMixesItem`.
+private func mixCardItem(_ mix: HomeFeedMix, subtitle: String?) -> MixesItem {
+	let base = mix.asMixesItem
+	guard let subtitle else { return base }
+	return MixesItem(
+		id: base.id,
+		title: base.title,
+		subTitle: subtitle,
+		graphic: base.graphic,
+		images: base.images,
+		mixType: base.mixType
+	)
 }

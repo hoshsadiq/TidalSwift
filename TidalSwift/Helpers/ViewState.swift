@@ -18,9 +18,6 @@ enum ViewType: String, Codable {
 	case feed = "Feed"
 	case collection = "Collection"
 
-	case newReleases = "New Releases"
-	case myMixes = "My Mixes"
-
 	case favoriteArtists = "Favorite Artists"
 	case favoriteAlbums = "Favorite Albums"
 	case favoritePlaylists = "Favorite Playlists"
@@ -59,7 +56,6 @@ struct TidalSwiftView: Codable, Equatable, Identifiable {
 	var loadingState: LoadingState = .loading
 
 	var searchResponse: SearchResponse?
-	var mixes: [MixesItem]?
 	var artists: [Artist]?
 	var albums: [Album]?
 	var albumsEpsAndSingles: [Album]?	// Artist EPS & Singles
@@ -73,7 +69,7 @@ struct TidalSwiftView: Codable, Equatable, Identifiable {
 			lhs.album == rhs.album && lhs.playlist == rhs.playlist &&
 			lhs.mix == rhs.mix && lhs.viewAllTarget == rhs.viewAllTarget &&
 			lhs.loadingState == rhs.loadingState &&
-			lhs.searchResponse == rhs.searchResponse && lhs.mixes == rhs.mixes &&
+			lhs.searchResponse == rhs.searchResponse &&
 			lhs.artists == rhs.artists && lhs.albums == rhs.albums &&
 			lhs.playlists == rhs.playlists && lhs.tracks == rhs.tracks &&
 			lhs.videos == rhs.videos
@@ -88,7 +84,6 @@ struct TidalSwiftView: Codable, Equatable, Identifiable {
 	func isBase() -> Bool {
 		viewType == .music || viewType == .explore ||
 			viewType == .feed || viewType == .collection ||
-			viewType == .newReleases || viewType == .myMixes ||
 			viewType == .favoriteArtists || viewType == .favoriteAlbums ||
 			viewType == .favoritePlaylists || viewType == .favoriteTracks ||
 			viewType == .favoriteVideos || viewType == .offlineAlbums ||
@@ -101,7 +96,6 @@ final class ViewState: ObservableObject {
 	var cache: ViewCache
 
 	var searchTerm: String = ""
-	@Published var newReleasesIncludeEps: Bool = false
 	@Published var stack: [TidalSwiftView] = []
 	@Published var history: [TidalSwiftView] = []
 	@Published var forwardStack: [TidalSwiftView] = []
@@ -118,6 +112,7 @@ final class ViewState: ObservableObject {
 	func push(view: TidalSwiftView) {
 		refreshTask?.cancel()
 		stack.append(view)
+		forwardStack.removeAll()
 		if view.viewType != .search {
 			addToHistory(view)
 		}

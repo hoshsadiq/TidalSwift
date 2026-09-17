@@ -27,11 +27,6 @@ extension ViewState {
 		case .collection:
 			placeholder(for: .collection)
 
-		case .newReleases:
-			newReleases()
-		case .myMixes:
-			myMixes()
-
 		case .favoriteArtists:
 			favoriteArtists()
 		case .favoriteAlbums:

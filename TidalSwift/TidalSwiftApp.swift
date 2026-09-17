@@ -193,10 +193,6 @@ final class TidalSwiftAppModel: ObservableObject {
 		Task {
 			await session.helpers.offline.syncAllOfflinePlaylistsAndFavoriteTracks()
 		}
-
-		Task {
-			await viewState.refreshNewReleases()
-		}
 	}
 
 	#if canImport(AppKit)
@@ -349,15 +345,11 @@ final class TidalSwiftAppModel: ObservableObject {
 
 	private func restoreViewState() {
 		if let data = UserDefaults.standard.data(forKey: "ViewStateStack") {
-			if let tempStack = try? JSONDecoder().decode([TidalSwiftView].self, from: data) {
-				viewState.stack = tempStack
-			}
+			viewState.stack = decodeViewArray(from: data)
 		}
 
 		if let data = UserDefaults.standard.data(forKey: "ViewStateForwardStack") {
-			if let tempForwardStack = try? JSONDecoder().decode([TidalSwiftView].self, from: data) {
-				viewState.forwardStack = tempForwardStack
-			}
+			viewState.forwardStack = decodeViewArray(from: data)
 		}
 
 		// Land on the Music view when there is no persisted non-base view to restore.
@@ -371,18 +363,28 @@ final class TidalSwiftAppModel: ObservableObject {
 			viewState.lastSearchTerm = searchTerm
 		}
 
-		viewState.newReleasesIncludeEps = UserDefaults.standard.bool(forKey: "NewReleasesIncludeEps")
-
 		if let data = UserDefaults.standard.data(forKey: "ViewStateHistory") {
-			if let tempHistory = try? JSONDecoder().decode([TidalSwiftView].self, from: data) {
-				viewState.history = tempHistory
-			}
+			viewState.history = decodeViewArray(from: data)
 		}
 		let tempMaxHistoryItems = UserDefaults.standard.integer(forKey: "ViewStateHistoryMaxItems")
 		if tempMaxHistoryItems != 0 {
 			viewState.maxHistoryItems = tempMaxHistoryItems
 		} else {
 			viewState.maxHistoryItems = 100
+		}
+	}
+
+	/// Decodes a persisted view array one entry at a time. A single entry whose
+	/// `viewType` no longer exists — a page that was removed, for example — fails
+	/// the whole-array decode and would otherwise discard the entire stack,
+	/// forward stack or history.
+	private func decodeViewArray(from data: Data) -> [TidalSwiftView] {
+		guard let rawEntries = try? JSONSerialization.jsonObject(with: data) as? [Any] else {
+			return []
+		}
+		return rawEntries.compactMap { entry in
+			guard let entryData = try? JSONSerialization.data(withJSONObject: entry) else { return nil }
+			return try? JSONDecoder().decode(TidalSwiftView.self, from: entryData)
 		}
 	}
 
@@ -407,7 +409,6 @@ final class TidalSwiftAppModel: ObservableObject {
 
 	func saveViewState() {
 		UserDefaults.standard.set(viewState.searchTerm, forKey: "SearchTerm")
-		UserDefaults.standard.set(viewState.newReleasesIncludeEps, forKey: "NewReleasesIncludeEps")
 		let viewStackData = try? JSONEncoder().encode(viewState.stack)
 		UserDefaults.standard.set(viewStackData, forKey: "ViewStateStack")
 		let viewForwardStackData = try? JSONEncoder().encode(viewState.forwardStack)

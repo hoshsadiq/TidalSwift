@@ -20,161 +20,157 @@ struct AlbumView: View {
 	@State private var isOffline: Bool = false
 
 	var body: some View {
-		ZStack {
-			ScrollView {
-				VStack(alignment: .leading) {
-					if let album = viewState.stack.last?.album,
-					   let tracks = viewState.stack.last?.tracks,
-					   let coverUrlSmall = album.getCoverUrl(session: session, resolution: 320),
-					   let coverUrlBig = album.getCoverUrl(session: session, resolution: 1280) {
-						ZStack(alignment: .bottomTrailing) {
-							HStack {
-								AsyncImage(url: coverUrlSmall) { image in
-									image.resizable().scaledToFit()
-								} placeholder: {
-									Rectangle()
-								}
-								.frame(width: 100, height: 100)
-								.cornerRadius(CORNERRADIUS)
-								.shadow(radius: SHADOWRADIUS, y: SHADOWY)
-								.help("Show cover in new window")
-								#if canImport(AppKit)
-								.onTapGesture {
-									let controller = ImageWindowController(
-										imageUrl: coverUrlBig,
-										title: album.title
-									)
-									controller.window?.title = album.title
-									controller.showWindow(nil)
-								}
-								#endif
-								.accessibilityHidden(true)
+		ScrollView {
+			VStack(alignment: .leading) {
+				if let album = viewState.stack.last?.album,
+				   let tracks = viewState.stack.last?.tracks,
+				   let coverUrlSmall = album.getCoverUrl(session: session, resolution: 320),
+				   let coverUrlBig = album.getCoverUrl(session: session, resolution: 1280) {
+					ZStack(alignment: .bottomTrailing) {
+						HStack {
+							AsyncImage(url: coverUrlSmall) { image in
+								image.resizable().scaledToFit()
+							} placeholder: {
+								Rectangle()
+							}
+							.frame(width: 100, height: 100)
+							.cornerRadius(CORNERRADIUS)
+							.shadow(radius: SHADOWRADIUS, y: SHADOWY)
+							.help("Show cover in new window")
+							#if canImport(AppKit)
+							.onTapGesture {
+								let controller = ImageWindowController(
+									imageUrl: coverUrlBig,
+									title: album.title
+								)
+								controller.window?.title = album.title
+								controller.showWindow(nil)
+							}
+							#endif
+							.accessibilityHidden(true)
 
-								VStack(alignment: .leading) {
-									HStack {
-										Text(album.title)
-											.font(.title)
-											.lineLimit(1)
-											.help(album.title)
-										if album.hasAttributes {
-											album.attributeHStack
-												.padding(.leading, -5)
+							VStack(alignment: .leading) {
+								HStack {
+									Text(album.title)
+										.font(.title)
+										.lineLimit(1)
+										.help(album.title)
+									if album.hasAttributes {
+										album.attributeHStack
+											.padding(.leading, -5)
+									}
+									#if canImport(AppKit)
+									Image(systemName: "c.circle")
+										.help("Credits")
+										.onTapGesture {
+											let controller = ResizableWindowControllerFactory.create(rootView:
+												CreditsView(session: session, album: album)
+													.environmentObject(viewState)
+											)
+											controller.window?.title = "Credits – \(album.title)"
+											controller.showWindow(nil)
 										}
-										#if canImport(AppKit)
-										Image(systemName: "c.circle")
-											.help("Credits")
-											.onTapGesture {
-												let controller = ResizableWindowControllerFactory.create(rootView:
-													CreditsView(session: session, album: album)
-														.environmentObject(viewState)
-												)
-												controller.window?.title = "Credits – \(album.title)"
-												controller.showWindow(nil)
-											}
-										#endif
-						if isFavorite ?? true {
-							Image(systemName: "heart.fill")
-								.onTapGesture {
-									Task {
-										print("Remove from Favorites")
-										if await session.favorites?.removeAlbum(albumId: album.id) == true {
-											isFavorite = false
-											viewState.refreshCurrentView()
-										}
+									#endif
+					if isFavorite ?? true {
+						Image(systemName: "heart.fill")
+							.onTapGesture {
+								Task {
+									print("Remove from Favorites")
+									if await session.favorites?.removeAlbum(albumId: album.id) == true {
+										isFavorite = false
+										viewState.refreshCurrentView()
 									}
-								}
-						} else {
-							Image(systemName: "heart")
-								.onTapGesture {
-									Task {
-										print("Add to Favorites")
-										if await session.favorites?.addAlbum(albumId: album.id) == true {
-											isFavorite = true
-											viewState.refreshCurrentView()
-										}
-									}
-								}
-						}
-										if let url = album.url {
-											Image(systemName: "square.and.arrow.up")
-												.help("Copy URL")
-												.onTapGesture {
-													Pasteboard.copy(string: url.absoluteString)
-												}
-										}
-									}
-									Text(album.artists?.formArtistString() ?? "")
-									if let releaseDate = album.releaseDate {
-										Text(DateFormatter.dateOnly.string(from: releaseDate))
-									}
-								}
-								Spacer(minLength: 5)
-								VStack(alignment: .leading) {
-									if let numberOfTracks = album.numberOfTracks {
-										Text("\(numberOfTracks) Tracks")
-											.foregroundColor(.secondary)
-									}
-									if let duration = album.duration {
-										Text(secondsToHoursMinutesSecondsString(seconds: duration))
-											.foregroundColor(.secondary)
-									}
-									Spacer()
 								}
 							}
-							Group {
-					if isOffline {
-						Image(systemName: "cloud.fill")
+					} else {
+						Image(systemName: "heart")
+							.onTapGesture {
+								Task {
+									print("Add to Favorites")
+									if await session.favorites?.addAlbum(albumId: album.id) == true {
+										isFavorite = true
+										viewState.refreshCurrentView()
+									}
+								}
+							}
+					}
+									if let url = album.url {
+										Image(systemName: "square.and.arrow.up")
+											.help("Copy URL")
+											.onTapGesture {
+												Pasteboard.copy(string: url.absoluteString)
+											}
+									}
+								}
+								Text(album.artists?.formArtistString() ?? "")
+								if let releaseDate = album.releaseDate {
+									Text(DateFormatter.dateOnly.string(from: releaseDate))
+								}
+							}
+							Spacer(minLength: 5)
+							VStack(alignment: .leading) {
+								if let numberOfTracks = album.numberOfTracks {
+									Text("\(numberOfTracks) Tracks")
+										.foregroundColor(.secondary)
+								}
+								if let duration = album.duration {
+									Text(secondsToHoursMinutesSecondsString(seconds: duration))
+										.foregroundColor(.secondary)
+								}
+								Spacer()
+							}
+						}
+						Group {
+				if isOffline {
+					Image(systemName: "cloud.fill")
+						.resizable()
+						.scaledToFit()
+						.onTapGesture {
+							Task {
+								print("Remove from Offline")
+								await album.removeOffline(session: session)
+								cloudPressed = false
+								isOffline = false
+								viewState.refreshCurrentView()
+							}
+						}
+				} else {
+					if cloudPressed {
+									Image(systemName: "cloud.fill")
+										.resizable()
+										.scaledToFit()
+										.secondaryIconColor()
+								} else {
+						Image(systemName: "cloud")
 							.resizable()
 							.scaledToFit()
 							.onTapGesture {
 								Task {
-									print("Remove from Offline")
-									await album.removeOffline(session: session)
-									cloudPressed = false
-									isOffline = false
+									print("Add to Offline")
+									cloudPressed = true
+									await album.addOffline(session: session)
+									isOffline = true
 									viewState.refreshCurrentView()
 								}
 							}
-					} else {
-						if cloudPressed {
-										Image(systemName: "cloud.fill")
-											.resizable()
-											.scaledToFit()
-											.secondaryIconColor()
-									} else {
-							Image(systemName: "cloud")
-								.resizable()
-								.scaledToFit()
-								.onTapGesture {
-									Task {
-										print("Add to Offline")
-										cloudPressed = true
-										await album.addOffline(session: session)
-										isOffline = true
-										viewState.refreshCurrentView()
-									}
-								}
-						}
 					}
-							}
-							.frame(width: 30)
-						}
-						.frame(height: 100)
-						.padding(EdgeInsets(top: 10, leading: 20, bottom: 10, trailing: 20))
-
-						TrackList(wrappedTracks: tracks.wrapped(), showCover: false, showAlbumTrackNumber: true,
-								  showArtist: true, showAlbum: false, playlist: nil, session: session, player: player,
-								  source: QueueSource(type: .album, title: album.title, id: String(album.id)))
-					} else {
-						HStack {
-							Spacer()
-						}
-					}
-					Spacer(minLength: 0)
 				}
-				.padding(.top, 40)
+						}
+						.frame(width: 30)
+					}
+					.frame(height: 100)
+					.padding(EdgeInsets(top: 10, leading: 20, bottom: 10, trailing: 20))
+
+					TrackList(wrappedTracks: tracks.wrapped(), showCover: false, showAlbumTrackNumber: true,
+							  showArtist: true, showAlbum: false, playlist: nil, session: session, player: player,
+							  source: QueueSource(type: .album, title: album.title, id: String(album.id)))
+				} else {
+					HStack {
+						Spacer()
+					}
+				}
+				Spacer(minLength: 0)
 			}
-			BackButton()
 		}
 		.task(id: viewState.stack.last?.album?.id) {
 			guard let album = viewState.stack.last?.album else { return }

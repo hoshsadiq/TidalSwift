@@ -11,57 +11,77 @@ import TidalSwiftLib
 
 /// Identifies the module a shelf's "View all" points at.
 ///
-/// `path` is the module's `showMore.apiPath` (a single-module-page), `title` the
-/// shelf title and `moduleType` the type used to dispatch the fetched items to
-/// the existing cards.
+/// `path` is the module's v2 `viewAll` path (e.g.
+/// `home/pages/DAILY_MIXES/view-all`, relative to the v2 base) and `title` the
+/// shelf title.
 struct ViewAllTarget: Codable, Equatable {
 	let path: String
 	let title: String
-	let moduleType: PageModuleType
 }
 
 /// The route behind a shelf's "View all".
 ///
-/// Fetches the module's single-module-page on appear and renders its items in a
-/// 3-column wrapping grid of the existing `*GridItem` cards. The page returns
-/// the first batch; further batches are fetched from the module's
-/// `pagedList.dataApiPath` as the user scrolls to the bottom.
+/// Fetches the v2 view-all page on appear and renders its items either as the
+/// dense track table (when the items are tracks) or as a responsive wrapping
+/// grid of the shared home-feed cards. The v2 response carries no total count, so
+/// further batches are fetched with `offset = items.count` as the user scrolls
+/// to the bottom, stopping once a batch adds nothing new or comes back short.
 struct ViewAllPage: View {
 	let target: ViewAllTarget
 	let session: Session
 	let player: Player
 
-	@State private var items: [ShelfItem] = []
-	@State private var moduleType: PageModuleType?
+	@State private var items: [HomeFeedShelfItem] = []
 	@State private var loadingState: LoadingState = .loading
-	@State private var dataApiPath: String?
-	@State private var totalNumberOfItems: Int?
 	@State private var batchSize: Int = 50
+	@State private var hasMore = false
 	@State private var isLoadingMore = false
 	@State private var loadMoreFailed = false
+	/// Items seen so far whose payload we can't represent, surfaced as a notice.
+	@State private var unsupportedCount = 0
+	/// Measured grid content width, driving the responsive column count.
+	@State private var contentWidth: CGFloat = 0
 
-	private var resolvedModuleType: PageModuleType {
-		moduleType ?? target.moduleType
+	/// Decides the layout from the fetched items: the track table only when
+	/// every item is a track, the grid otherwise, so no item is ever dropped by
+	/// the table's track-only rows. Before anything is loaded the spinner is
+	/// shown, so the grid is the no-data default.
+	private var usesTrackTable: Bool {
+		guard !items.isEmpty else { return false }
+		return items.allSatisfy { $0.item.track != nil }
 	}
 
-	private var hasMore: Bool {
-		guard let totalNumberOfItems else { return false }
-		return items.count < totalNumberOfItems
+	/// Preferred card width used to derive the column count from the measured
+	/// content width, matching the Music tab's shelf cards.
+	private let preferredCardWidth: CGFloat = 275
+	/// Horizontal gap between grid columns.
+	private let gridSpacing: CGFloat = 16
+
+	/// Columns that fit the measured content width at `preferredCardWidth`,
+	/// never fewer than two.
+	private var gridColumns: Int {
+		guard contentWidth > 0 else { return 3 }
+		return max(2, Int((contentWidth + gridSpacing) / (preferredCardWidth + gridSpacing)))
+	}
+
+	/// Card footprint for the current column count, so the artwork and the text
+	/// under it fill the cell. The grid items add 5pt padding on each side, so
+	/// the artwork is this minus 10pt.
+	private var gridCardWidth: CGFloat {
+		guard contentWidth > 0 else { return preferredCardWidth }
+		let columns = gridColumns
+		return (contentWidth - CGFloat(columns - 1) * gridSpacing) / CGFloat(columns)
 	}
 
 	var body: some View {
-		ZStack {
-			ScrollView {
-				VStack(alignment: .leading, spacing: 16) {
-					Text(target.title)
-						.font(.largeTitle)
-						.padding(.horizontal)
-					content
-				}
-				.padding(.top, 40)
-				.padding(.bottom, 16)
+		ScrollView {
+			VStack(alignment: .leading, spacing: 16) {
+				Text(target.title)
+					.font(.largeTitle)
+					.padding(.horizontal)
+				content
 			}
-			BackButton()
+			.padding(.bottom, 16)
 		}
 		.task {
 			await loadInitialPage()
@@ -79,24 +99,42 @@ struct ViewAllPage: View {
 			case .successful:
 				emptyState
 			}
-		} else if resolvedModuleType == .trackList {
-			trackTable
 		} else {
-			grid
+			VStack(alignment: .leading, spacing: 16) {
+				if usesTrackTable {
+					trackTable
+				} else {
+					grid
+				}
+				unsupportedNotice
+			}
+		}
+	}
+
+	/// One discreet line when a batch carried items we can't represent, so the
+	/// page is honest about being shorter than the section actually is.
+	@ViewBuilder
+	private var unsupportedNotice: some View {
+		if unsupportedCount > 0 {
+			Text("Some items in this section aren't supported yet.")
+				.font(.caption)
+				.foregroundColor(.secondary)
+				.padding(.horizontal)
 		}
 	}
 
 	private var grid: some View {
 		VStack(alignment: .leading, spacing: 16) {
 			LazyVGrid(
-				columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: 3),
+				columns: Array(repeating: GridItem(.flexible(), spacing: gridSpacing), count: gridColumns),
 				spacing: 24
 			) {
 				ForEach(items) { item in
-					moduleCard(
+					homeFeedCard(
 						for: item.item,
-						moduleType: resolvedModuleType,
 						showReleaseDate: true,
+						artworkSize: gridCardWidth - 10,
+						mixSubtitle: item.item.mix?.description,
 						session: session,
 						player: player
 					)
@@ -110,14 +148,22 @@ struct ViewAllPage: View {
 			}
 			footer
 		}
+		.background(
+			GeometryReader { geometry in
+				Color.clear
+					.onAppear { contentWidth = geometry.size.width }
+					.onChange(of: geometry.size.width) { _, newWidth in
+						contentWidth = newWidth
+					}
+			}
+		)
 		.padding(.horizontal)
 	}
 
-	/// Dense table for `TRACK_LIST` modules: one row per track with cover,
-	/// title, artist, album, duration, BPM and Camelot key. BPM/KEY are only
-	/// present when the track was fetched individually, so both fall back to
-	/// "-". Batched loading is unchanged: the last row's `.onAppear` fetches the
-	/// next batch.
+	/// Dense table for track lists: one row per track with cover, title, artist,
+	/// album, duration, BPM and Camelot key. BPM/KEY are only present when the
+	/// track was fetched individually, so both fall back to "-". Batched loading
+	/// is unchanged: a sentinel at the end of the list fetches the next batch.
 	private var trackTable: some View {
 		VStack(alignment: .leading, spacing: 0) {
 			trackTableHeader
@@ -125,15 +171,18 @@ struct ViewAllPage: View {
 			LazyVStack(spacing: 0) {
 				ForEach(items) { item in
 					if let track = item.item.track {
-						ViewAllTrackRow(track: track, session: session, player: player)
-							.onAppear {
-								guard item.id == items.last?.id else { return }
-								Task { await loadNextBatch() }
-							}
+						ViewAllTrackRow(track: track.asTrack, session: session, player: player)
 						Divider()
 							.padding(.leading, 56)
 					}
 				}
+				// Sentinel at the end of the list, so paging fires when the
+				// bottom is reached regardless of how the last row rendered.
+				Color.clear
+					.frame(height: 1)
+					.onAppear {
+						Task { await loadNextBatch() }
+					}
 			}
 			footer
 		}
@@ -211,49 +260,47 @@ struct ViewAllPage: View {
 	private func loadInitialPage() async {
 		guard items.isEmpty else { return }
 		loadingState = .loading
-		guard let page = await session.page(path: target.path) else {
+		guard let page = await session.homeFeedViewAll(path: target.path, limit: batchSize) else {
 			loadingState = .error
 			return
 		}
-		guard let module = page.modules.first(where: { $0.pagedList != nil }) ?? page.modules.first else {
-			loadingState = .successful
-			return
-		}
-		moduleType = module.knownType
-		append(module.pagedList?.items ?? module.items ?? [])
-		dataApiPath = module.pagedList?.dataApiPath
-		totalNumberOfItems = module.pagedList?.totalNumberOfItems
-		if let limit = module.pagedList?.limit, limit > 0 {
-			batchSize = limit
-		}
+		append(page.items)
+		hasMore = !items.isEmpty && page.items.count >= batchSize
 		loadingState = .successful
 	}
 
 	private func loadNextBatch() async {
-		guard !isLoadingMore, hasMore, let dataApiPath else { return }
+		guard !isLoadingMore, hasMore else { return }
 		isLoadingMore = true
 		loadMoreFailed = false
 		defer { isLoadingMore = false }
-		guard let batch = await session.pagedList(path: dataApiPath, offset: items.count, limit: batchSize) else {
+		let requestedLimit = batchSize
+		guard let batch = await session.homeFeedViewAll(
+			path: target.path,
+			limit: requestedLimit,
+			offset: items.count
+		) else {
 			loadMoreFailed = true
 			return
 		}
 		let previousCount = items.count
 		append(batch.items)
-		if let total = batch.totalNumberOfItems {
-			totalNumberOfItems = total
-		}
-		if items.count == previousCount {
-			// Nothing new: stop paging rather than retrying the same offset.
-			totalNumberOfItems = items.count
+		// No total count in v2: stop once a batch adds nothing new or comes back
+		// short of the requested limit.
+		if items.count == previousCount || batch.items.count < requestedLimit {
+			hasMore = false
 		}
 	}
 
-	/// Appends items that aren't already in the list, keyed by `ShelfItem.id`.
-	private func append(_ pageItems: [PageItem]) {
+	/// Appends items that aren't already in the list, keyed by `HomeFeedShelfItem.id`.
+	private func append(_ feedItems: [HomeFeedItem]) {
 		var known = Set(items.map(\.id))
-		for pageItem in pageItems {
-			guard let item = ShelfItem(pageItem: pageItem), !known.contains(item.id) else { continue }
+		for feedItem in feedItems {
+			guard let item = HomeFeedShelfItem(feedItem) else {
+				unsupportedCount += 1
+				continue
+			}
+			guard !known.contains(item.id) else { continue }
 			known.insert(item.id)
 			items.append(item)
 		}

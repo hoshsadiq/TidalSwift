@@ -9,7 +9,7 @@ Tidal Music Streaming Client & Library written in Swift
 [![CodeQL](https://github.com/melgu/TidalSwift/actions/workflows/codeql.yml/badge.svg)](https://github.com/melgu/TidalSwift/actions/workflows/codeql.yml)
 [![Release](https://github.com/melgu/TidalSwift/actions/workflows/release.yml/badge.svg)](https://github.com/melgu/TidalSwift/actions/workflows/release.yml)
 
-It supports all major features of the official Tidal app, while adding additional ones, like New Releases, Lyrics, automatic Dark Mode, Downloads & Offline Playback – all while being only 1/10th the size of the official app.
+It supports all major features of the official Tidal app, while adding additional ones, like Lyrics, automatic Dark Mode, Downloads & Offline Playback – all while being only 1/10th the size of the official app.
 
 > [!IMPORTANT]
 >
@@ -30,12 +30,6 @@ xattr -d com.apple.quarantine /Applications/TidalSwift.app
 
 ## Impressions
 
-### New Releases
-
-Unlike the official Tidal app, TidalSwift can display new releases by your favorite artists.
-
-![New Releases](README.assets/NewReleases.png)
-
 ### Lyrics
 
 Also, unlike the official app, it can display the Lyrics of the currently playing song.
@@ -53,10 +47,6 @@ This is a big one. The official desktop app still doesn't support offline playba
 It even goes a step further. You can download music to your hard drive and do with it whatever you want.
 
 <img src="README.assets/Downloads.png" alt="Context Menu: Download highlighted" width="180">
-
-### My Mixes
-
-![My Mixes](README.assets/MyMixes.png)
 
 ### Search
 

@@ -13,39 +13,31 @@ struct ArtistGridItem: View {
 	let artist: Artist
 	let session: Session
 	let player: Player
+	var artworkSize: CGFloat = 160
 
 	@EnvironmentObject var viewState: ViewState
 
 	var body: some View {
 		VStack {
 			if let pictureUrl = artist.pictureUrl(session: session, resolution: 320) {
-				AsyncImage(url: pictureUrl) { image in
-					image.resizable().scaledToFit()
-				} placeholder: {
-					Rectangle()
-				}
-				.aspectRatio(contentMode: .fill)
-				.frame(width: 160, height: 160)
-				.cornerRadius(CORNERRADIUS)
-				.shadow(radius: SHADOWRADIUS, y: SHADOWY)
-				.accessibilityHidden(true)
+				ArtworkImage(url: pictureUrl, size: artworkSize)
 			} else {
 				ZStack {
 					Rectangle()
-						.foregroundColor(.black)
-						.frame(width: 160, height: 160)
+						.foregroundColor(Color.secondary.opacity(0.15))
+						.frame(width: artworkSize, height: artworkSize)
 						.cornerRadius(CORNERRADIUS)
 						.shadow(radius: SHADOWRADIUS, y: SHADOWY)
 					Text(artist.name)
-						.foregroundColor(.white)
+						.foregroundColor(.primary)
 						.multilineTextAlignment(.center)
 						.lineLimit(5)
-						.frame(width: 160)
+						.frame(width: artworkSize)
 				}
 			}
 			Text(artist.name)
 				.lineLimit(1)
-				.frame(width: 160)
+				.frame(width: artworkSize)
 		}
 		.padding(5)
 		.help(artist.name)

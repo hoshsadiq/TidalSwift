@@ -14,34 +14,26 @@ struct VideoGridItem: View {
 	let showArtist: Bool
 	let session: Session
 	let player: Player
+	var artworkSize: CGFloat = 160
 
 	@EnvironmentObject var playbackInfo: PlaybackInfo
 
 	var body: some View {
 		VStack {
 			if let imageUrl = video.imageUrl(session: session, resolution: 320) {
-				AsyncImage(url: imageUrl) { image in
-					image.resizable().scaledToFit()
-				} placeholder: {
-					Rectangle()
-				}
-				.aspectRatio(contentMode: .fit)
-				.frame(width: 160, height: 160)
-				.cornerRadius(CORNERRADIUS)
-				.shadow(radius: SHADOWRADIUS, y: SHADOWY)
-				.accessibilityHidden(true)
+				ArtworkImage(url: imageUrl, size: artworkSize)
 			} else {
 				ZStack {
 					Rectangle()
-						.foregroundColor(.black)
-						.frame(width: 160, height: 160)
+						.foregroundColor(Color.secondary.opacity(0.15))
+						.frame(width: artworkSize, height: artworkSize)
 						.cornerRadius(CORNERRADIUS)
 						.shadow(radius: SHADOWRADIUS, y: SHADOWY)
 					Text(video.title)
-						.foregroundColor(.white)
+						.foregroundColor(.primary)
 						.multilineTextAlignment(.center)
 						.lineLimit(2)
-						.frame(width: 160)
+						.frame(width: artworkSize)
 				}
 			}
 			HStack {
@@ -53,13 +45,13 @@ struct VideoGridItem: View {
 						.layoutPriority(1)
 				}
 			}
-			.frame(width: 160)
+			.frame(width: artworkSize)
 			if showArtist {
 				Text(video.artists.formArtistString())
 					.fontWeight(.light)
 					.foregroundColor(Color.secondary)
 					.lineLimit(1)
-					.frame(width: 160)
+					.frame(width: artworkSize)
 			}
 		}
 		.padding(5)

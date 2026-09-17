@@ -1,0 +1,105 @@
+{
+  "uuid": "magazine-fixture",
+  "page": { "cursor": null },
+  "header": { "vibes": { "items": [] } },
+  "items": [
+    {
+      "type": "HORIZONTAL_LIST",
+      "moduleId": "STAFF_PICKS_PAGE_EXPLORE",
+      "title": "Editorial Radar",
+      "subtitle": null,
+      "viewAll": null,
+      "items": [
+        {
+          "type": "MAGAZINE",
+          "following": false,
+          "data": {
+            "id": 70598,
+            "imageURL": "https://resources.tidal.com/images/5dfdaf57/c4da/40d1/a949/7d173784634d/550x400.jpg",
+            "artifactId": "pages/m_lhm",
+            "type": "CATEGORY_PAGES",
+            "text": "",
+            "header": "CELEBRATE",
+            "subheader": null,
+            "groupName": "EXPLORE",
+            "shortHeader": "Latinx Heritage Month",
+            "shortSubHeader": " ",
+            "priority": 30,
+            "imageId": "5dfdaf57-c4da-40d1-a949-7d173784634d",
+            "inTimeSlot": true
+          }
+        },
+        {
+          "type": "MAGAZINE",
+          "following": false,
+          "data": {
+            "id": 70604,
+            "imageURL": "https://resources.tidal.com/images/a7ec7af0/5208/47b9/95ad/6fa1911139e6/550x400.jpg",
+            "artifactId": "539430",
+            "type": "ALBUM",
+            "text": "",
+            "header": "35th ANNIVERSARY",
+            "subheader": null,
+            "groupName": "EXPLORE",
+            "shortHeader": "Mariah Carey",
+            "shortSubHeader": "Emotions",
+            "priority": 29
+          }
+        },
+        {
+          "type": "MAGAZINE",
+          "following": false,
+          "data": {
+            "id": 70557,
+            "imageURL": "https://resources.tidal.com/images/afb5f35a/cdeb/4d1d/90fd/0bde194d3e1c/550x400.jpg",
+            "artifactId": "https://tidal.com/magazine/article/jay-z-blueprint-20/1-80819",
+            "type": "EXTURL",
+            "text": "",
+            "header": "25TH ANNIVERSARY",
+            "subheader": null,
+            "groupName": "TIDAL_MAGAZINE",
+            "shortHeader": "JAŸ-Z",
+            "shortSubHeader": "‘The Blueprint’",
+            "priority": 30
+          }
+        },
+        {
+          "type": "MAGAZINE",
+          "following": false,
+          "data": {
+            "id": 69421,
+            "imageURL": "https://resources.tidal.com/images/00000000/0000/0000/0000/000000000000/550x400.jpg",
+            "artifactId": "72f59143-de09-43ac-9a16-e3d04cbcb067",
+            "type": "PLAYLIST",
+            "text": "",
+            "header": "LISTEN",
+            "subheader": null,
+            "groupName": "SONY_360",
+            "shortHeader": "Upload Headliners: The Winners",
+            "shortSubHeader": "Listen to the 10 tracks that came out on top. ",
+            "priority": 26
+          }
+        },
+        {
+          "type": "MAGAZINE",
+          "following": false,
+          "data": {
+            "id": 99999,
+            "imageURL": null,
+            "artifactId": "future-artifact",
+            "type": "FUTURE_MAGAZINE_KIND",
+            "header": "FUTURE",
+            "shortHeader": "Unknown flavour",
+            "shortSubHeader": null,
+            "groupName": "EXPLORE",
+            "priority": 1
+          }
+        },
+        {
+          "type": "FUTURE_ITEM",
+          "data": { "foo": "bar" }
+        }
+      ]
+    }
+  ]
+}

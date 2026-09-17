@@ -2,7 +2,7 @@
 
 ## About This Project
 
-TidalSwift is a macOS Tidal Music Streaming Client written in Swift. It supports streaming, offline playback, downloads, lyrics, new releases from favorite artists, and playlist management — all via the unofficial Tidal API.
+TidalSwift is a macOS Tidal Music Streaming Client written in Swift. It supports streaming, offline playback, downloads, lyrics, playlist management, and a Music tab that renders TIDAL's v2 home feed — all via the unofficial Tidal API.
 
 ## Project Structure & Module Organization
 

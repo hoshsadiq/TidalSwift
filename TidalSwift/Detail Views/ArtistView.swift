@@ -59,7 +59,7 @@ struct ArtistView: View {
 	}
 
 	var body: some View {
-		ZStack {
+		Group {
 			// TODO: Bring ScroolView back in?
 			if let artist = artist {
 				VStack(alignment: .leading, spacing: 0) {
@@ -70,11 +70,9 @@ struct ArtistView: View {
 						.padding(.bottom)
 					bottomSection(artist)
 				}
-				.padding(.top, 50) // Has to be 50 instead of 40 like the others to look the same
 			} else {
 				Text("Couldn't load Artist")
 			}
-			BackButton()
 		}
 		.task(id: artist?.id) {
 			guard let artist else { return }
