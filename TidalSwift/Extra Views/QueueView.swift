@@ -148,10 +148,12 @@ struct QueueView: View {
 	private var historySection: some View {
 		if !historyItems.isEmpty {
 			sectionHeader("History")
+			// Row identity must come from the ForEach alone. Adding an explicit
+			// `.id()` makes SwiftUI reuse the row without re-evaluating it, which
+			// leaves stale rows behind in the LazyVStack after queue changes.
 			ForEach(historyItems) { item in
 				QueueRow(item: item, session: session, player: player, isCurrent: false, queueIndex: item.id,
 						 onPlay: { player.play(atIndex: item.id) })
-					.id(item.id)
 			}
 		}
 	}
@@ -178,9 +180,12 @@ struct QueueView: View {
 			.padding(.bottom, 4)
 		}
 		if let current = queueInfo.currentItem {
-			QueueRow(item: current, session: session, player: player, isCurrent: true, queueIndex: nil,
-					 onPlay: { player.play(atIndex: queueInfo.currentIndex) })
-				.id(queueInfo.currentIndex)
+			// The ForEach supplies the scroll target identity (its queue index)
+			// without an explicit `.id()` on the row.
+			ForEach([current]) { item in
+				QueueRow(item: item, session: session, player: player, isCurrent: true, queueIndex: nil,
+						 onPlay: { player.play(atIndex: queueInfo.currentIndex) })
+			}
 		}
 	}
 
@@ -201,7 +206,6 @@ struct QueueView: View {
 			ForEach(nextUp) { item in
 				QueueRow(item: item, session: session, player: player, isCurrent: false, queueIndex: item.id,
 						 onPlay: { player.play(atIndex: item.id) })
-					.id(item.id)
 			}
 		}
 	}
