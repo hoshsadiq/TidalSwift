@@ -361,10 +361,6 @@ struct TopView: View {
 						.tag(SidebarSelection.view(.music))
 					Label("Explore", systemImage: "safari")
 						.tag(SidebarSelection.view(.explore))
-						.disabled(true)
-						.selectionDisabled()
-						.help("Coming soon")
-						.listRowBackground(Color.clear)
 					Label("Feed", systemImage: "dot.radiowaves.left.and.right")
 						.tag(SidebarSelection.view(.feed))
 						.disabled(true)
@@ -505,7 +501,7 @@ struct DetailView: View {
 						if viewType == .music {
 							MusicHomeView(session: session, player: player)
 						} else if viewType == .explore {
-							ComingSoonView(title: "Explore")
+							ExploreView(session: session, player: player)
 						} else if viewType == .feed {
 							ComingSoonView(title: "Feed")
 						} else if viewType == .collection {
@@ -550,6 +546,11 @@ struct DetailView: View {
 						} else if viewType == .viewAll {
 							if let target = viewState.stack.last?.viewAllTarget {
 								ViewAllPage(target: target, session: session, player: player)
+							}
+						} else if viewType == .page {
+							if let target = viewState.stack.last?.pageTarget {
+								PageView(target: target, session: session, player: player)
+									.id(target.path)
 							}
 						}
 					}

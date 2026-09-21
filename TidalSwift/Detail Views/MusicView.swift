@@ -49,6 +49,11 @@ enum MusicTab: String, CaseIterable, Identifiable {
 /// Each feed module becomes one `Shelf`; cards come from the shared
 /// `homeFeedCard(for:artworkSize:session:player:)` dispatch, so the existing
 /// grid items are reused. Shelves are responsive at four cards per row.
+///
+/// TODO: Unify this renderer with the v1 pages renderer (`PageView`) into one
+/// API-driven module dispatch, so presentation fields (`layout`, `listFormat`,
+/// `scroll`) drive layout for both feeds. Deferred on purpose — see
+/// `.omo/plans/tidal-ui-explore.md`.
 struct MusicHomeView: View {
 	let session: Session
 	let player: Player

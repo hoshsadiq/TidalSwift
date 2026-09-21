@@ -19,6 +19,16 @@ struct ViewAllTarget: Codable, Equatable {
 	let title: String
 }
 
+/// Identifies a v1 page pushed as a `.page` route.
+///
+/// `path` is the page's relative path (e.g. `pages/explore`,
+/// `pages/genre_blues`, `pages/single-module-page/…`, relative to the v1 base)
+/// and `title` the title shown while the page loads and in navigation.
+struct PageTarget: Codable, Equatable {
+	let path: String
+	let title: String
+}
+
 /// The route behind a shelf's "View all".
 ///
 /// Fetches the v2 view-all page on appear and renders its items either as the

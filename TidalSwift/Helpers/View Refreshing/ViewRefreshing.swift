@@ -21,7 +21,7 @@ extension ViewState {
 		case .music:
 			music()
 		case .explore:
-			placeholder(for: .explore)
+			explore()
 		case .feed:
 			placeholder(for: .feed)
 		case .collection:
@@ -55,6 +55,9 @@ extension ViewState {
 			mix()
 		case .viewAll:
 			// ViewAllPage fetches its own page on appear.
+			doNothing()
+		case .page:
+			// PageView fetches its own page on appear.
 			doNothing()
 
 		case nil:

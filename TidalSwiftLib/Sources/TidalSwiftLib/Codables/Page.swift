@@ -41,6 +41,8 @@ public struct PageModule: Codable {
 	public let type: String
 	public let title: String?
 	public let description: String?
+	/// Body text of a `TEXT_BLOCK` module.
+	public let text: String?
 	public let pagedList: PagedList?
 	public let showMore: ShowMore?
 	/// v2 shape: a plain path instead of a `showMore` object.
@@ -50,6 +52,17 @@ public struct PageModule: Codable {
 	public let subtitle: String?
 	/// v2 shape, also used by v1 promotion modules (`MULTIPLE_TOP_PROMOTIONS`).
 	public let items: [PageItem]?
+
+	// Presentation hints used by Explore pages. All optional: most modules
+	// omit them, and unknown values are kept as-is.
+	public let listFormat: String?
+	public let scroll: String?
+	public let showTableHeaders: Bool?
+	public let supportsPaging: Bool?
+	public let quickPlay: Bool?
+	public let layout: String?
+	public let width: Int?
+	public let preTitle: String?
 
 	public var knownType: PageModuleType? {
 		PageModuleType(rawValue: type)
@@ -132,6 +145,11 @@ public struct PageItem: Codable {
 	public let text: String?
 	public let featured: Bool?
 
+	// Link tiles (`PAGE_LINKS`, `PAGE_LINKS_CLOUD`, `SHORTCUT_LIST`).
+	public let title: String?
+	public let apiPath: String?
+	public let icon: String?
+
 	/// The kind of payload this item holds, if any.
 	public var kind: PageItemKind? {
 		if mix != nil { return .mix }
@@ -151,6 +169,7 @@ public struct PageItem: Codable {
 	private enum CodingKeys: String, CodingKey {
 		case type, data, items
 		case artifactId, header, shortHeader, shortSubHeader, imageId, text, featured
+		case title, apiPath, icon
 	}
 
 	public init(from decoder: Decoder) throws {
@@ -164,6 +183,9 @@ public struct PageItem: Codable {
 		imageId = try? container.decodeIfPresent(String.self, forKey: .imageId)
 		text = try? container.decodeIfPresent(String.self, forKey: .text)
 		featured = try? container.decodeIfPresent(Bool.self, forKey: .featured)
+		title = try? container.decodeIfPresent(String.self, forKey: .title)
+		apiPath = try? container.decodeIfPresent(String.self, forKey: .apiPath)
+		icon = try? container.decodeIfPresent(String.self, forKey: .icon)
 
 		// v1 items are the payload itself; v2 wraps it in a `data` object.
 		let payloadDecoder: Decoder
@@ -204,6 +226,9 @@ public struct PageItem: Codable {
 			try container.encodeIfPresent(imageId, forKey: .imageId)
 			try container.encodeIfPresent(text, forKey: .text)
 			try container.encodeIfPresent(featured, forKey: .featured)
+			try container.encodeIfPresent(title, forKey: .title)
+			try container.encodeIfPresent(apiPath, forKey: .apiPath)
+			try container.encodeIfPresent(icon, forKey: .icon)
 			try container.encodeIfPresent(items, forKey: .items)
 		}
 	}

@@ -15,27 +15,55 @@ struct VideoGridItem: View {
 	let session: Session
 	let player: Player
 	var artworkSize: CGFloat = 160
+	/// Opt-in wide (16:9) layout for Explore's video shelves: artwork about 2.1×
+	/// the square card width, title + artist, then `N MIN` and a `VIDEO` pill.
+	/// Off by default so the square Music tab / Favourites cards are unchanged.
+	var wide: Bool = false
 
 	@EnvironmentObject var playbackInfo: PlaybackInfo
+	@EnvironmentObject var toastCenter: ToastCenter
+
+	private static let wideWidthMultiplier: CGFloat = 2.1
+	private static let wideAspectRatio: CGFloat = 16.0 / 9.0
+
+	private var cardWidth: CGFloat { wide ? artworkSize * Self.wideWidthMultiplier : artworkSize }
+	private var artworkHeight: CGFloat { wide ? cardWidth / Self.wideAspectRatio : artworkSize }
 
 	var body: some View {
-		VStack {
-			if let imageUrl = video.imageUrl(session: session, resolution: 320) {
-				ArtworkImage(url: imageUrl, size: artworkSize)
+		Group {
+			if wide {
+				wideCard
+					.padding(5)
+					.help("\(video.title) – \(video.artists.formArtistString())")
+					.contentShape(Rectangle())
+					.onTapGesture { toastCenter.show(ToastCenter.videoComingSoon) }
 			} else {
-				ZStack {
-					Rectangle()
-						.foregroundColor(Color.secondary.opacity(0.15))
-						.frame(width: artworkSize, height: artworkSize)
-						.cornerRadius(CORNERRADIUS)
-						.shadow(radius: SHADOWRADIUS, y: SHADOWY)
-					Text(video.title)
-						.foregroundColor(.primary)
-						.multilineTextAlignment(.center)
-						.lineLimit(2)
-						.frame(width: artworkSize)
-				}
+				regularCard
+					.padding(5)
+					.help("\(video.title) – \(video.artists.formArtistString())")
+					#if canImport(AppKit)
+					.onTapGesture(count: 2) {
+						print("Play Video: \(video.title)")
+						Task {
+							guard let url = await video.videoUrl(session: session) else { return }
+							print(url)
+							player.pause()
+							let controller = VideoPlayerController(videoUrl: url, volume: playbackInfo.volume)
+							controller.window?.title = "\(video.title) - \(video.artists.formArtistString())"
+							controller.showWindow(nil)
+						}
+					}
+					#endif
 			}
+		}
+		.contextMenu {
+			VideoContextMenu(video: video, session: session, player: player)
+		}
+	}
+
+	private var regularCard: some View {
+		VStack {
+			artwork(width: artworkSize, height: artworkSize)
 			HStack {
 				Text(video.title)
 					.lineLimit(1)
@@ -54,23 +82,62 @@ struct VideoGridItem: View {
 					.frame(width: artworkSize)
 			}
 		}
-		.padding(5)
-		.help("\(video.title) – \(video.artists.formArtistString())")
-		#if canImport(AppKit)
-		.onTapGesture(count: 2) {
-			print("Play Video: \(video.title)")
-			Task {
-				guard let url = await video.videoUrl(session: session) else { return }
-				print(url)
-				player.pause()
-				let controller = VideoPlayerController(videoUrl: url, volume: playbackInfo.volume)
-				controller.window?.title = "\(video.title) - \(video.artists.formArtistString())"
-				controller.showWindow(nil)
+	}
+
+	private var wideCard: some View {
+		VStack(alignment: .leading, spacing: 4) {
+			artwork(width: cardWidth, height: artworkHeight)
+			HStack {
+				Text(video.title)
+					.lineLimit(1)
+				if video.explicit {
+					Text("􀂝")
+						.foregroundColor(.secondary)
+						.layoutPriority(1)
+				}
+			}
+			.frame(width: cardWidth, alignment: .leading)
+			Text(video.artists.formArtistString())
+				.fontWeight(.light)
+				.foregroundColor(Color.secondary)
+				.lineLimit(1)
+				.frame(width: cardWidth, alignment: .leading)
+			HStack(spacing: 6) {
+				Text("\(video.duration / 60) MIN")
+					.font(.caption2)
+					.fontWeight(.semibold)
+					.foregroundColor(.secondary)
+				Text("VIDEO")
+					.font(.caption2)
+					.fontWeight(.semibold)
+					.foregroundColor(.secondary)
+					.padding(.horizontal, 5)
+					.padding(.vertical, 1)
+					.overlay(
+						RoundedRectangle(cornerRadius: 3)
+							.stroke(Color.secondary.opacity(0.6), lineWidth: 1)
+					)
 			}
 		}
-		#endif
-		.contextMenu {
-			VideoContextMenu(video: video, session: session, player: player)
+	}
+
+	@ViewBuilder
+	private func artwork(width: CGFloat, height: CGFloat) -> some View {
+		if let imageUrl = video.imageUrl(session: session, resolution: wide ? 640 : 320) {
+			ArtworkImage(url: imageUrl, size: width, height: height)
+		} else {
+			ZStack {
+				Rectangle()
+					.foregroundColor(Color.secondary.opacity(0.15))
+					.frame(width: width, height: height)
+					.cornerRadius(CORNERRADIUS)
+					.shadow(radius: SHADOWRADIUS, y: SHADOWY)
+				Text(video.title)
+					.foregroundColor(.primary)
+					.multilineTextAlignment(.center)
+					.lineLimit(2)
+					.frame(width: width)
+			}
 		}
 	}
 }

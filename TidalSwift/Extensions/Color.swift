@@ -88,3 +88,10 @@ extension Color {
 	}
 }
 #endif
+
+// MARK: - Explore Promo
+
+extension Color {
+	/// TIDAL's bright green, used for the Explore hero's uppercase promo eyebrow.
+	static let eyebrowGreen = Color(hex: "#95EA63") ?? .green
+}

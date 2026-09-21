@@ -16,6 +16,11 @@ struct ViewCache: Codable {
 	var homeFeedStaffPicks: HomeFeedV2?
 	var homeFeedUploads: HomeFeedV2?
 
+	/// The Explore hub (`pages/explore`).
+	var explorePage: Page?
+	/// v1 pages keyed by their relative path.
+	var pages: [String: Page] = [:]
+
 	var favoriteArtists: [Artist]?
 	var favoriteAlbums: [Album]?
 	var favoritePlaylists: [Playlist]?

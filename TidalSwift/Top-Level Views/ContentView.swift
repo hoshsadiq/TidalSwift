@@ -16,8 +16,13 @@ struct ContentView: View {
 	@ObservedObject var viewState: ViewState
 	@ObservedObject var sortingState: SortingState
 
+	@StateObject private var toastCenter = ToastCenter()
+
 	let session: Session
 	let player: Player
+
+	/// Keeps the toast clear of the player bar (64pt content + top padding + divider).
+	private static let toastBottomInset: CGFloat = 96
 
 	var body: some View {
 		TopDetailView(session: session, player: player)
@@ -27,6 +32,8 @@ struct ContentView: View {
 			.environmentObject(player.playbackInfo)
 			.environmentObject(player.queueInfo)
 			.environmentObject(session.helpers.downloadStatus)
+			.environmentObject(toastCenter)
+			.toast(toastCenter, bottomPadding: Self.toastBottomInset)
 			.background(EmptyView().sheet(isPresented: $loginInfo.showModal) {
 				LoginView(loginInfo: loginInfo, viewState: viewState, session: session, player: player)
 			})

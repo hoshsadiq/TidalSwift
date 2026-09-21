@@ -34,6 +34,7 @@ enum ViewType: String, Codable {
 	case playlist = "Playlist"
 	case mix = "Mix"
 	case viewAll = "View All"
+	case page = "Page"
 }
 
 struct TidalSwiftView: Codable, Equatable, Identifiable {
@@ -42,7 +43,8 @@ struct TidalSwiftView: Codable, Equatable, Identifiable {
 		String(describing: album?.id) +
 		String(describing: playlist?.uuid) +
 		String(describing: mix?.id) +
-		String(describing: viewAllTarget?.path)
+		String(describing: viewAllTarget?.path) +
+		String(describing: pageTarget?.path)
 	}
 
 	var viewType: ViewType
@@ -52,6 +54,8 @@ struct TidalSwiftView: Codable, Equatable, Identifiable {
 	var mix: MixesItem?
 	/// Payload of the `.viewAll` route.
 	var viewAllTarget: ViewAllTarget?
+	/// Payload of the `.page` route.
+	var pageTarget: PageTarget?
 
 	var loadingState: LoadingState = .loading
 
@@ -68,6 +72,7 @@ struct TidalSwiftView: Codable, Equatable, Identifiable {
 		lhs.viewType == rhs.viewType && lhs.artist == rhs.artist &&
 			lhs.album == rhs.album && lhs.playlist == rhs.playlist &&
 			lhs.mix == rhs.mix && lhs.viewAllTarget == rhs.viewAllTarget &&
+			lhs.pageTarget == rhs.pageTarget &&
 			lhs.loadingState == rhs.loadingState &&
 			lhs.searchResponse == rhs.searchResponse &&
 			lhs.artists == rhs.artists && lhs.albums == rhs.albums &&
@@ -78,7 +83,8 @@ struct TidalSwiftView: Codable, Equatable, Identifiable {
 	static func equateBase(_ lhs: TidalSwiftView, _ rhs: TidalSwiftView) -> Bool {
 		lhs.viewType == rhs.viewType && lhs.artist == rhs.artist &&
 			lhs.album == rhs.album && lhs.playlist == rhs.playlist &&
-			lhs.mix == rhs.mix && lhs.viewAllTarget == rhs.viewAllTarget
+			lhs.mix == rhs.mix && lhs.viewAllTarget == rhs.viewAllTarget &&
+			lhs.pageTarget == rhs.pageTarget
 	}
 
 	func isBase() -> Bool {
@@ -136,6 +142,11 @@ final class ViewState: ObservableObject {
 
 	func push(mix: MixesItem) {
 		let view = TidalSwiftView(viewType: .mix, mix: mix)
+		push(view: view)
+	}
+
+	func push(page: PageTarget) {
+		let view = TidalSwiftView(viewType: .page, pageTarget: page)
 		push(view: view)
 	}
 

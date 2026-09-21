@@ -59,11 +59,23 @@ public class Session {
 }
 
 extension Session {
-	/// Fetches any v1 page path (e.g. `pages/home`, `pages/for_you`) relative to
-	/// `AuthInformation.APILocation`.
+	/// Fetches any v1 page path (e.g. `pages/explore`, `pages/genre_page`,
+	/// `pages/single-module-page/…`) relative to `AuthInformation.APILocation`.
+	///
+	/// Sends the request variant the page endpoints were verified against
+	/// (2026-09-21): `deviceType=BROWSER&platform=WEB&locale=…`. Omitting
+	/// `platform`/`locale` also returned HTTP 200 with byte-identical payloads
+	/// for `en_US` (the API defaults to `WEB`/`en_US`), but sending them matches
+	/// the reference calls and serves localised pages for other locales.
+	///
+	/// `limit=999` (inherited from `sessionParameters`) is inert on page
+	/// endpoints — every module reports its own `pagedList.limit` (100/15/10…)
+	/// and payloads were identical with and without it — so it stays.
 	public func page(path: String) async -> Page? {
 		var parameters = sessionParameters
 		parameters["deviceType"] = "BROWSER"
+		parameters["platform"] = "WEB"
+		parameters["locale"] = Self.localeParameter
 		let url = URL(string: "\(AuthInformation.APILocation)/\(path)")!
 		do {
 			let response: Page = try await get(url: url, parameters: parameters)
