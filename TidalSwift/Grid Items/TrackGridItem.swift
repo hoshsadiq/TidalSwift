@@ -101,12 +101,11 @@ extension Track {
 			audioModes?.contains(.dolbyAtmos) ?? false
 	}
 
-	// TODO: tracks carrying DOLBY_ATMOS or SONY_360RA are refused even when they
-	// also have a playable STEREO stream. Narrow this to require STEREO so
-	// dual-mode tracks play.
+	// SONY_360RA was retired by Tidal (July 2024) and has no stream. DOLBY_ATMOS
+	// tracks play through `Session.bestAudioUrl`'s manifest fallback, so they are
+	// no longer refused here.
 	var isUnavailable: Bool {
 		!streamReady ||
-		audioModes?.contains(.sony360RealityAudio) ?? false ||
-			audioModes?.contains(.dolbyAtmos) ?? false
+			audioModes?.contains(.sony360RealityAudio) ?? false
 	}
 }

@@ -528,7 +528,13 @@ class Player {
 		guard !queueInfo.queue.isEmpty else {
 			return ""
 		}
-		guard let quality = queueInfo.queue[queueInfo.currentIndex].track.audioQuality else {
+		let track = queueInfo.queue[queueInfo.currentIndex].track
+		// Tidal reports Atmos tracks as `audioQuality: .low`, which would otherwise
+		// be shown as a bitrate; the stream itself is always Dolby Atmos.
+		if track.audioModes?.contains(.dolbyAtmos) ?? false {
+			return "Dolby Atmos"
+		}
+		guard let quality = track.audioQuality else {
 			return ""
 		}
 

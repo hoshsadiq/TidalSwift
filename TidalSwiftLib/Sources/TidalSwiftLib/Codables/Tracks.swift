@@ -131,6 +131,19 @@ struct AudioUrl: Decodable {
 	let codec: String
 }
 
+/// Response of `/tracks/{id}/playbackinfopostpaywall`. Hi-res answers with a DASH
+/// manifest, which AVPlayer cannot play, so only the BTS payload is used.
+struct TrackPlaybackInfo: Decodable {
+	let manifestMimeType: String
+	let manifest: String
+}
+
+/// The BTS (Bento) manifest: a base64-encoded JSON payload with a direct stream URL.
+struct BTSManifest: Decodable {
+	let encryptionType: String?
+	let urls: [URL]
+}
+
 public enum TrackSorting: Int, Codable {
 	case dateAdded // to Favorites
 	case title

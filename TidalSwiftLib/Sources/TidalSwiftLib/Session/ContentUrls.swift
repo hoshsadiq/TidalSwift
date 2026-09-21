@@ -43,6 +43,11 @@ extension Session {
 				bestResolvedAudioQualities[trackId] = quality
 				return (url, quality)
 			}
+			// Atmos tracks are refused by `streamUrl`; the manifest endpoint serves them.
+			if let url = await playbackManifestUrl(trackId: trackId, audioQuality: quality) {
+				bestResolvedAudioQualities[trackId] = quality
+				return (url, quality)
+			}
 		}
 		return nil
 	}
@@ -65,6 +70,32 @@ extension Session {
 		}
 	}
 
+	/// Resolves a track through `/tracks/{id}/playbackinfopostpaywall`, the fallback
+	/// for tracks `streamUrl`/`offlineUrl` refuse. Dolby Atmos-only tracks answer
+	/// HTTP 401 subStatus 4005 "Asset is not ready for playback". Returns nil for
+	/// non-BTS manifests: hi-res answers with DASH, which AVPlayer cannot play.
+	func playbackManifestUrl(trackId: Int, audioQuality: AudioQuality) async -> URL? {
+		let url = URL(string: "\(AuthInformation.APILocation)/tracks/\(trackId)/playbackinfopostpaywall")!
+		var parameters = sessionParameters
+		parameters["audioquality"] = audioQuality.rawValue
+		parameters["playbackmode"] = "STREAM"
+		parameters["assetpresentation"] = "FULL"
+		do {
+			let response: TrackPlaybackInfo = try await get(url: url, parameters: parameters)
+			guard response.manifestMimeType == "application/vnd.tidal.bts",
+				  let data = Data(base64Encoded: response.manifest),
+				  let manifest = try? JSONDecoder().decode(BTSManifest.self, from: data) else {
+				return nil
+			}
+			if let encryption = manifest.encryptionType, encryption != "NONE" {
+				return nil
+			}
+			return manifest.urls.first?.upgradedToHTTPS
+		} catch {
+			return nil
+		}
+	}
+
 	func pathExtension(for audioQuality: AudioQuality) -> String {
 		switch audioQuality {
 		case .low, .medium:
@@ -72,6 +103,12 @@ extension Session {
 		case .high, .max:
 			return "flac"
 		}
+	}
+
+	/// The download file extension for a resolved stream. An Atmos track is served
+	/// as an E-AC-3 MP4, so the URL's extension wins over the quality tier's.
+	func pathExtension(for url: URL, audioQuality: AudioQuality) -> String {
+		url.pathExtension.isEmpty ? pathExtension(for: audioQuality) : url.pathExtension
 	}
 }
 

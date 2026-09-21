@@ -67,12 +67,18 @@ public class Download {
 		downloadStatus.startTask()
 		defer { downloadStatus.finishTask() }
 
-		guard let url = await track.audioUrl(session: session, audioQuality: audioQuality) else {
+		// Atmos-only tracks are refused by `streamUrl`/`offlineUrl`; the manifest
+		// endpoint serves them (as E-AC-3 MP4), hence the URL-derived extension.
+		var url = await track.audioUrl(session: session, audioQuality: audioQuality)
+		if url == nil {
+			url = await session.playbackManifestUrl(trackId: track.id, audioQuality: audioQuality)
+		}
+		guard let url else {
 			return false
 		}
 		let filename = formFileName(track)
 		print("Downloading: \(filename)")
-		let optionalPath = buildPath(baseLocation: .downloads, parentFolder: parentFolder, name: filename, pathExtension: session.pathExtension(for: audioQuality))
+		let optionalPath = buildPath(baseLocation: .downloads, parentFolder: parentFolder, name: filename, pathExtension: session.pathExtension(for: url, audioQuality: audioQuality))
 		guard var path = optionalPath else {
 			displayError(title: "Error while downloading track", content: "Couldn't build path for track: \(track.title) -  \(track.artists.formArtistString())")
 			return false
