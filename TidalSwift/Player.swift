@@ -127,8 +127,15 @@ class Player {
 		next(resumeAfterSet: playbackInfo.playing)
 	}
 
-	private func next(resumeAfterSet: Bool) {
+	private func next(resumeAfterSet: Bool, visited: Int = 0) {
 		if playbackInfo.repeatState == .single {
+			seek(to: 0)
+			return
+		}
+
+		if visited >= 5 {
+			print("[PLAYBACK] stopping after 5 consecutive failures")
+			pause()
 			seek(to: 0)
 			return
 		}
@@ -149,8 +156,10 @@ class Player {
 //			print("next(): \(playbackInfo.currentIndex) - \(queueCount())")
 			avSetItem(from: queueInfo.queue[queueInfo.currentIndex].track, resumeAfterSet: playbackInfo.pauseAfter ? false : resumeAfterSet)
 		} else {
-			print("Not possible to stream \(queueInfo.queue[queueInfo.currentIndex].track.title)")
-			next(resumeAfterSet: resumeAfterSet)
+			let track = queueInfo.queue[queueInfo.currentIndex].track
+			print("[PLAYBACK] next(): skipping non-streamable track - title: \(track.title), id: \(track.id), streamReady: \(track.streamReady), isUnavailable: \(track.isUnavailable), currentIndex: \(queueInfo.currentIndex), queueCount: \(queueInfo.queue.count)")
+			failedItems += 1
+			next(resumeAfterSet: resumeAfterSet, visited: visited + 1)
 		}
 
 		if playbackInfo.pauseAfter {
@@ -162,6 +171,7 @@ class Player {
 		if queueInfo.queue.isEmpty {
 			return
 		}
+		failedItems = 0
 		if enabled {
 			queueInfo.nonShuffledQueue = queueInfo.queue
 			queueInfo.queue = queueInfo.queue[0...queueInfo.currentIndex] +
@@ -201,13 +211,16 @@ class Player {
 		func skip() {
 			failedItems += 1
 			if failedItems == queueInfo.queue.count {
-				clearQueue()
+				print("[PLAYBACK] all tracks in queue failed to play")
+				pause()
+				seek(to: 0)
 			} else {
 				next(resumeAfterSet: shouldResume)
 			}
 		}
 
 		if track.isUnavailable {
+			print("[PLAYBACK] avSetItem(): track unavailable - title: \(track.title), id: \(track.id), streamReady: \(track.streamReady), audioModes: \(String(describing: track.audioModes)), failedItems: \(failedItems), queueCount: \(queueInfo.queue.count)")
 			skip()
 			return
 		}
@@ -215,14 +228,17 @@ class Player {
 		let url: URL
 		if let offlineUrl = await session.helpers.offline.url(for: track) {
 			print("Play \(track.title) from offline URL: \(offlineUrl)")
+			print("[PLAYBACK] avSetItem(): resolved URL - title: \(track.title), quality: \(nextAudioQuality), source: offline")
 			url = offlineUrl
 			currentAudioQuality = nextAudioQuality
 		} else if let resolved = await session.bestAudioUrl(trackId: track.id, preferredQuality: nextAudioQuality) {
 			print("Play \(track.title) from online URL: \(resolved.url)")
+			print("[PLAYBACK] avSetItem(): resolved URL - title: \(track.title), quality: \(resolved.quality), source: online")
 			url = resolved.url
 			currentAudioQuality = resolved.quality
 		} else {
 			print("No URL so skipping \(track.title)")
+			print("[PLAYBACK] avSetItem(): no URL - title: \(track.title), id: \(track.id), failedItems: \(failedItems), queueCount: \(queueInfo.queue.count)")
 			playbackInfo.failedTrackIds.insert(track.id)
 			skip()
 			return
@@ -303,6 +319,7 @@ class Player {
 	}
 
 	func add(tracks: [Track], _ when: When, playAt index: Int = 0, source: QueueSource? = nil) {
+		failedItems = 0
 		let safeIndex = min(max(index, 0), tracks.count)
 		let unavailableCount = tracks[0..<safeIndex].filter(\.isUnavailable).count
 		let newIndex = safeIndex - unavailableCount
@@ -385,6 +402,7 @@ class Player {
 
 	func removeTrack(atIndex: Int) {
 		guard queueInfo.queue.indices.contains(atIndex) else { return }
+		failedItems = 0
 		let removedCurrent = atIndex == queueInfo.currentIndex
 
 		if playbackInfo.shuffle {
@@ -419,6 +437,7 @@ class Player {
 	}
 
 	func clearQueue(leavingCurrent: Bool = false) {
+		failedItems = 0
 		if leavingCurrent {
 			guard !queueInfo.queue.isEmpty else { return }
 			let current = min(max(queueInfo.currentIndex, 0), queueInfo.queue.count - 1)

@@ -28,6 +28,7 @@ public class Session {
 	public var helpers: Helpers!
 	public var playlistEditing: PlaylistEditing!
 	var activeTokenRefresh: Task<Void, Error>?
+	var activeTokenRefreshID: UUID?
 	var bestResolvedAudioQualities: [Int: AudioQuality] = [:]
 
 	/// In-memory lyrics cache shared by every `LyricsResolver` built from this
@@ -243,7 +244,7 @@ extension Session {
 	func v2Get<Result: Decodable>(url: URL, parameters: [String: String]) async throws -> Result {
 		try? await refreshAccessTokenIfNeeded()
 		let response = try await Self.v2Request(url: url, parameters: parameters, accessToken: config.accessToken, xTidalToken: config.apiToken)
-		guard response.statusCode == 401 else {
+		guard response.statusCode == 401, Self.isAuthenticationFailure(response) else {
 			return try JSONDecoder.custom.decode(Result.self, from: response.data)
 		}
 		try await refreshAccessToken()

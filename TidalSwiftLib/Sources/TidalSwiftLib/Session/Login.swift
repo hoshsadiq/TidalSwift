@@ -149,11 +149,18 @@ extension Session {
 		if let activeTokenRefresh {
 			return try await activeTokenRefresh.value
 		}
+		let refreshID = UUID()
 		let task = Task {
-			defer { activeTokenRefresh = nil }
 			try await performAccessTokenRefresh()
 		}
 		activeTokenRefresh = task
+		activeTokenRefreshID = refreshID
+		defer {
+			if activeTokenRefreshID == refreshID {
+				activeTokenRefresh = nil
+				activeTokenRefreshID = nil
+			}
+		}
 		return try await task.value
 	}
 
@@ -210,6 +217,7 @@ extension Session {
 	public func logout() {
 		activeTokenRefresh?.cancel()
 		activeTokenRefresh = nil
+		activeTokenRefreshID = nil
 		deletePersistentInformation()
 		config = Config(accessToken: "", refreshToken: "", clientID: "", offlineAudioQuality: .high, urlType: .streaming)
 	}

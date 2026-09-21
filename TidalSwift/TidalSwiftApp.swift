@@ -376,6 +376,10 @@ final class TidalSwiftAppModel: ObservableObject {
 				player.queueInfo.history = codablePI.history
 				player.queueInfo.maxHistoryItems = codablePI.maxHistoryItems
 
+				let restoredQueue = player.queueInfo.queue
+				let notStreamReadyCount = restoredQueue.filter { !$0.track.streamReady }.count
+				print("[PLAYBACK] restored queue - count: \(restoredQueue.count), currentIndex: \(codablePI.currentIndex), notStreamReady: \(notStreamReadyCount)")
+
 				player.play(atIndex: codablePI.currentIndex)
 				player.pause()
 			}

@@ -38,10 +38,25 @@ extension Session {
 		// surfaces the definitive error (network failure or 401 below)
 		try? await refreshAccessTokenIfNeeded()
 		let response = try await Network.request(method: method, url: url, parameters: parameters, etag: etag, accessToken: config.accessToken, xTidalToken: config.apiToken)
-		guard response.statusCode == 401 else {
+		guard response.statusCode == 401, Self.isAuthenticationFailure(response) else {
 			return response
 		}
 		try await refreshAccessToken()
 		return try await Network.request(method: method, url: url, parameters: parameters, etag: etag, accessToken: config.accessToken, xTidalToken: config.apiToken)
+	}
+
+	/// Tidal uses two distinct 401s. `subStatus` 11003 means the token expired
+	/// (a genuine auth failure → refresh and retry). `subStatus` 4005 means the
+	/// asset isn't ready for playback — a track-level unavailability that must
+	/// not be treated as an auth failure. Any other 401 is treated as auth.
+	static func isAuthenticationFailure(_ response: Response) -> Bool {
+		struct ErrorBody: Decodable {
+			let subStatus: Int?
+		}
+		let body = try? JSONDecoder().decode(ErrorBody.self, from: response.data)
+		if let subStatus = body?.subStatus {
+			return subStatus != 4005
+		}
+		return true
 	}
 }
