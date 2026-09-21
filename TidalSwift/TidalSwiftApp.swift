@@ -70,11 +70,17 @@ final class TidalSwiftAppModel: ObservableObject {
 	private var isTerminating = false
 
 	#if canImport(AppKit)
-	private var lyricsViewController: NSWindowController?
 	private var viewHistoryViewController: NSWindowController?
 	private var playbackHistoryViewController: NSWindowController?
+	private var miniplayerWindowController: MiniplayerWindowController?
 	private var windowCloseObserver: NSObjectProtocol?
 	private var spaceKeyMonitor: Any?
+	/// The app's main content window. Captured when the miniplayer opens so it can be
+	/// hidden/shown for mutual exclusivity with the miniplayer.
+	private var mainWindow: NSWindow?
+	/// Observer for the main window becoming key (e.g., via Dock click), which should
+	/// close the miniplayer to maintain mutual exclusivity.
+	private var mainWindowKeyObserver: NSObjectProtocol?
 	#endif
 
 	// MARK: Cancellables
@@ -97,6 +103,7 @@ final class TidalSwiftAppModel: ObservableObject {
 	var queueCancellable: AnyCancellable?
 	var currentIndexCancellable: AnyCancellable?
 	var volumeCancellable: AnyCancellable?
+	var activePanelCancellable: AnyCancellable?
 	var viewStackCancellable: AnyCancellable?
 	var viewStateObjectWillChangeCancellable: AnyCancellable?
 	var npPlayingCancellable: AnyCancellable?
@@ -128,6 +135,9 @@ final class TidalSwiftAppModel: ObservableObject {
 	@Published var trackIsFavorite = false
 	@Published var albumIsFavorite = false
 	@Published var showQueuePanel = false
+	/// Whether the floating miniplayer window is currently open. Drives the
+	/// drawer button's tint; kept in sync by the window's close callback.
+	@Published var isMiniplayerOpen = false
 	@Published private(set) var audioQuality: AudioQuality
 
 	var hasCurrentTrack: Bool {
@@ -207,6 +217,10 @@ final class TidalSwiftAppModel: ObservableObject {
 			NSEvent.removeMonitor(spaceKeyMonitor)
 			self.spaceKeyMonitor = nil
 		}
+		if let mainWindowKeyObserver {
+			NotificationCenter.default.removeObserver(mainWindowKeyObserver)
+			self.mainWindowKeyObserver = nil
+		}
 		nowPlayingController.teardown()
 		NowPlayingInfoBuilder.clear()
 		cancelCancellables()
@@ -258,13 +272,6 @@ final class TidalSwiftAppModel: ObservableObject {
 	// MARK: Secondary Windows
 
 	func initSecondaryWindows() {
-		lyricsViewController = ResizableWindowControllerFactory.create(rootView:
-			LyricsView()
-				.environmentObject(viewState)
-				.environmentObject(player.queueInfo)
-		)
-		lyricsViewController?.window?.title = "Lyrics"
-
 		viewHistoryViewController = ResizableWindowControllerFactory.create(rootView:
 			ViewHistoryView()
 				.environmentObject(viewState)
@@ -277,16 +284,68 @@ final class TidalSwiftAppModel: ObservableObject {
 				.environmentObject(player.queueInfo)
 		)
 		playbackHistoryViewController?.window?.title = "Playback History"
+
+		let miniplayerController = MiniplayerWindowController(session: session, player: player, viewState: viewState, appModel: self)
+		miniplayerController.onClose = { [weak self] in
+			self?.restoreMainWindowAfterMiniplayer()
+		}
+		miniplayerWindowController = miniplayerController
+		registerMainWindowKeyObserver()
 	}
 
 	func closeAllSecondaryWindows() {
-		lyricsViewController?.close()
 		viewHistoryViewController?.close()
 		playbackHistoryViewController?.close()
+		miniplayerWindowController?.close()
 	}
 
-	func showLyricsWindow() {
-		lyricsViewController?.showWindow(nil)
+	func showMiniplayer() {
+		if mainWindow == nil,
+		   let keyWindow = NSApp.keyWindow,
+		   keyWindow !== miniplayerWindowController?.window {
+			mainWindow = keyWindow
+		}
+		mainWindow?.orderOut(nil)
+		miniplayerWindowController?.showWindow(nil)
+		isMiniplayerOpen = true
+	}
+
+	func closeMiniplayer() {
+		miniplayerWindowController?.close()
+		restoreMainWindowAfterMiniplayer()
+	}
+
+	private func restoreMainWindowAfterMiniplayer() {
+		isMiniplayerOpen = false
+		mainWindow?.makeKeyAndOrderFront(nil)
+		mainWindow = nil
+	}
+
+	private func registerMainWindowKeyObserver() {
+		guard mainWindowKeyObserver == nil else { return }
+		mainWindowKeyObserver = NotificationCenter.default.addObserver(
+			forName: NSWindow.didBecomeKeyNotification,
+			object: nil,
+			queue: .main
+		) { [weak self] notification in
+			let window = notification.object as? NSWindow
+			MainActor.assumeIsolated {
+				guard let self,
+					  self.isMiniplayerOpen,
+					  let mainWindow = self.mainWindow,
+					  let window,
+					  window === mainWindow else { return }
+				self.closeMiniplayer()
+			}
+		}
+	}
+
+	func toggleMiniplayer() {
+		if isMiniplayerOpen {
+			closeMiniplayer()
+		} else {
+			showMiniplayer()
+		}
 	}
 
 	func showPlaybackHistoryWindow() {
@@ -307,6 +366,9 @@ final class TidalSwiftAppModel: ObservableObject {
 				player.playbackInfo.shuffle = codablePI.shuffle
 				player.playbackInfo.repeatState = codablePI.repeatState
 				player.playbackInfo.pauseAfter = codablePI.pauseAfter
+				if let activePanel = codablePI.activePanel {
+					player.playbackInfo.activePanel = activePanel
+				}
 
 				player.queueInfo.nonShuffledQueue = codablePI.nonShuffledQueue
 				player.queueInfo.queue = codablePI.queue
@@ -395,6 +457,7 @@ final class TidalSwiftAppModel: ObservableObject {
 			shuffle: player.playbackInfo.shuffle,
 			repeatState: player.playbackInfo.repeatState,
 			pauseAfter: player.playbackInfo.pauseAfter,
+			activePanel: player.playbackInfo.activePanel,
 			nonShuffledQueue: player.queueInfo.nonShuffledQueue,
 			queue: player.queueInfo.queue,
 			currentIndex: player.queueInfo.currentIndex,
@@ -499,6 +562,9 @@ final class TidalSwiftAppModel: ObservableObject {
 			self?.savePlaybackInfoOnNextTick = true
 		}
 		volumeCancellable = player.playbackInfo.$volume.receive(on: DispatchQueue.main).sink { [weak self] _ in
+			self?.savePlaybackInfoOnNextTick = true
+		}
+		activePanelCancellable = player.playbackInfo.$activePanel.receive(on: DispatchQueue.main).sink { [weak self] _ in
 			self?.savePlaybackInfoOnNextTick = true
 		}
 
@@ -612,6 +678,7 @@ final class TidalSwiftAppModel: ObservableObject {
 		queueCancellable?.cancel()
 		currentIndexCancellable?.cancel()
 		volumeCancellable?.cancel()
+		activePanelCancellable?.cancel()
 		viewStackCancellable?.cancel()
 
 		favoritePlaylistSortingCancellable?.cancel()
@@ -1084,7 +1151,10 @@ struct TidalSwiftCommands: Commands {
 		CommandGroup(after: .windowArrangement) {
 			Divider()
 			Button("Lyrics") {
-				appModel.showLyricsWindow()
+				withAnimation(.easeInOut(duration: 0.3)) {
+					appModel.player.playbackInfo.isNowPlayingExpanded = true
+					appModel.player.playbackInfo.activePanel = .lyrics
+				}
 			}
 			Button("Queue") {
 				withAnimation {

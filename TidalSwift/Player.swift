@@ -41,6 +41,7 @@ class Player {
 				Task { @MainActor in
 					self.playbackInfo.fraction = CGFloat(self.fraction())
 					self.playbackInfo.playbackTimeInfo = self.playbackTimeInfo()
+					self.playbackInfo.playbackPosition = self.currentPlaybackPosition()
 				}
 			}
 		}
@@ -100,6 +101,7 @@ class Player {
 	}
 
 	func previous() {
+		guard !queueInfo.queue.isEmpty else { return }
 		if avPlayer.currentTime().seconds >= 3 || queueInfo.currentIndex == 0 {
 			avPlayer.seek(to: CMTime(seconds: 0, preferredTimescale: 1))
 			if queueInfo.currentIndex == 0 && !queueInfo.queue[queueInfo.currentIndex].track.streamReady {
@@ -179,7 +181,10 @@ class Player {
 			return
 		}
 		let seconds = percentage * currentItem.duration.seconds
-		avPlayer.seek(to: CMTime(seconds: seconds, preferredTimescale: 1))
+		// A timescale of 1 rounds sub-second targets to whole seconds, which
+		// drops a tapped lyric line up to half a second early. Seek at media
+		// resolution so the target is preserved.
+		avPlayer.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
 	}
 
 	private func avSetItem(from track: Track, resumeAfterSet: Bool? = nil) {
@@ -230,6 +235,9 @@ class Player {
 		let item = AVPlayerItem(url: url)
 		NotificationCenter.default.addObserver(self, selector: #selector(self.playerDidFinishPlaying(sender:)), name: NSNotification.Name.AVPlayerItemDidPlayToEndTime, object: item)
 		avPlayer.replaceCurrentItem(with: item)
+		// The periodic observer only refreshes once a second; reset eagerly so a
+		// new track can't briefly highlight a line at the previous track's time.
+		playbackInfo.playbackPosition = 0
 
 		if shouldResume {
 //			print("Was playing...")
@@ -376,35 +384,46 @@ class Player {
 	}
 
 	func removeTrack(atIndex: Int) {
+		guard queueInfo.queue.indices.contains(atIndex) else { return }
+		let removedCurrent = atIndex == queueInfo.currentIndex
+
 		if playbackInfo.shuffle {
 			guard let nonShuffledIndex = queueInfo.nonShuffledQueue.firstIndex(of: queueInfo.queue[atIndex]) else {
 				print("ERROR - Player.removeTrack(): queueInfo.nonShuffledQueue.firstIndex is nil")
 				return
 			}
 			queueInfo.nonShuffledQueue.remove(at: nonShuffledIndex)
-		} else {
+		} else if queueInfo.nonShuffledQueue.indices.contains(atIndex) {
 			queueInfo.nonShuffledQueue.remove(at: atIndex)
 		}
 		queueInfo.queue.remove(at: atIndex)
+
+		if atIndex < queueInfo.currentIndex {
+			queueInfo.currentIndex -= 1
+		}
+		// Removing the current (possibly last) track can leave currentIndex at or
+		// past the new end; clamp so the queue lookup below can't trap.
+		if queueInfo.currentIndex >= queueInfo.queue.count {
+			queueInfo.currentIndex = max(0, queueInfo.queue.count - 1)
+		}
 		queueInfo.assignQueueIndices()
 
-		if atIndex == queueInfo.currentIndex {
+		if removedCurrent {
 			if !queueInfo.queue.isEmpty {
 				avSetItem(from: queueInfo.queue[queueInfo.currentIndex].track)
 			} else {
 				avPlayer.replaceCurrentItem(with: nil)
+				playbackInfo.playing = false
 			}
-		}
-
-		if atIndex < queueInfo.currentIndex {
-			queueInfo.currentIndex -= 1
 		}
 	}
 
 	func clearQueue(leavingCurrent: Bool = false) {
 		if leavingCurrent {
-			queueInfo.queue.removeFirst(queueInfo.currentIndex)
-			queueInfo.queue.removeLast(queueCount() - 1)
+			guard !queueInfo.queue.isEmpty else { return }
+			let current = min(max(queueInfo.currentIndex, 0), queueInfo.queue.count - 1)
+			queueInfo.queue.removeFirst(current)
+			queueInfo.queue.removeLast(queueInfo.queue.count - 1)
 			queueInfo.currentIndex = 0
 			queueInfo.nonShuffledQueue = queueInfo.queue
 			queueInfo.assignQueueIndices()
@@ -435,6 +454,13 @@ class Player {
 //		print("fraction(): r: \(r), currentTime: \(avPlayer.currentTime().seconds), totalTime: \(totalTime)")
 
 		return r
+	}
+
+	/// Current playback position in seconds, or 0 while no item is loaded or the
+	/// player reports a non-finite time.
+	private func currentPlaybackPosition() -> Double {
+		let seconds = avPlayer.currentTime().seconds
+		return seconds.isFinite ? seconds : 0
 	}
 
 	func playbackTimeInfo() -> String {

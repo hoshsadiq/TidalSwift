@@ -7,6 +7,7 @@ import SwiftUI
 
 struct PreferencesGeneralTab: View {
 	@AppStorage("SaveFavoritesOffline") public var saveFavoritesOffline = false
+	@AppStorage("UseLRCLIBFallback") public var useLRCLIBFallback = true
 
 	var body: some View {
 		Form {
@@ -50,6 +51,17 @@ struct PreferencesGeneralTab: View {
 						.foregroundStyle(.secondary)
 				}
 				.disabled(true)
+			}
+
+			Section("Lyrics") {
+				Toggle(isOn: $useLRCLIBFallback) {
+					VStack(alignment: .leading) {
+						Text("Use LRCLIB when TIDAL has no timed lyrics")
+						Text("Track, artist and album names are sent to lrclib.net.")
+							.font(.caption)
+							.foregroundStyle(.secondary)
+					}
+				}
 			}
 
 			Section("Connect") {

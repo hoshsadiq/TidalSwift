@@ -39,10 +39,11 @@ final class QueueInfo: ObservableObject {
 	}
 
 	func assignQueueIndices() {
-		// Crashes if nonShuffledQueue is shorter than Queue
 		for i in 0..<queue.count {
 			queue[i] = WrappedTrack(id: i, track: queue[i].track)
-			nonShuffledQueue[i] = WrappedTrack(id: i, track: nonShuffledQueue[i].track)
+			if i < nonShuffledQueue.count {
+				nonShuffledQueue[i] = WrappedTrack(id: i, track: nonShuffledQueue[i].track)
+			}
 		}
 	}
 

@@ -16,6 +16,17 @@ enum AuthInformation {
 	// The official desktop client asks the v2 feed on `tidal.com` (not
 	// `api.tidal.com`); both hosts answer identically.
     static let APIV2Location = "https://tidal.com/v2"
+	// The v2 catalog API lives on a different host than the v2 feed:
+	// `tidal.com/v2` serves `home/feed/*` but 404s for `/tracks/{id}`, while
+	// `openapi.tidal.com/v2` is the reverse (verified 2026-09-17).
+	static let APIV2OpenAPILocation = "https://openapi.tidal.com/v2"
+	// LRCLIB has no auth; only the base URL is needed.
+	static let LRCLIBLocation = "https://lrclib.net"
+	// The official desktop client's User-Agent, captured 2026-09-17. Tidal
+	// requests present as the real client; LRCLIB requests present as Safari
+	// (`safariUserAgent`). Neither names this app.
+	static let tidalClientUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) TIDAL/2.43.2 Chrome/150.0.7871.129 Electron/43.2.0 Safari/537.36"
+	static let safariUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15"
 	// Required by the v2 API (`x-tidal-client-version`); without it it answers HTTP 400.
 	//
 	// The value also gates the home feed: a value parsed as semver below ~2026.4

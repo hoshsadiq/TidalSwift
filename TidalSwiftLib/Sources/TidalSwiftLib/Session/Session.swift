@@ -30,6 +30,12 @@ public class Session {
 	var activeTokenRefresh: Task<Void, Error>?
 	var bestResolvedAudioQualities: [Int: AudioQuality] = [:]
 
+	/// In-memory lyrics cache shared by every `LyricsResolver` built from this
+	/// session. Scoping it to the long-lived session (rather than a resolver
+	/// owned by a view) is what lets resolved lyrics survive the Now Playing
+	/// drawer or the lyrics panel being torn down and rebuilt.
+	let lyricsCache = LyricsCache()
+
 	public init(config: Config?) {
 		if let config = config {
 			self.config = config
@@ -234,7 +240,7 @@ extension Session {
 	/// `x-tidal-client-version` header, which `Network.request` doesn't support,
 	/// so this builds the request itself (mirroring `Requests.swift`'s refresh
 	/// and retry-on-401 behaviour).
-	private func v2Get<Result: Decodable>(url: URL, parameters: [String: String]) async throws -> Result {
+	func v2Get<Result: Decodable>(url: URL, parameters: [String: String]) async throws -> Result {
 		try? await refreshAccessTokenIfNeeded()
 		let response = try await Self.v2Request(url: url, parameters: parameters, accessToken: config.accessToken, xTidalToken: config.apiToken)
 		guard response.statusCode == 401 else {
@@ -264,6 +270,7 @@ extension Session {
 		request.setValue(accessToken, forHTTPHeaderField: "Authorization")
 		request.setValue(xTidalToken, forHTTPHeaderField: "X-Tidal-Token")
 		request.setValue(AuthInformation.clientVersion, forHTTPHeaderField: "x-tidal-client-version")
+		request.setValue(AuthInformation.tidalClientUserAgent, forHTTPHeaderField: "User-Agent")
 
 		let (data, response) = try await URLSession.shared.data(for: request)
 		return Response(data: data, statusCode: (response as? HTTPURLResponse)?.statusCode, etag: nil)

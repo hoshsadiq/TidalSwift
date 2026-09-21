@@ -9,6 +9,9 @@
 import SwiftUI
 import TidalSwiftLib
 import Sliders
+#if canImport(AppKit)
+import AppKit
+#endif
 
 struct PlayerInfoView: View {
 	let session: Session
@@ -17,8 +20,7 @@ struct PlayerInfoView: View {
 
 	@EnvironmentObject var queueInfo: QueueInfo
 	@EnvironmentObject var appModel: TidalSwiftAppModel
-	// Disabled until the Now Playing drawer is built.
-	// @EnvironmentObject var playbackInfo: PlaybackInfo
+	@EnvironmentObject var playbackInfo: PlaybackInfo
 
 	var body: some View {
 		VStack {
@@ -27,21 +29,16 @@ struct PlayerInfoView: View {
 					HStack {
 						TrackInfoView(player: player, session: session)
 
-						if queueInfo.queue.indices.contains(queueInfo.currentIndex) {
-							let track = queueInfo.queue[queueInfo.currentIndex].track
-							Button {
-								toggleFavorite(track: track)
-							} label: {
-								Image(systemName: appModel.trackIsFavorite ? "heart.fill" : "heart")
-									.foregroundColor(appModel.trackIsFavorite ? .red : .primary)
-							}
-							.buttonStyle(.plain)
-							.help(appModel.trackIsFavorite ? "Remove from Favorites" : "Add to Favorites")
+					if queueInfo.queue.indices.contains(queueInfo.currentIndex) {
+						let track = queueInfo.queue[queueInfo.currentIndex].track
+						FavoriteButton(track: track, session: session, hitPadding: 6)
 
-							Menu {
+						Menu {
 								TrackContextMenu(track: track, session: session, player: player)
 							} label: {
 								Image(systemName: "ellipsis")
+									.padding(6)
+									.contentShape(Rectangle())
 							}
 							.menuStyle(.borderlessButton)
 							.menuIndicator(.hidden)
@@ -53,10 +50,6 @@ struct PlayerInfoView: View {
 							.layoutPriority(-1)
 					}
 					.contentShape(Rectangle())
-					// Disabled until the Now Playing drawer is built.
-					// .onTapGesture {
-					// 	playbackInfo.isNowPlayingExpanded.toggle()
-					// }
 					.contextMenu {
 						if !queueInfo.queue.isEmpty {
 							let track = queueInfo.queue[queueInfo.currentIndex].track
@@ -73,11 +66,18 @@ struct PlayerInfoView: View {
 					DownloadIndicator()
 					#if canImport(AppKit)
 					Image(systemName: "quote.bubble")
+						.padding(6)
+						.contentShape(Rectangle())
 						.help("Lyrics")
 						.onTapGesture {
-							appModel.showLyricsWindow()
+							withAnimation(.easeInOut(duration: 0.3)) {
+								playbackInfo.isNowPlayingExpanded = true
+								playbackInfo.activePanel = .lyrics
+							}
 						}
 					Image(systemName: "list.dash")
+						.padding(6)
+						.contentShape(Rectangle())
 						.help("Queue")
 						.foregroundColor(appModel.showQueuePanel ? .accentColor : .primary)
 						.onTapGesture {
@@ -94,13 +94,17 @@ struct PlayerInfoView: View {
 					.disabled(true)
 					.help("Coming soon")
 
+					#if canImport(AppKit)
 					Button {
+						appModel.toggleMiniplayer()
 					} label: {
 						Image(systemName: "rectangle.on.rectangle")
+							.foregroundColor(appModel.isMiniplayerOpen ? .accentColor : .primary)
 					}
 					.buttonStyle(.plain)
-					.disabled(true)
-					.help("Coming soon")
+					.help(appModel.isMiniplayerOpen ? "Close Miniplayer" : "Open Miniplayer")
+					.accessibilityLabel("Miniplayer")
+					#endif
 
 					QualityBadge(text: player.currentQualityString(), tint: .orange)
 						.help("Current Quality")
@@ -109,9 +113,46 @@ struct PlayerInfoView: View {
 			.frame(height: 64)
 			.padding([.top, .horizontal])
 		}
+		// While the drawer is expanded the bar adopts the drawer's ambient
+		// colour — the same `PlaybackInfo.ambientColor` that `NowPlayingAmbientLayer`
+		// derives and fills behind the drawer — so the two read as one surface.
+		// Collapsed, it returns to the window background.
+		.background(playbackInfo.isNowPlayingExpanded ? playbackInfo.ambientColor : Color(nsColor: .windowBackgroundColor))
+		.contentShape(Rectangle())
+		.onTapGesture {
+			playbackInfo.isNowPlayingExpanded.toggle()
+		}
+	}
+}
+
+/// Heart toggle for the current track, shared by the player bar and miniplayer.
+///
+/// State comes from `TidalSwiftAppModel.trackIsFavorite` (refreshed on queue /
+/// index changes) so every host stays in sync without owning favorite state.
+struct FavoriteButton: View {
+	let track: Track
+	let session: Session
+	/// Extra hit-target padding around the glyph. The player bar sits inside a
+	/// tap-to-expand container, so it needs a larger target than the miniplayer.
+	var hitPadding: CGFloat = 0
+
+	@EnvironmentObject var appModel: TidalSwiftAppModel
+
+	var body: some View {
+		Button {
+			toggleFavorite()
+		} label: {
+			Image(systemName: appModel.trackIsFavorite ? "heart.fill" : "heart")
+				.foregroundColor(appModel.trackIsFavorite ? .red : .primary)
+				.padding(hitPadding)
+				.contentShape(Rectangle())
+		}
+		.buttonStyle(.plain)
+		.help(appModel.trackIsFavorite ? "Remove from Favorites" : "Add to Favorites")
+		.accessibilityLabel(appModel.trackIsFavorite ? "Remove from Favorites" : "Add to Favorites")
 	}
 
-	private func toggleFavorite(track: Track) {
+	private func toggleFavorite() {
 		let wasFavorite = appModel.trackIsFavorite
 		Task {
 			guard let favorites = session.favorites else { return }
@@ -271,27 +312,37 @@ struct PlaybackControls: View {
 				Group {
 					Image(systemName: "shuffle")
 						.foregroundStyle(playbackInfo.shuffle ? Color.controlAccentColor : Color.secondary)
+						.padding(6)
+						.contentShape(Rectangle())
 				}
 				.help("Shuffle")
 				.onTapGesture {
 					playbackInfo.shuffle.toggle()
 				}
 				Image(systemName: "backward.fill")
+					.padding(6)
+					.contentShape(Rectangle())
 					.onTapGesture {
 						player.previous()
 					}
 				if playbackInfo.playing {
 					Image(systemName: "pause.fill")
+						.padding(6)
+						.contentShape(Rectangle())
 						.onTapGesture {
 							player.pause()
 						}
 				} else {
 					Image(systemName: "play.fill")
+						.padding(6)
+						.contentShape(Rectangle())
 						.onTapGesture {
 							player.play()
 						}
 				}
 				Image(systemName: "forward.fill")
+					.padding(6)
+					.contentShape(Rectangle())
 					.onTapGesture {
 						player.next()
 					}
@@ -300,6 +351,8 @@ struct PlaybackControls: View {
 						.foregroundStyle(
 							playbackInfo.repeatState == .off ? Color.secondary : Color.controlAccentColor
 						)
+						.padding(6)
+						.contentShape(Rectangle())
 				}
 				.help("Repeat")
 				.onTapGesture {

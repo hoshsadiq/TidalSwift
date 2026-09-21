@@ -36,6 +36,7 @@ extension Network {
 	static func request(method: HttpMethod, url: URL, parameters: [String: String], etag: Int? = nil, accessToken: String?, xTidalToken: String?) async throws -> Response {
 		var request = URLRequest(url: url)
 		request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+		request.setValue(AuthInformation.tidalClientUserAgent, forHTTPHeaderField: "User-Agent")
 		if let accessToken = accessToken {
 			request.setValue(accessToken, forHTTPHeaderField: "Authorization")
 		}

@@ -23,7 +23,29 @@ final class PlaybackInfo: ObservableObject {
 	// MARK: Now Playing drawer
 	/// Whether the Now Playing drawer is expanded. Toggled by tapping the player
 	/// bar's artwork/info region.
+	///
+	/// Collapsing deliberately leaves `activePanel` untouched so the last panel
+	/// is restored when the drawer reopens.
 	@Published var isNowPlayingExpanded: Bool = false
+	/// Which panel the expanded Now Playing drawer shows. Persisted to
+	/// UserDefaults so it survives relaunches.
+	@Published var activePanel: NowPlayingPanel = .none
+	/// Whether the Now Playing drawer covers the whole window.
+	@Published var isFullscreen: Bool = false
+	/// Current playback position in seconds, kept in sync by the player's
+	/// periodic time observer. Drives the lyrics panel's line highlight.
+	@Published var playbackPosition: Double = 0
+	/// Ambient background colour derived from the current artwork. Shared with
+	/// the drawer so its panels can pick a foreground that contrasts with it.
+	@Published var ambientColor: Color = NowPlayingAmbient.fallback
+}
+
+/// Panels of the Now Playing drawer.
+enum NowPlayingPanel: String, Codable {
+	case none
+	case similar
+	case credits
+	case lyrics
 }
 
 enum RepeatState: Int, CaseIterable, Codable {
@@ -48,6 +70,8 @@ struct CodablePlaybackInfo: Codable {
 	var shuffle: Bool
 	var repeatState: RepeatState
 	var pauseAfter: Bool
+	/// Optional so persisted data written before this field existed still decodes.
+	var activePanel: NowPlayingPanel?
 
 	// QueueInfo
 	var nonShuffledQueue: [WrappedTrack]

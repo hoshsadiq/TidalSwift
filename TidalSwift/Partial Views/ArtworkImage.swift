@@ -59,6 +59,13 @@ struct ArtworkImage: View {
 		return cache
 	}()
 
+	/// The decoded image for `url` when it is already in the shared cache, so
+	/// other views (e.g. the ambient background) can reuse it without a second
+	/// network fetch.
+	static func cachedImage(for url: URL) -> NSImage? {
+		cache.object(forKey: url as NSURL)
+	}
+
 	var body: some View {
 		ZStack {
 			switch phase {

@@ -24,7 +24,7 @@ let package = Package(
         // Targets can depend on other targets in this package and products from dependencies.
         .target(
             name: "TidalSwiftLib",
-			dependencies: ["SwiftTagger"],
+			dependencies: ["SwiftTagger", "LRCParser"],
 			swiftSettings: [
 				.defaultIsolation(MainActor.self),
 				.enableUpcomingFeature("DisableOutwardActorInference"),
@@ -36,8 +36,15 @@ let package = Package(
 		),
 		.testTarget(
 			name: "TidalSwiftLibTests",
-			dependencies: ["TidalSwiftLib"],
+			dependencies: ["TidalSwiftLib", "LRCParser"],
 			resources: [.copy("Fixtures")]
+		),
+		.target(
+			name: "LRCParser"
+		),
+		.testTarget(
+			name: "LRCParserTests",
+			dependencies: ["LRCParser"]
 		),
 
     ]

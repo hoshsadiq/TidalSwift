@@ -77,4 +77,65 @@ extension Session {
 			return nil
 		}
 	}
+
+	/// Suggested tracks for a track.
+	///
+	/// T1 recon found that `/tracks/{id}/similar` does not exist (404 on every
+	/// variant), so this wraps the verified `/tracks/{id}/radio` endpoint.
+	public func trackSimilar(trackId: Int) async -> [Track]? {
+		await trackRadio(trackId: trackId)
+	}
+
+	/// The "Mixes & Radio" cards for a track: Track Radio and Artist Radio.
+	///
+	/// Built from verified endpoints only. The mix ids are the real ones from
+	/// `/tracks/{id}/mix` and `/artists/{id}/mix`, so `MixGridItem`'s existing
+	/// click actions (push the mix view / play the mix) keep working. The card
+	/// artwork is a collage of the first radio tracks' covers.
+	public func trackMixesRadio(trackId: Int) async -> [MixesItem]? {
+		guard let track = await track(trackId: trackId) else { return nil }
+		guard let artist = track.artists.first else { return nil }
+
+		async let trackRadioTracks = trackRadio(trackId: trackId)
+		async let artistRadioTracks = artistRadio(artistId: artist.id)
+		async let trackMixId = trackMix(trackId: trackId)
+		async let artistMixId = artistMix(artistId: artist.id)
+
+		let (radioTracks, artistTracks, trackMix, artistMix) =
+			await (trackRadioTracks, artistRadioTracks, trackMixId, artistMixId)
+
+		var mixes: [MixesItem] = []
+		if let trackMix, let radioTracks, !radioTracks.isEmpty {
+			mixes.append(MixesItem(
+				id: trackMix,
+				title: "Track Radio",
+				subTitle: track.title,
+				graphic: Self.radioGraphic(from: radioTracks),
+				images: nil,
+				mixType: .track
+			))
+		}
+		if let artistMix, let artistTracks, !artistTracks.isEmpty {
+			mixes.append(MixesItem(
+				id: artistMix,
+				title: "Artist Radio",
+				subTitle: artist.name,
+				graphic: Self.radioGraphic(from: artistTracks),
+				images: nil,
+				mixType: .artist
+			))
+		}
+		return mixes.isEmpty ? nil : mixes
+	}
+
+	/// A `MixImage`-style collage from the first radio tracks' album covers.
+	/// `MixImage` only renders the collage when there are at least five images.
+	private static func radioGraphic(from tracks: [Track]) -> MixesGraphic? {
+		let images = tracks.prefix(5).compactMap { track -> MixesGraphicImage? in
+			guard let cover = track.album.cover else { return nil }
+			return MixesGraphicImage(id: cover, vibrantColor: "8E8E93", type: .artist)
+		}
+		guard images.count >= 5 else { return nil }
+		return MixesGraphic(type: .squaresGrid, text: "", images: images)
+	}
 }

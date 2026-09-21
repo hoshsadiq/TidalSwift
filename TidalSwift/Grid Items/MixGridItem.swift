@@ -14,16 +14,22 @@ struct MixGridItem: View {
 	let session: Session
 	let player: Player
 	var artworkSize: CGFloat = 160
+	/// When set, this single artwork replaces the mix's own collage.
+	var artworkURL: URL?
 
 	@EnvironmentObject var viewState: ViewState
 
 	var body: some View {
 		VStack {
-			MixImage(mix: mix, highResolutionImages: false, session: session)
-				.frame(width: artworkSize, height: artworkSize)
-				.cornerRadius(CORNERRADIUS)
-				.shadow(radius: SHADOWRADIUS, y: SHADOWY)
-				.accessibilityHidden(true)
+			if let artworkURL {
+				ArtworkImage(url: artworkURL, size: artworkSize)
+			} else {
+				MixImage(mix: mix, highResolutionImages: false, session: session)
+					.frame(width: artworkSize, height: artworkSize)
+					.cornerRadius(CORNERRADIUS)
+					.shadow(radius: SHADOWRADIUS, y: SHADOWY)
+					.accessibilityHidden(true)
+			}
 
 			Text(mix.title)
 				.frame(width: artworkSize)

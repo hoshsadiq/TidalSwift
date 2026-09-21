@@ -108,10 +108,14 @@ extension Session {
 		}
 	}
 
-	public func artistRadio(artistId: Int) async -> [Track]? {
+	public func artistRadio(artistId: Int, limit: Int = 100, offset: Int = 0) async -> [Track]? {
+		var parameters = sessionParameters
+		parameters["limit"] = "\(limit)"
+		parameters["offset"] = "\(offset)"
+
 		let url = URL(string: "\(AuthInformation.APILocation)/artists/\(artistId)/radio")!
 		do {
-			let response: Tracks = try await get(url: url, parameters: sessionParameters)
+			let response: Tracks = try await get(url: url, parameters: parameters)
 			return response.items
 		} catch {
 			return nil

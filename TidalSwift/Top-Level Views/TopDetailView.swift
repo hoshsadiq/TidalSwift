@@ -23,8 +23,14 @@ struct TopDetailView: View {
 
 	@EnvironmentObject var viewState: ViewState
 	@EnvironmentObject var appModel: TidalSwiftAppModel
+	@EnvironmentObject var playbackInfo: PlaybackInfo
+	@Environment(\.colorScheme) private var colorScheme
 
 	@State private var columnVisibility: NavigationSplitViewVisibility = .all
+	/// `.searchable` owns the field, so its width cap is applied through AppKit.
+	@State private var searchFieldWidthConstraint: NSLayoutConstraint?
+
+	private static let searchFieldWidth: CGFloat = 200
 
 	init(session: Session, player: Player) {
 		self.session = session
@@ -56,57 +62,205 @@ struct TopDetailView: View {
 				}
 			})
 		return VStack(spacing: 0) {
-			HStack(spacing: 0) {
-				NavigationSplitView(columnVisibility: $columnVisibility) {
-					TopView(selection: selectionBinding, session: session)
-						.navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 340)
-				} detail: {
-					ZStack {
-						// Disabled until the Now Playing drawer is built.
-						// NowPlayingAmbientLayer()
+			ZStack(alignment: .trailing) {
+				HStack(spacing: 0) {
+					NavigationSplitView(columnVisibility: $columnVisibility) {
+						TopView(selection: selectionBinding, session: session)
+							.navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 340)
+							// Hides the system sidebar toggle while the drawer covers
+							// the sidebar; `nil` restores it when the drawer closes.
+							.toolbar(removing: playbackInfo.isNowPlayingExpanded ? .sidebarToggle : nil)
+					} detail: {
+						detailColumn
+					}
+					.searchable(text: $viewState.searchTerm, placement: .toolbar, prompt: "Search")
+					.onSubmit(of: .search) {
+						submitSearch()
+					}
+					.onReceive(NotificationCenter.default.publisher(for: .focusSearchField)) { _ in
+						focusToolbarSearchField()
+					}
 
-						VStack(spacing: 0) {
-							TopBar()
-							DetailView(session: session, player: player)
-						}
+					// Reserves the queue panel's width so the content does not
+					// slide under the overlay below while the drawer is closed.
+					if appModel.showQueuePanel && !playbackInfo.isNowPlayingExpanded {
+						Color.clear.frame(width: 300)
 					}
-					.frame(minWidth: 850)
-					// Clicking empty space resigns first responder so the toolbar search
-					// field loses focus. Controls keep priority over this container tap.
-					.contentShape(Rectangle())
-					.onTapGesture {
-						NSApp.keyWindow?.makeFirstResponder(nil)
-					}
-					// Opaque background + clipping keep the detail column's scrolling
-					// content from showing through the translucent sidebar.
-					.background(Color(nsColor: .windowBackgroundColor))
-					.clipped()
-					.toolbar {
-						ToolbarItem(placement: .navigation) {
-							navigationControls
-						}
-					}
-				}
-				.searchable(text: $viewState.searchTerm, placement: .toolbar, prompt: "Search")
-				.onSubmit(of: .search) {
-					submitSearch()
-				}
-				.onReceive(NotificationCenter.default.publisher(for: .focusSearchField)) { _ in
-					focusToolbarSearchField()
 				}
 
-				// Docked queue panel: sits beside the content (not over it), spanning
-				// from below the toolbar down to the play bar.
+				// Now Playing drawer: covers the sidebar and content while the
+				// bar below stays visible. The ambient layer sits behind the
+				// drawer content.
+				if playbackInfo.isNowPlayingExpanded {
+					// Stays fully opaque while the drawer slides down, then fades
+					// once the slide has finished, so the background does not
+					// disappear before the drawer has left the screen.
+					NowPlayingAmbientLayer(session: session)
+						.transition(.asymmetric(
+							insertion: .opacity,
+							removal: .opacity.animation(.easeInOut(duration: 0.15).delay(0.3))
+						))
+				NowPlayingDrawer(session: session, player: player)
+					.padding(.trailing, appModel.showQueuePanel ? 300 : 0)
+					.animation(nil, value: appModel.showQueuePanel)
+					.transition(.move(edge: .bottom))
+					.zIndex(1)
+					.ignoresSafeArea()
+				}
+
+				// Queue panel above the drawer so the ambient reads through its
+				// translucent material.
 				if appModel.showQueuePanel {
-					Divider()
-					QueuePanel(session: session, player: player)
-						.transition(.move(edge: .trailing))
+					HStack(spacing: 0) {
+						Divider()
+						QueuePanel(session: session, player: player)
+					}
+					.frame(maxHeight: .infinity)
+					.transition(.move(edge: .trailing))
+					.zIndex(2)
 				}
 			}
+			.animation(.easeInOut(duration: 0.3), value: playbackInfo.isNowPlayingExpanded)
 			Divider()
+			// The bar owns its background: opaque so the drawer's downward slide
+			// passes behind it, and while the drawer is expanded it adopts the
+			// drawer's ambient colour (see `PlayerInfoView`). The colour scheme
+			// that keeps its labels readable on that wash is applied here.
 			PlayerInfoView(session: session, player: player)
+				.environment(\.colorScheme, playerBarColorScheme)
+				.animation(.easeInOut(duration: 0.3), value: playbackInfo.isNowPlayingExpanded)
 		}
 		.frame(minHeight: 500)
+		.onChange(of: playbackInfo.isNowPlayingExpanded) { _, isExpanded in
+			updateSearchFieldLayout()
+			// Collapsing the drawer always leaves fullscreen, so the window can
+			// never be left fullscreen without the drawer.
+			guard !isExpanded else { return }
+			guard let window = NSApp.keyWindow, window.styleMask.contains(.fullScreen) else { return }
+			window.toggleFullScreen(nil)
+		}
+		.onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { notification in
+			guard let window = notification.object as? NSWindow, window.isMainWindow || window.isKeyWindow else { return }
+			playbackInfo.isFullscreen = true
+		}
+		.onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { notification in
+			guard let window = notification.object as? NSWindow, window.isMainWindow || window.isKeyWindow else { return }
+			playbackInfo.isFullscreen = false
+		}
+		.onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
+			guard let window = notification.object as? NSWindow, window.isMainWindow || window.isKeyWindow else { return }
+			// A new window must not inherit the closed window's fullscreen state.
+			playbackInfo.isFullscreen = false
+		}
+		.task(id: playbackInfo.isNowPlayingExpanded) {
+			updateSearchFieldLayout()
+		}
+	}
+
+	// MARK: - Detail Column
+
+	/// The scheme the player bar renders in. Collapsed, it follows the window;
+	/// expanded, it contrasts with the ambient wash it now sits on.
+	private var playerBarColorScheme: ColorScheme {
+		guard playbackInfo.isNowPlayingExpanded else { return colorScheme }
+		return NowPlayingAmbient.contrastingForeground(for: playbackInfo.ambientColor) == .black ? .light : .dark
+	}
+
+	/// The detail column: routed content plus the toolbar items. Extracted so the
+	/// drawer can be layered over the whole content row in `body`.
+	private var detailColumn: some View {
+		DetailView(session: session, player: player)
+			.frame(minWidth: 850)
+			// Clicking empty space resigns first responder so the toolbar search
+			// field loses focus. Controls keep priority over this container tap.
+			.contentShape(Rectangle())
+			.onTapGesture {
+				NSApp.keyWindow?.makeFirstResponder(nil)
+			}
+			// Opaque background + clipping keep the detail column's scrolling
+			// content from showing through the translucent sidebar.
+			.background(Color(nsColor: .windowBackgroundColor))
+			.clipped()
+			.navigationTitle(playbackInfo.isNowPlayingExpanded ? "" : "TidalSwift")
+			.toolbar {
+				// While the drawer is expanded the toolbar hosts the drawer's own
+				// action cluster in place of the account button, and the
+				// back/forward controls are hidden so only those controls remain.
+				if !playbackInfo.isNowPlayingExpanded {
+					ToolbarItem(id: "navigationControls", placement: .navigation) {
+						navigationControls
+					}
+				}
+				if playbackInfo.isNowPlayingExpanded {
+					// The cluster floats directly on the ambient wash, so it opts
+					// out of the system's shared glass background.
+					ToolbarItem(id: "nowPlayingCluster", placement: .primaryAction) {
+						NowPlayingToolbarCluster()
+							.environment(\.colorScheme, playerBarColorScheme)
+					}
+					.withoutToolbarSharedBackground()
+				} else {
+					ToolbarItem(id: "accountButton", placement: .primaryAction) {
+						accountButton
+					}
+				}
+			}
+			// Keep the window toolbar fully transparent while expanded so the
+			// drawer's ambient wash reaches the top of the window.
+			.modifier(WindowToolbarBackgroundVisibility(isHidden: playbackInfo.isNowPlayingExpanded))
+	}
+
+	/// Pins the toolbar search field to a fixed width.
+	///
+	/// The field is owned by `.searchable`, so the width is capped through
+	/// AppKit: `NSSearchToolbarItem` otherwise stretches the field to absorb
+	/// toolbar slack. A constant width keeps it clear of the queue panel and
+	/// stops it jumping when the queue opens or closes.
+	private func updateSearchFieldLayout() {
+		guard let toolbar = NSApp.keyWindow?.toolbar else { return }
+		for case let searchItem as NSSearchToolbarItem in toolbar.items {
+			capSearchField(searchItem)
+		}
+	}
+
+	private func capSearchField(_ item: NSSearchToolbarItem) {
+		let field = item.searchField
+		let isExpanded = playbackInfo.isNowPlayingExpanded
+		// The drawer slides under the titlebar, so a visible search field would
+		// float over its content. Hiding the field view alone is not enough:
+		// the search item is the toolbar's trailing-most item, so the drawer's
+		// cluster is laid out to its left. If the item keeps its previous width
+		// (the field is not capped until the drawer first expands), the cluster
+		// lands at a different x on every toolbar rebuild, so it jumps between
+		// open/close cycles. On macOS 15+ hide the whole item so it leaves the
+		// toolbar layout and the cluster stays pinned to the trailing edge.
+		// Older systems fall back to hiding the field view.
+		if #available(macOS 15.0, *) {
+			item.isHidden = isExpanded
+		}
+		field.isHidden = isExpanded
+
+		let width = isExpanded ? 0 : Self.searchFieldWidth
+		if let constraint = searchFieldWidthConstraint, constraint.firstItem as? NSView === field {
+			constraint.constant = width
+		} else {
+			let constraint = field.widthAnchor.constraint(lessThanOrEqualToConstant: width)
+			constraint.isActive = true
+			searchFieldWidthConstraint = constraint
+		}
+		item.preferredWidthForSearchField = isExpanded ? 0 : Self.searchFieldWidth
+	}
+
+	// MARK: - Toolbar Items
+
+	private var accountButton: some View {
+		Button {
+			appModel.accountInfo()
+		} label: {
+			Image(systemName: "person.crop.circle")
+		}
+		.help("Account")
+		.accessibilityLabel("Account")
 	}
 
 	// MARK: - Toolbar Navigation
@@ -162,6 +316,22 @@ struct TopDetailView: View {
 			if let searchItem = item as? NSSearchToolbarItem {
 				searchItem.beginSearchInteraction()
 			}
+		}
+	}
+}
+
+/// Hides the window toolbar's background so the drawer's ambient wash reaches
+/// the top of the window. Uses the macOS 15+ API when available; the older
+/// `toolbarBackground(_:for:)` is the same behaviour (it was renamed).
+private struct WindowToolbarBackgroundVisibility: ViewModifier {
+	let isHidden: Bool
+
+	@ViewBuilder
+	func body(content: Content) -> some View {
+		if #available(macOS 15.0, *) {
+			content.toolbarBackgroundVisibility(isHidden ? .hidden : .automatic, for: .windowToolbar)
+		} else {
+			content.toolbarBackground(isHidden ? .hidden : .automatic, for: .windowToolbar)
 		}
 	}
 }
