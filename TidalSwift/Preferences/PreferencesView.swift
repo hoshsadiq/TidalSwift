@@ -93,6 +93,7 @@ private struct PlaybackPreferencesTab: View {
 					.contentShape(Rectangle())
 				}
 				.buttonStyle(.plain)
+				.disabled(!appModel.isAudioQualityAvailable(.high))
 
 				Button {
 					appModel.setAudioQuality(.max)
@@ -114,10 +115,16 @@ private struct PlaybackPreferencesTab: View {
 					.contentShape(Rectangle())
 				}
 				.buttonStyle(.plain)
+				.disabled(!appModel.isAudioQualityAvailable(.max))
 			} header: {
 				Text("Audio quality")
 			} footer: {
-				Text("Applies to the next track you play.")
+				VStack(alignment: .leading, spacing: 2) {
+					Text("Applies to the next track you play.")
+					if let highest = appModel.highestSoundQuality {
+						Text("Your subscription supports up to \(highest.shortTitle).")
+					}
+				}
 			}
 
 			Section("Playback") {
@@ -153,5 +160,16 @@ private struct PlaybackPreferencesTab: View {
 			}
 		}
 		.formStyle(.grouped)
+		.task { await appModel.loadHighestSoundQuality() }
+	}
+}
+
+private extension AudioQuality {
+	var shortTitle: String {
+		switch self {
+		case .low, .medium: "Low"
+		case .high: "High"
+		case .max: "Max"
+		}
 	}
 }

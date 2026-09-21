@@ -139,6 +139,8 @@ final class TidalSwiftAppModel: ObservableObject {
 	/// drawer button's tint; kept in sync by the window's close callback.
 	@Published var isMiniplayerOpen = false
 	@Published private(set) var audioQuality: AudioQuality
+	/// Highest quality the account's subscription allows, from `/users/{id}/subscription`.
+	@Published private(set) var highestSoundQuality: AudioQuality?
 
 	var hasCurrentTrack: Bool {
 		!player.queueInfo.queue.isEmpty
@@ -186,6 +188,7 @@ final class TidalSwiftAppModel: ObservableObject {
 			restorePlaybackState()
 			restoreSortingState()
 			restoreViewState()
+			Task { await loadHighestSoundQuality() }
 		}
 
 		initCancellables()
@@ -873,6 +876,27 @@ final class TidalSwiftAppModel: ObservableObject {
 
 	func isAudioQualitySelected(_ audioQuality: AudioQuality) -> Bool {
 		self.audioQuality == audioQuality
+	}
+
+	/// Whether the subscription allows this tier. An unknown subscription (fetch
+	/// failed or not logged in yet) allows everything, so options are never hidden
+	/// on a guess.
+	func isAudioQualityAvailable(_ quality: AudioQuality) -> Bool {
+		guard let highestSoundQuality else { return true }
+		let order: [AudioQuality] = [.low, .medium, .high, .max]
+		guard let rank = order.firstIndex(of: quality),
+			  let highestRank = order.firstIndex(of: highestSoundQuality) else {
+			return true
+		}
+		return rank <= highestRank
+	}
+
+	func loadHighestSoundQuality() async {
+		guard let highest = await session.subscriptionInfo()?.highestSoundQuality else { return }
+		highestSoundQuality = highest
+		if !isAudioQualityAvailable(audioQuality) {
+			setAudioQuality(highest)
+		}
 	}
 
 	func clearQueue() {
