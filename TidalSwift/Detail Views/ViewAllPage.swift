@@ -2,8 +2,8 @@
 //  ViewAllPage.swift
 //  TidalSwift
 //
-//  Created by Melvin Gundlach on 16.09.26.
-//  Copyright © 2026 Melvin Gundlach. All rights reserved.
+//  Created by TidalSwift Contributors on 16.09.26.
+//  Copyright © 2026 TidalSwift Contributors. All rights reserved.
 //
 
 import SwiftUI

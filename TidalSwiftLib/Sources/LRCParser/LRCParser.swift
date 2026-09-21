@@ -2,8 +2,8 @@
 //  LRCParser.swift
 //  LRCParser
 //
-//  Created by Melvin Gundlach on 17.09.26.
-//  Copyright © 2026 Melvin Gundlach. All rights reserved.
+//  Created by TidalSwift Contributors on 17.09.26.
+//  Copyright © 2026 TidalSwift Contributors. All rights reserved.
 //
 
 import Foundation
