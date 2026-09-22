@@ -354,7 +354,7 @@ extension Video {
 			title: pageVideo.title,
 			volumeNumber: 0,
 			trackNumber: 0,
-			releaseDate: pageVideo.releaseDate ?? Date(),
+			releaseDate: pageVideo.releaseDate,
 			imagePath: nil,
 			imageId: pageVideo.imageId,
 			duration: pageVideo.duration ?? 0,
