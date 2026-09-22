@@ -71,7 +71,8 @@ jobs:
         run: |
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             zip="TidalSwift.zip"
-            hdiutil create -volname TidalSwift -srcfolder .build/DerivedData/Build/Products/Release/TidalSwift.app -ov -format UDZO TidalSwift.dmg            dmg="TidalSwift.dmg"
+            hdiutil create -volname TidalSwift -srcfolder .build/DerivedData/Build/Products/Release/TidalSwift.app -ov -format UDZO TidalSwift.dmg
+            dmg="TidalSwift.dmg"
           else
             zip="TidalSwift-snapshot-${GITHUB_SHA::7}.zip"
             dmg=""
