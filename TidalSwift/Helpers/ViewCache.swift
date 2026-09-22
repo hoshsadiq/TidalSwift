@@ -21,6 +21,13 @@ struct ViewCache: Codable {
 	/// v1 pages keyed by their relative path.
 	var pages: [String: Page] = [:]
 
+	/// The v2 activity feed, limited to the activities this build can display.
+	/// `nil` until something displayable has been loaded.
+	var feedActivities: [FeedActivity]?
+	/// Fallback shown when the activity feed is empty: the newest releases of
+	/// the user's favourite artists.
+	var feedReleases: [Album]?
+
 	var favoriteArtists: [Artist]?
 	var favoriteAlbums: [Album]?
 	var favoritePlaylists: [Playlist]?

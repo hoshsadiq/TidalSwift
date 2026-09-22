@@ -363,10 +363,6 @@ struct TopView: View {
 						.tag(SidebarSelection.view(.explore))
 					Label("Feed", systemImage: "dot.radiowaves.left.and.right")
 						.tag(SidebarSelection.view(.feed))
-						.disabled(true)
-						.selectionDisabled()
-						.help("Coming soon")
-						.listRowBackground(Color.clear)
 					Label("Collection", systemImage: "square.stack")
 						.tag(SidebarSelection.view(.collection))
 						.disabled(true)
@@ -503,7 +499,7 @@ struct DetailView: View {
 						} else if viewType == .explore {
 							ExploreView(session: session, player: player)
 						} else if viewType == .feed {
-							ComingSoonView(title: "Feed")
+							FeedView(session: session, player: player)
 						} else if viewType == .collection {
 							ComingSoonView(title: "Collection")
 						}

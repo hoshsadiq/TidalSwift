@@ -1,0 +1,77 @@
+{
+	"activities": [
+		{
+			"followableActivity": {
+				"album": {
+					"id": 161451880,
+					"title": "A very chilly christmas",
+					"artists": [
+						{
+							"id": 3840013,
+							"name": "Chilly Gonzales"
+						}
+					],
+					"mainArtists": [
+						{
+							"id": 3840013,
+							"name": "Chilly Gonzales"
+						}
+					],
+					"type": "ALBUM",
+					"audioQuality": "LOSSLESS",
+					"streamStartDate": "2020-11-06T00:00:00Z",
+					"releaseDate": "2020-11-13",
+					"allowStreaming": true,
+					"streamReady": true,
+					"cover": "c9536722-36cb-4464-b77b-c318370f9d74",
+					"videoCover": null,
+					"numberOfVolumes": 1,
+					"numberOfTracks": 15,
+					"numberOfVideos": 0,
+					"explicit": false
+				},
+				"activityType": "NEW_ALBUM_RELEASE",
+				"occurredAt": "2020-11-12T23:11:54.927211Z"
+			},
+			"seen": true
+		},
+		{
+			"followableActivity": {
+				"album": {
+					"id": 158961474,
+					"title": "Ivory Tower The Remixes",
+					"artists": [
+						{
+							"id": 3840013,
+							"name": "Chilly Gonzales"
+						}
+					],
+					"mainArtists": [
+						{
+							"id": 3840013,
+							"name": "Chilly Gonzales"
+						}
+					],
+					"type": "ALBUM",
+					"audioQuality": "LOSSLESS",
+					"streamStartDate": "2020-10-23T00:00:00Z",
+					"releaseDate": "2020-10-23",
+					"allowStreaming": true,
+					"streamReady": true,
+					"cover": "4cf04ef6-972a-49e0-b8fd-c854cc6a4b31",
+					"videoCover": null,
+					"numberOfVolumes": 4,
+					"numberOfTracks": 26,
+					"numberOfVideos": 0,
+					"explicit": false
+				},
+				"activityType": "NEW_ALBUM_RELEASE",
+				"occurredAt": "2020-10-22T22:02:13.484562Z"
+			},
+			"seen": true
+		}
+	],
+	"stats": {
+		"totalNotSeenActivities": 0
+	}
+}

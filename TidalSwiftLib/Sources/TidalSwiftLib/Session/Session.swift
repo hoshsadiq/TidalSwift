@@ -104,7 +104,7 @@ extension Session {
 		}
 	}
 
-	private static var localeParameter: String {
+	static var localeParameter: String {
 		let language = Locale.current.language.languageCode?.identifier ?? "en"
 		let region = Locale.current.region?.identifier ?? "US"
 		return "\(language)_\(region)"
@@ -232,7 +232,7 @@ extension Session {
 
 	/// The locale the v2 feed was verified with. Used as a fallback when the
 	/// user's locale yields no feed, since the endpoint rejects some locales.
-	private static let homeFeedFallbackLocale = "en_US"
+	static let homeFeedFallbackLocale = "en_US"
 
 	/// Current UTC offset as `±HH:MM`, as the v2 feed expects.
 	private static var timeOffsetParameter: String {
@@ -245,7 +245,7 @@ extension Session {
 	/// Builds a v2 URL from a relative path. Returns `nil` for a path that can't
 	/// form a valid URL (e.g. a malformed server-supplied `viewAll` path) instead
 	/// of crashing.
-	private static func v2URL(path: String) -> URL? {
+	static func v2URL(path: String) -> URL? {
 		URLComponents(string: "\(AuthInformation.APIV2Location)/\(path)")?.url
 	}
 

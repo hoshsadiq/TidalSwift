@@ -23,7 +23,7 @@ extension ViewState {
 		case .explore:
 			explore()
 		case .feed:
-			placeholder(for: .feed)
+			feed()
 		case .collection:
 			placeholder(for: .collection)
 
