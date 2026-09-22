@@ -384,7 +384,11 @@ private struct QueueScrollObserver: NSViewRepresentable {
 				object: scrollView,
 				queue: .main
 			) { [weak self] _ in
-				self?.onUserScroll?()
+				// `queue: .main` above guarantees the main thread, so this is a
+				// safe assertion rather than a hop to another queue.
+				MainActor.assumeIsolated {
+					self?.onUserScroll?()
+				}
 			}
 		}
 
