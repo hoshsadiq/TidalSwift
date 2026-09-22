@@ -30,7 +30,7 @@ extension ViewState {
 		let feed = await homeFeed(for: tab)
 
 		guard !Task.isCancelled else { return }
-		Logger(subsystem: "de.melgu.TidalSwift", category: "magazine")
+		Logger(subsystem: "io.hosh.TidalSwift", category: "magazine")
 			.error("REFRESH tab=\(tab.rawValue, privacy: .public) feedNil=\(feed == nil, privacy: .public) modules=\(feed?.items.count ?? -1, privacy: .public)")
 		var view = TidalSwiftView(viewType: .music)
 		if let feed {

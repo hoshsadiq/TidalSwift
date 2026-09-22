@@ -1,7 +1,7 @@
 name: TidalSwift
 
 options:
-  bundleIdPrefix: de.melgu
+  bundleIdPrefix: io.hosh
   createIntermediateGroups: true
   deploymentTarget:
     macOS: "14.0"
@@ -63,7 +63,6 @@ settings:
     SWIFT_APPROACHABLE_CONCURRENCY: YES
     SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
     SWIFT_VERSION: "6.0"
-    DEVELOPMENT_TEAM: V7E5P7292M
   configs:
     debug:
       CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION: YES_AGGRESSIVE
@@ -113,7 +112,6 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         CODE_SIGN_STYLE: Automatic
         CURRENT_PROJECT_VERSION: "52"
-        DEVELOPMENT_TEAM: V7E5P7292M
         ENABLE_APP_SANDBOX: YES
         ENABLE_FILE_ACCESS_DOWNLOADS_FOLDER: readwrite
         ENABLE_FILE_ACCESS_MUSIC_FOLDER: readwrite
@@ -137,7 +135,7 @@ targets:
         LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]: "@executable_path/../Frameworks"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         MARKETING_VERSION: "0.2"
-        PRODUCT_BUNDLE_IDENTIFIER: de.melgu.TidalSwift
+        PRODUCT_BUNDLE_IDENTIFIER: io.hosh.TidalSwift
         PRODUCT_NAME: $(TARGET_NAME)
         REGISTER_APP_GROUPS: YES
         SDKROOT: auto

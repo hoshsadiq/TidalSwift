@@ -12,9 +12,9 @@ import Combine
 import TidalSwiftLib
 
 extension Notification.Name {
-	static let focusSearchField = Notification.Name("de.melgu.TidalSwift.focusSearchField")
-	static let favoriteTrackChanged = Notification.Name("de.melgu.TidalSwift.favoriteTrackChanged")
-	static let favoritePlaylistChanged = Notification.Name("de.melgu.TidalSwift.favoritePlaylistChanged")
+	static let focusSearchField = Notification.Name("io.hosh.TidalSwift.focusSearchField")
+	static let favoriteTrackChanged = Notification.Name("io.hosh.TidalSwift.favoriteTrackChanged")
+	static let favoritePlaylistChanged = Notification.Name("io.hosh.TidalSwift.favoritePlaylistChanged")
 }
 
 struct TopDetailView: View {

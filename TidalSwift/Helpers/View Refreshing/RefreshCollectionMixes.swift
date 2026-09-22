@@ -17,11 +17,11 @@ extension Notification.Name {
 	/// this the mix cards on the Collection screen, the mix detail and the v1
 	/// page cards would keep stale hearts. `userInfo` carries `mixId` (String)
 	/// and `isInCollection` (Bool).
-	static let collectionMixChanged = Notification.Name("de.melgu.TidalSwift.collectionMixChanged")
+	static let collectionMixChanged = Notification.Name("io.hosh.TidalSwift.collectionMixChanged")
 }
 
 extension ViewState {
-	private static let mixLogger = Logger(subsystem: "de.melgu.TidalSwift", category: "collection")
+	private static let mixLogger = Logger(subsystem: "io.hosh.TidalSwift", category: "collection")
 
 	func collectionMixes() {
 		var view = TidalSwiftView(viewType: .collectionMixes)

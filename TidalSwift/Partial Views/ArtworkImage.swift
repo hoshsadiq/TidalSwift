@@ -47,7 +47,7 @@ struct ArtworkImage: View {
 	/// 1.5 s after the second. A third failure is final.
 	private static let retryDelays: [Duration] = [.milliseconds(600), .milliseconds(1500)]
 
-	private static let logger = Logger(subsystem: "de.melgu.TidalSwift", category: "artwork")
+	private static let logger = Logger(subsystem: "io.hosh.TidalSwift", category: "artwork")
 
 	/// Decoded-image cache shared by every card. `AsyncImage` kept an internal
 	/// decoded-image cache; this restores that behaviour so scrolling lazy

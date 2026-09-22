@@ -41,7 +41,7 @@ struct PageView: View {
 	@State private var isLoadingMore = false
 	@State private var loadMoreFailed = false
 
-	private static let logger = Logger(subsystem: "de.melgu.TidalSwift", category: "page")
+	private static let logger = Logger(subsystem: "io.hosh.TidalSwift", category: "page")
 
 	var body: some View {
 		ScrollView {

@@ -78,7 +78,7 @@ struct MusicHomeView: View {
 			viewState.music(tab: tab)
 		}
 		.onAppear {
-			Logger(subsystem: "de.melgu.TidalSwift", category: "magazine")
+			Logger(subsystem: "io.hosh.TidalSwift", category: "magazine")
 				.error("MUSIC VIEW APPEAR selectedTab=\(selectedTab.rawValue, privacy: .public) cached=\(viewState.cache.homeFeed(for: selectedTab) != nil, privacy: .public)")
 		}
 	}

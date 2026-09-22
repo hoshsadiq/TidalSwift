@@ -43,7 +43,7 @@ enum NowPlayingAmbient {
 	}
 
 	#if canImport(AppKit)
-	private static let logger = Logger(subsystem: "de.melgu.TidalSwift", category: "ambient")
+	private static let logger = Logger(subsystem: "io.hosh.TidalSwift", category: "ambient")
 
 	/// Derived colours keyed by artwork URL. In-memory only: switching back to a
 	/// track reuses its colour instead of recomputing, which also avoids a

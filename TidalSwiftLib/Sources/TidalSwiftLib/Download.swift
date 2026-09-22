@@ -43,7 +43,7 @@ public class Download {
 	private let downloadStatus: DownloadStatus
 
 
-	private var dispatchQueue = DispatchQueue(label: "melgu.TidalSwift.download", qos: .background)
+	private var dispatchQueue = DispatchQueue(label: "io.hosh.TidalSwift.download", qos: .background)
 
 	init(session: Session, metadata: Metadata, downloadStatus: DownloadStatus) {
 		self.session = session

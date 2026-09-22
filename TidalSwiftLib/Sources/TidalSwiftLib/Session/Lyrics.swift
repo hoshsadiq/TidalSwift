@@ -9,7 +9,7 @@
 import Foundation
 import os
 
-let lyricsLogger = Logger(subsystem: "de.melgu.TidalSwift", category: "lyrics")
+let lyricsLogger = Logger(subsystem: "io.hosh.TidalSwift", category: "lyrics")
 
 /// Lyrics as returned by Tidal's v2 catalog API.
 public struct TidalLyrics: Equatable {

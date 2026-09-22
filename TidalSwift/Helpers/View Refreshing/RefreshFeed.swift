@@ -28,7 +28,7 @@ extension ViewState {
 		let activities = await session.feedActivities()
 
 		guard !Task.isCancelled else { return }
-		Logger(subsystem: "de.melgu.TidalSwift", category: "feed")
+		Logger(subsystem: "io.hosh.TidalSwift", category: "feed")
 			.error("REFRESH feed activities=\(activities?.count ?? -1, privacy: .public)")
 
 		// Unknown activity types and payloads that failed to decode can't be

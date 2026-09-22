@@ -27,7 +27,7 @@ extension ViewState {
 		let page = await session.page(path: "pages/explore")
 
 		guard !Task.isCancelled else { return }
-		Logger(subsystem: "de.melgu.TidalSwift", category: "explore")
+		Logger(subsystem: "io.hosh.TidalSwift", category: "explore")
 			.error("REFRESH explore pageNil=\(page == nil, privacy: .public) modules=\(page?.modules.count ?? -1, privacy: .public)")
 
 		var view = TidalSwiftView(viewType: .explore)

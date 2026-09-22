@@ -59,7 +59,7 @@ struct MagazineGridItem: View {
 		.contentShape(Rectangle())
 		.help(toolTipString)
 		.onAppear {
-			Logger(subsystem: "de.melgu.TidalSwift", category: "magazine")
+			Logger(subsystem: "io.hosh.TidalSwift", category: "magazine")
 				.info("MAGAZINE CARD RENDERED id=\(magazine.id, privacy: .public) kind=\(magazine.type, privacy: .public) header=\(magazine.header ?? "", privacy: .public)")
 		}
 		.onTapGesture {
