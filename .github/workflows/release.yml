@@ -98,3 +98,51 @@ jobs:
             ${{ steps.package.outputs.zip }}
             ${{ steps.package.outputs.dmg }}
           generate_release_notes: true
+
+      # The app fetches this feed from the latest release's assets, not the repository.
+      - name: Publish update feed
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.ver.outputs.marketing }}
+          BUILD: ${{ steps.ver.outputs.build }}
+        run: |
+          gh release view "$TAG" --json name,body,url,publishedAt > "$RUNNER_TEMP/release.json"
+
+          title=$(jq -r '.name' "$RUNNER_TEMP/release.json")
+          if [[ -z "$title" || "$title" == "null" ]]; then
+            title="TidalSwift $VERSION"
+          fi
+
+          # UpdateNotification decodes the date as a bare number: seconds since
+          # 2001-01-01, the same shape its own feed writer emits.
+          published=$(jq -r '.publishedAt' "$RUNNER_TEMP/release.json")
+          released_at=$(($(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$published" +%s) - 978307200))
+
+          jq -n \
+            --arg url "https://github.com/$GITHUB_REPOSITORY" \
+            --arg version "$VERSION" \
+            --arg build "$BUILD" \
+            --argjson date "$released_at" \
+            --arg title "$title" \
+            --arg text "$(jq -r '.body' "$RUNNER_TEMP/release.json")" \
+            --arg infoUrl "$(jq -r '.url' "$RUNNER_TEMP/release.json")" \
+            --arg downloadUrl "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/TidalSwift.zip" \
+            '{
+              url: $url,
+              items: [
+                {
+                  version: $version,
+                  build: $build,
+                  date: $date,
+                  title: $title,
+                  text: $text,
+                  minOSVersion: {majorVersion: 14, minorVersion: 0, patchVersion: 0},
+                  infoUrl: $infoUrl,
+                  downloadUrl: $downloadUrl
+                }
+              ]
+            }' > TidalSwift.json
+
+          gh release upload "$TAG" TidalSwift.json --clobber

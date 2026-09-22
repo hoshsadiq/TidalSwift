@@ -56,7 +56,7 @@ struct TidalSwiftApp: App {
 }
 
 final class TidalSwiftAppModel: ObservableObject {
-	let updateNotification = UpdateNotification(feedUrl: URL(string: "https://raw.githubusercontent.com/hoshsadiq/TidalSwift/main/feed/TidalSwift.json")!)
+	let updateNotification = UpdateNotification(feedUrl: URL(string: "https://github.com/hoshsadiq/TidalSwift/releases/latest/download/TidalSwift.json")!)
 
 	let session: Session
 	let player: Player
