@@ -15,7 +15,7 @@ packages:
     exactVersion: 2.1.0
   UpdateNotification:
     url: https://github.com/melgu/UpdateNotification.git
-    branch: main
+    revision: 6d62a0ff10c27891bc20a4d898ce7ec8da6bf2ab
 
 settings:
   base:
