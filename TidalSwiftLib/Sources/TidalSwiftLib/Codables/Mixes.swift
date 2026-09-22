@@ -71,14 +71,23 @@ public struct MixesItem: Codable, Equatable, Identifiable {
 	public let graphic: MixesGraphic?
 	public let images: MixesImages?
 	public let mixType: MixType
+	/// The API's title colour (`titleTextInfo.color`), drawn over the artwork by
+	/// cards that opt into the overlay. Optional so previously saved caches
+	/// still decode.
+	public let titleColor: String?
+	/// The API's subtitle colour (`subTitleTextInfo.color`). Optional for the
+	/// same reason as `titleColor`.
+	public let subtitleColor: String?
 
-	public init(id: String, title: String, subTitle: String, graphic: MixesGraphic?, images: MixesImages?, mixType: MixType) {
+	public init(id: String, title: String, subTitle: String, graphic: MixesGraphic?, images: MixesImages?, mixType: MixType, titleColor: String? = nil, subtitleColor: String? = nil) {
 		self.id = id
 		self.title = title
 		self.subTitle = subTitle
 		self.graphic = graphic
 		self.images = images
 		self.mixType = mixType
+		self.titleColor = titleColor
+		self.subtitleColor = subtitleColor
 	}
 
 	public static func == (lhs: MixesItem, rhs: MixesItem) -> Bool {

@@ -33,4 +33,22 @@ extension Session {
 			return nil
 		}
 	}
+
+	/// Fetches up to `limit` cover image ids from a playlist's items, for the
+	/// 4-tile mosaic artwork.
+	///
+	/// The v1 items route wraps each entry in `{cut, item, type}`; the tile
+	/// image id is `item.album.cover`. Returns `nil` on any failure.
+	public func playlistArtworkTiles(playlistId: String, limit: Int = 4) async -> [String]? {
+		var parameters = sessionParameters
+		parameters["limit"] = String(limit)
+		parameters["offset"] = "0"
+		let url = URL(string: "\(AuthInformation.APILocation)/playlists/\(playlistId)/items")!
+		do {
+			let response: PlaylistItemsPage = try await get(url: url, parameters: parameters)
+			return Array(response.items.compactMap { $0.item?.album.cover }.prefix(limit))
+		} catch {
+			return nil
+		}
+	}
 }

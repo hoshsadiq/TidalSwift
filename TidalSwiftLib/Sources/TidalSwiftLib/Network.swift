@@ -20,10 +20,11 @@ extension Network {
 
 	// MARK: - Queries
 
-	enum HttpMethod {
-		case get
-		case post
-		case delete
+	enum HttpMethod: String {
+		case get = "GET"
+		case post = "POST"
+		case put = "PUT"
+		case delete = "DELETE"
 	}
 
 	private static func encodeParameters(_ parameters: [String: String]) -> String {
@@ -57,6 +58,11 @@ extension Network {
 			request.httpMethod = "POST"
 			// If POST or DELETE, parameters are part of the body
 			request.httpBody = encodeParameters(parameters).data(using: .utf8)
+		case .put:
+			request.httpMethod = "PUT"
+			// If GET, PUT or DELETE, parameters are part of the URL
+			let urlString = request.url!.absoluteString + "?" + encodeParameters(parameters)
+			request.url = URL(string: urlString)
 		case .delete:
 			request.httpMethod = "DELETE"
 			// If GET or DELETE, parameters are part of the URL
@@ -108,6 +114,10 @@ extension Network {
 	static func post<Result: Decodable>(url: URL, parameters: [String: String], etag: Int? = nil, accessToken: String?, xTidalToken: String?, decoder: JSONDecoder = .custom) async throws -> Result {
 		let response = try await request(method: .post, url: url, parameters: parameters, etag: etag, accessToken: accessToken, xTidalToken: xTidalToken)
 		return try decoder.decode(Result.self, from: response.data)
+	}
+
+	static func put(url: URL, parameters: [String: String], etag: Int? = nil, accessToken: String?, xTidalToken: String?) async throws -> Response {
+		try await request(method: .put, url: url, parameters: parameters, etag: etag, accessToken: accessToken, xTidalToken: xTidalToken)
 	}
 
 	static func delete(url: URL, parameters: [String: String], etag: Int? = nil, accessToken: String?, xTidalToken: String?) async throws -> Response {

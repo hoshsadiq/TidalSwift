@@ -264,7 +264,20 @@ extension Session {
 		return try JSONDecoder.custom.decode(Result.self, from: retry.data)
 	}
 
-	private static func v2Request(url: URL, parameters: [String: String], accessToken: String, xTidalToken: String) async throws -> Response {
+	/// Performs an authenticated PUT against the v2 API, mirroring `v2Get`'s
+	/// refresh-and-retry behaviour. Returns the raw response so callers can
+	/// check the status code before decoding a body whose shape may vary.
+	func v2Put(url: URL, parameters: [String: String]) async throws -> Response {
+		try? await refreshAccessTokenIfNeeded()
+		let response = try await Self.v2Request(method: .put, url: url, parameters: parameters, accessToken: config.accessToken, xTidalToken: config.apiToken)
+		guard response.statusCode == 401, Self.isAuthenticationFailure(response) else {
+			return response
+		}
+		try await refreshAccessToken()
+		return try await Self.v2Request(method: .put, url: url, parameters: parameters, accessToken: config.accessToken, xTidalToken: config.apiToken)
+	}
+
+	private static func v2Request(method: Network.HttpMethod = .get, url: URL, parameters: [String: String], accessToken: String, xTidalToken: String) async throws -> Response {
 		guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
 			throw SessionError.unexpectedResponse
 		}
@@ -279,7 +292,7 @@ extension Session {
 		}
 
 		var request = URLRequest(url: requestURL)
-		request.httpMethod = "GET"
+		request.httpMethod = method.rawValue
 		request.setValue(accessToken, forHTTPHeaderField: "Authorization")
 		request.setValue(xTidalToken, forHTTPHeaderField: "X-Tidal-Token")
 		request.setValue(AuthInformation.clientVersion, forHTTPHeaderField: "x-tidal-client-version")

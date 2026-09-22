@@ -232,7 +232,8 @@ public struct HomeFeedMix: Codable, Identifiable {
 	public var largeImage: HomeFeedMixImage? { mixImages.first { $0.size == "LARGE" } }
 
 	/// The mix as the existing `MixesItem` card model, so the app can reuse its
-	/// mix cards.
+	/// mix cards. The text colours ride along like the collection adapter's, so
+	/// the model never silently drops data the API sent.
 	public var asMixesItem: MixesItem {
 		MixesItem(
 			id: id,
@@ -244,7 +245,9 @@ public struct HomeFeedMix: Codable, Identifiable {
 				medium: mediumImage.map { MixesImage(url: $0.url, width: $0.width, height: $0.height) },
 				large: largeImage.map { MixesImage(url: $0.url, width: $0.width, height: $0.height) }
 			),
-			mixType: mixType
+			mixType: mixType,
+			titleColor: titleTextInfo?.color,
+			subtitleColor: subtitleTextInfo?.color
 		)
 	}
 
