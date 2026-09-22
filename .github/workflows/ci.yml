@@ -25,6 +25,9 @@ jobs:
         with:
           xcode-version: latest-stable
 
+      - name: Prime Xcode
+        run: sudo xcodebuild -runFirstLaunch
+
       - name: Setup mise
         uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
         with:
@@ -51,6 +54,9 @@ jobs:
         uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
         with:
           xcode-version: latest-stable
+
+      - name: Prime Xcode
+        run: sudo xcodebuild -runFirstLaunch
 
       - name: Setup mise
         uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
