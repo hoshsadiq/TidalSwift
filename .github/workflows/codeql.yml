@@ -29,11 +29,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Setup mise
+        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@a45bef097606dca6eac8285c279babedd70e6dfd # v3
         with:
           languages: ${{ matrix.language }}
-          build-mode: none
+          build-mode: manual
+
+      # Swift needs a traced build, and autobuild cannot run xcodegen, so build via mise.
+      - name: Build
+        run: mise run build
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@a45bef097606dca6eac8285c279babedd70e6dfd # v3
