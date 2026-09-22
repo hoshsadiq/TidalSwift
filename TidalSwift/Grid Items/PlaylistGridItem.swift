@@ -24,6 +24,10 @@ struct PlaylistGridItem: View {
 	/// Explore's video-playlist shelves. Off by default so the Music tab and
 	/// Favourites grids are unchanged.
 	var badge: String?
+	/// Opt-in 2×2 cover mosaic (TIDAL's playlist artwork) instead of the single
+	/// cover. Off by default so the Music tab and Favourites grids keep their
+	/// existing single-cover artwork.
+	var showsMosaic: Bool = false
 
 	@EnvironmentObject var viewState: ViewState
 	@State private var isOffline: Bool = false
@@ -49,7 +53,16 @@ struct PlaylistGridItem: View {
 	var body: some View {
 		VStack {
 			ZStack(alignment: .bottomTrailing) {
-				if let imageUrl = playlist.imageUrl(session: session, resolution: 320) {
+				if showsMosaic {
+					// The mosaic draws flat tiles; the card supplies the corner
+					// radius and shadow the single-cover path gets from
+					// `ArtworkImage`.
+					PlaylistMosaicImage(playlistId: playlist.uuid, session: session, size: artworkSize)
+						.cornerRadius(CORNERRADIUS)
+						.shadow(radius: SHADOWRADIUS, y: SHADOWY)
+						.contentShape(Rectangle())
+						.clipped()
+				} else if let imageUrl = playlist.imageUrl(session: session, resolution: 320) {
 					ArtworkImage(url: imageUrl, size: artworkSize)
 						.contentShape(Rectangle())
 						.clipped()

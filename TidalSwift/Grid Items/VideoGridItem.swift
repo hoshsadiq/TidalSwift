@@ -19,6 +19,10 @@ struct VideoGridItem: View {
 	/// the square card width, title + artist, then `N MIN` and a `VIDEO` pill.
 	/// Off by default so the square Music tab / Favourites cards are unchanged.
 	var wide: Bool = false
+	/// Opt-in "HD" chip overlaid on the artwork's top-leading corner, matching
+	/// the Collection ▸ Videos cards. Off by default so the Music tab and
+	/// Favourites grids are unchanged.
+	var showsHDBadge: Bool = false
 
 	@EnvironmentObject var playbackInfo: PlaybackInfo
 	@EnvironmentObject var toastCenter: ToastCenter
@@ -123,20 +127,34 @@ struct VideoGridItem: View {
 
 	@ViewBuilder
 	private func artwork(width: CGFloat, height: CGFloat) -> some View {
-		if let imageUrl = video.imageUrl(session: session, resolution: wide ? 640 : 320) {
-			ArtworkImage(url: imageUrl, size: width, height: height)
-		} else {
-			ZStack {
-				Rectangle()
-					.foregroundColor(Color.secondary.opacity(0.15))
-					.frame(width: width, height: height)
-					.cornerRadius(CORNERRADIUS)
-					.shadow(radius: SHADOWRADIUS, y: SHADOWY)
-				Text(video.title)
-					.foregroundColor(.primary)
-					.multilineTextAlignment(.center)
-					.lineLimit(2)
-					.frame(width: width)
+		Group {
+			if let imageUrl = video.imageUrl(session: session, resolution: wide ? 640 : 320) {
+				ArtworkImage(url: imageUrl, size: width, height: height)
+			} else {
+				ZStack {
+					Rectangle()
+						.foregroundColor(Color.secondary.opacity(0.15))
+						.frame(width: width, height: height)
+						.cornerRadius(CORNERRADIUS)
+						.shadow(radius: SHADOWRADIUS, y: SHADOWY)
+					Text(video.title)
+						.foregroundColor(.primary)
+						.multilineTextAlignment(.center)
+						.lineLimit(2)
+						.frame(width: width)
+				}
+			}
+		}
+		.overlay(alignment: .topLeading) {
+			if showsHDBadge {
+				Text("HD")
+					.font(.caption2)
+					.fontWeight(.semibold)
+					.foregroundColor(.white)
+					.padding(.horizontal, 6)
+					.padding(.vertical, 2)
+					.background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 4))
+					.padding(6)
 			}
 		}
 	}

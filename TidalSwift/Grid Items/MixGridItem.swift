@@ -16,19 +16,37 @@ struct MixGridItem: View {
 	var artworkSize: CGFloat = 160
 	/// When set, this single artwork replaces the mix's own collage.
 	var artworkURL: URL?
+	/// Opt-in heart overlay, top-trailing on the artwork. Off by default so the
+	/// Music tab's mix shelves are unchanged.
+	var showsHeart: Bool = false
+	/// Whether the heart reads as added. Only meaningful when `showsHeart`.
+	var heartIsOn: Bool = false
+	/// Toggle handler for the heart. When nil the heart is shown but inert.
+	var onToggleHeart: (() -> Void)?
+	/// Opt-in title/subtitle drawn over the artwork in the API-provided colours.
+	/// Off by default; the lines below the artwork are always shown.
+	var overlaysTitle: Bool = false
+	/// Colour for the overlaid title, from the mix's `titleTextInfo.color`.
+	/// Falls back to white when nil.
+	var overlayTitleColor: Color?
+	/// Colour for the overlaid subtitle, from the mix's `subTitleTextInfo.color`.
+	/// Falls back to white when nil.
+	var overlaySubtitleColor: Color?
 
 	@EnvironmentObject var viewState: ViewState
 
 	var body: some View {
 		VStack {
-			if let artworkURL {
-				ArtworkImage(url: artworkURL, size: artworkSize)
-			} else {
-				MixImage(mix: mix, highResolutionImages: false, session: session)
-					.frame(width: artworkSize, height: artworkSize)
-					.cornerRadius(CORNERRADIUS)
-					.shadow(radius: SHADOWRADIUS, y: SHADOWY)
-					.accessibilityHidden(true)
+			ZStack(alignment: .bottomLeading) {
+				artwork
+				if overlaysTitle {
+					overlayText
+				}
+			}
+			.overlay(alignment: .topTrailing) {
+				if showsHeart {
+					heartButton
+				}
 			}
 
 			Text(mix.title)
@@ -55,6 +73,57 @@ struct MixGridItem: View {
 		.contextMenu {
 			MixContextMenu(mix: mix, session: session, player: player)
 		}
+	}
+
+	/// The mix's own collage, or the caller-supplied single artwork. Unchanged
+	/// from the original card so the Music tab's shelves render identically.
+	@ViewBuilder
+	private var artwork: some View {
+		if let artworkURL {
+			ArtworkImage(url: artworkURL, size: artworkSize)
+		} else {
+			MixImage(mix: mix, highResolutionImages: false, session: session)
+				.frame(width: artworkSize, height: artworkSize)
+				.cornerRadius(CORNERRADIUS)
+				.shadow(radius: SHADOWRADIUS, y: SHADOWY)
+				.accessibilityHidden(true)
+		}
+	}
+
+	/// Title and subtitle drawn over the artwork's bottom-leading corner in the
+	/// API-provided colours, sized relative to the artwork so the card scales.
+	private var overlayText: some View {
+		VStack(alignment: .leading, spacing: 2) {
+			Text(mix.title)
+				.font(.system(size: artworkSize * 0.12, weight: .bold))
+				.foregroundColor(overlayTitleColor ?? .white)
+				.lineLimit(2)
+			Text(mix.subTitle)
+				.font(.system(size: artworkSize * 0.09))
+				.foregroundColor(overlaySubtitleColor ?? .white)
+				.lineLimit(1)
+		}
+		.padding(artworkSize * 0.06)
+		.frame(width: artworkSize, alignment: .leading)
+	}
+
+	/// A `Button` rather than a bare tap gesture so the heart consumes its own
+	/// tap: the card's single/double-click gestures sit on the enclosing
+	/// `VStack`, and the innermost control wins, so a heart tap only toggles.
+	private var heartButton: some View {
+		Button {
+			onToggleHeart?()
+		} label: {
+			Image(systemName: heartIsOn ? "heart.fill" : "heart")
+				.font(.system(size: 16, weight: .semibold))
+				.foregroundColor(.white)
+				.shadow(radius: 2)
+				.frame(width: 28, height: 28)
+				.contentShape(Rectangle())
+		}
+		.buttonStyle(.plain)
+		.padding(6)
+		.disabled(onToggleHeart == nil)
 	}
 }
 
