@@ -64,6 +64,17 @@ jobs:
           CURRENT_PROJECT_VERSION: ${{ steps.ver.outputs.build }}
         run: mise run build
 
+      # actool's generic failure message hides the real cause; rerun unpiped so the log carries it.
+      - name: Capture raw build diagnostics
+        if: failure()
+        continue-on-error: true
+        env:
+          CONFIGURATION: Release
+          MARKETING_VERSION: ${{ steps.ver.outputs.marketing }}
+          CURRENT_PROJECT_VERSION: ${{ steps.ver.outputs.build }}
+          BUILD_RAW: "1"
+        run: mise run build 2>&1 | grep -iE "actool|ibtoold|distill|thinned|error" | tail -80
+
       - name: Verify universal binary
         run: mise run verify-universal
         env:

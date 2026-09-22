@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #MISE description="Build TidalSwift.app (unsigned)"
 #MISE depends=["generate"]
-# Env overrides: CONFIGURATION (default Debug), MARKETING_VERSION, CURRENT_PROJECT_VERSION (empty = project values)
+# Env overrides: CONFIGURATION (default Debug), MARKETING_VERSION, CURRENT_PROJECT_VERSION (empty = project values), BUILD_RAW (skip xcbeautify)
 set -eo pipefail
 
 args=()
@@ -12,11 +12,19 @@ if [ -n "${CURRENT_PROJECT_VERSION:-}" ]; then
 	args+=(CURRENT_PROJECT_VERSION="$CURRENT_PROJECT_VERSION")
 fi
 
-xcodebuild \
-	-project TidalSwift.xcodeproj \
-	-scheme TidalSwift \
-	-configuration "${CONFIGURATION:-Debug}" \
-	-derivedDataPath .build/DerivedData \
-	CODE_SIGNING_ALLOWED=NO \
-	"${args[@]}" \
-	build | xcbeautify --quiet
+xcb=(xcodebuild
+	-project TidalSwift.xcodeproj
+	-scheme TidalSwift
+	-configuration "${CONFIGURATION:-Debug}"
+	-derivedDataPath .build/DerivedData
+	CODE_SIGNING_ALLOWED=NO)
+if [ "${#args[@]}" -gt 0 ]; then
+	xcb+=("${args[@]}")
+fi
+xcb+=(build)
+
+if [ -n "${BUILD_RAW:-}" ]; then
+	"${xcb[@]}"
+else
+	"${xcb[@]}" | xcbeautify --quiet
+fi
