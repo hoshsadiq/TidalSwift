@@ -4,17 +4,19 @@
 
 Tidal Music Streaming Client & Library written in Swift
 
-[![CI](https://github.com/melgu/TidalSwift/actions/workflows/ci.yml/badge.svg)](https://github.com/melgu/TidalSwift/actions/workflows/ci.yml)
-[![Pre-commit](https://github.com/melgu/TidalSwift/actions/workflows/pre-commit.yml/badge.svg)](https://github.com/melgu/TidalSwift/actions/workflows/pre-commit.yml)
-[![CodeQL](https://github.com/melgu/TidalSwift/actions/workflows/codeql.yml/badge.svg)](https://github.com/melgu/TidalSwift/actions/workflows/codeql.yml)
-[![Release](https://github.com/melgu/TidalSwift/actions/workflows/release.yml/badge.svg)](https://github.com/melgu/TidalSwift/actions/workflows/release.yml)
+[![CI](https://github.com/hoshsadiq/TidalSwift/actions/workflows/ci.yml/badge.svg)](https://github.com/hoshsadiq/TidalSwift/actions/workflows/ci.yml)
+[![Pre-commit](https://github.com/hoshsadiq/TidalSwift/actions/workflows/pre-commit.yml/badge.svg)](https://github.com/hoshsadiq/TidalSwift/actions/workflows/pre-commit.yml)
+[![CodeQL](https://github.com/hoshsadiq/TidalSwift/actions/workflows/codeql.yml/badge.svg)](https://github.com/hoshsadiq/TidalSwift/actions/workflows/codeql.yml)
+[![Release](https://github.com/hoshsadiq/TidalSwift/actions/workflows/release.yml/badge.svg)](https://github.com/hoshsadiq/TidalSwift/actions/workflows/release.yml)
 
 It supports all major features of the official Tidal app, while adding additional ones, like Lyrics, automatic Dark Mode, Downloads & Offline Playback – all while being only 1/10th the size of the official app.
 
+This is a fork of the original [TidalSwift](https://github.com/melgu/TidalSwift) by Melvin Gundlach, maintained by [Hosh Sadiq](https://github.com/hoshsadiq).
+
 ## Download
 
-You can download the latest version [here](https://github.com/melgu/TidalSwift/releases).
-After downloading and unpacking the TidalSwift.zip, move the app to the Applications folder. Because the app is unsigned (I refuse to give current Apple money), you need to explicitly allow the app after the first start in the Privacy system settings. Alternatively, you can execute this:
+You can download the latest version [here](https://github.com/hoshsadiq/TidalSwift/releases).
+After downloading and unpacking the TidalSwift.zip, move the app to the Applications folder. The app is unsigned, so macOS will block it on first launch. You can allow it in System Settings → Privacy & Security, or run this command:
 
 ```sh
 xattr -d com.apple.quarantine /Applications/TidalSwift.app
