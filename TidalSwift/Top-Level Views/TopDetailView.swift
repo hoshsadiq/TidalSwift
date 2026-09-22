@@ -348,6 +348,11 @@ struct TopView: View {
 
 	@EnvironmentObject var viewState: ViewState
 
+	/// "Show all collection items directly in the sidebar instead of a submenu."
+	/// On (the default) the Collection destinations are flat rows under a small
+	/// "Collection" header; off they hide behind a disclosure group.
+	@AppStorage("ShowCollectionInSidebar") private var showCollectionInSidebar = true
+
 	@State private var allPlaylists: [Playlist] = []
 	@State private var favoritedPlaylistUuids: Set<String> = []
 	@State private var loadingState: LoadingState = .loading
@@ -363,12 +368,21 @@ struct TopView: View {
 						.tag(SidebarSelection.view(.explore))
 					Label("Feed", systemImage: "dot.radiowaves.left.and.right")
 						.tag(SidebarSelection.view(.feed))
-					Label("Collection", systemImage: "square.stack")
-						.tag(SidebarSelection.view(.collection))
-						.disabled(true)
-						.selectionDisabled()
-						.help("Coming soon")
+					if showCollectionInSidebar {
+						Text("Collection")
+							.font(.caption)
+							.foregroundColor(.secondary)
+							.selectionDisabled()
+							.listRowBackground(Color.clear)
+						collectionRows
+					} else {
+						DisclosureGroup {
+							collectionRows
+						} label: {
+							Label("Collection", systemImage: "square.stack")
+						}
 						.listRowBackground(Color.clear)
+					}
 					DisclosureGroup {
 						Label("Albums", systemImage: "square.stack")
 							.tag(SidebarSelection.view(.offlineAlbums))
@@ -446,6 +460,27 @@ struct TopView: View {
 			favoritedPlaylistUuids = viewState.cache.favoritedPlaylistUuids ?? []
 		}
 	}
+
+	@ViewBuilder
+	private var collectionRows: some View {
+		Label("Mixes & Radio", systemImage: "antenna.radiowaves.left.and.right")
+			.tag(SidebarSelection.view(.collectionMixes))
+		Label("Playlists", systemImage: "list.bullet")
+			.tag(SidebarSelection.view(.collectionPlaylists))
+		Label("Albums", systemImage: "opticaldisc")
+			.tag(SidebarSelection.view(.collectionAlbums))
+		Label("Tracks", systemImage: "music.note")
+			.tag(SidebarSelection.view(.collectionTracks))
+		Label("Videos", systemImage: "play.rectangle")
+			.tag(SidebarSelection.view(.collectionVideos))
+		Label("Profiles", systemImage: "person.crop.circle")
+			.tag(SidebarSelection.view(.collectionProfiles))
+		Label("Purchases", systemImage: "tag")
+			.disabled(true)
+			.selectionDisabled()
+			.help("Coming soon")
+			.listRowBackground(Color.clear)
+	}
 }
 
 private struct SidebarMessageRow: View {
@@ -509,17 +544,19 @@ struct DetailView: View {
 							SearchView(session: session, player: player)
 						}
 
-						// Favorites
-						else if viewType == .favoritePlaylists {
-							FavoritePlaylists(session: session, player: player)
-						} else if viewType == .favoriteAlbums {
-							FavoriteAlbums(session: session, player: player)
-						} else if viewType == .favoriteTracks {
-							FavoriteTracks(session: session, player: player)
-						} else if viewType == .favoriteVideos {
-							FavoriteVideos(session: session, player: player)
-						} else if viewType == .favoriteArtists {
-							FavoriteArtists(session: session, player: player)
+						// Collection
+						else if viewType == .collectionMixes {
+							CollectionMixes(session: session, player: player)
+						} else if viewType == .collectionPlaylists || viewType == .favoritePlaylists {
+							CollectionPlaylists(session: session, player: player)
+						} else if viewType == .collectionAlbums || viewType == .favoriteAlbums {
+							CollectionAlbums(session: session, player: player)
+						} else if viewType == .collectionTracks || viewType == .favoriteTracks {
+							CollectionTracks(session: session, player: player)
+						} else if viewType == .collectionVideos || viewType == .favoriteVideos {
+							CollectionVideos(session: session, player: player)
+						} else if viewType == .collectionProfiles || viewType == .favoriteArtists {
+							CollectionProfiles(session: session, player: player)
 						}
 
 						else if viewType == .offlinePlaylists {

@@ -53,11 +53,17 @@ struct PageShelfItem: Identifiable {
 /// `kind` is the module's expected item kind and wins over the item's own
 /// `kind`, which is ambiguous for albums and videos (see `PageShelfItem`).
 /// Items with no payload (unknown kinds, link tiles) render `EmptyView()`.
+///
+/// Mix cards get a heart when `onToggleMixHeart` is set, reading its state from
+/// `collectionMixIds`: TIDAL lets mixes be added to the collection from any
+/// page that lists them, not just Collection ▸ Mixes.
 @ViewBuilder
 func pageCard(
 	for item: PageItem,
 	kind: PageItemKind? = nil,
 	artworkSize: CGFloat = 160,
+	collectionMixIds: Set<String> = [],
+	onToggleMixHeart: ((MixesItem) -> Void)? = nil,
 	session: Session,
 	player: Player
 ) -> some View {
@@ -71,7 +77,7 @@ func pageCard(
 	case .video:
 		videoCard(item.video, artworkSize: artworkSize, session: session, player: player)
 	case .mix:
-		mixCard(item.mix, artworkSize: artworkSize, session: session, player: player)
+		mixCard(item.mix, artworkSize: artworkSize, collectionMixIds: collectionMixIds, onToggleMixHeart: onToggleMixHeart, session: session, player: player)
 	case .track:
 		trackCard(item.track, artworkSize: artworkSize, session: session, player: player)
 	case nil:
@@ -136,13 +142,17 @@ private func videoCard(_ video: PageVideo?, artworkSize: CGFloat, session: Sessi
 }
 
 @ViewBuilder
-private func mixCard(_ mix: PageMix?, artworkSize: CGFloat, session: Session, player: Player) -> some View {
+private func mixCard(_ mix: PageMix?, artworkSize: CGFloat, collectionMixIds: Set<String>, onToggleMixHeart: ((MixesItem) -> Void)?, session: Session, player: Player) -> some View {
 	if let mix {
+		let item = MixesItem(pageMix: mix)
 		MixGridItem(
-			mix: MixesItem(pageMix: mix),
+			mix: item,
 			session: session,
 			player: player,
-			artworkSize: artworkSize
+			artworkSize: artworkSize,
+			showsHeart: onToggleMixHeart != nil,
+			heartIsOn: collectionMixIds.contains(item.id),
+			onToggleHeart: onToggleMixHeart.map { handler in { handler(item) } }
 		)
 	}
 }
@@ -229,6 +239,7 @@ private struct PageShelfView: View {
 	let player: Player
 
 	@EnvironmentObject var viewState: ViewState
+	@State private var collectionMixIds: Set<String> = []
 
 	private var items: [PageShelfItem] {
 		pageModuleItems(module).compactMap { PageShelfItem($0, kind: kind) }
@@ -242,8 +253,29 @@ private struct PageShelfView: View {
 			items: items,
 			cardsPerPage: 4
 		) { item, cardWidth in
-			pageCard(for: item.item, kind: kind, artworkSize: max(1, cardWidth - 10), session: session, player: player)
+			pageCard(
+				for: item.item,
+				kind: kind,
+				artworkSize: max(1, cardWidth - 10),
+				collectionMixIds: collectionMixIds,
+				onToggleMixHeart: { viewState.toggleMixInCollection($0) },
+				session: session,
+				player: player
+			)
 		}
+		.task {
+			guard kind == .mix else { return }
+			await viewState.ensureCollectionMixesLoaded()
+			refreshCollectionMixIds()
+		}
+		.onReceive(NotificationCenter.default.publisher(for: .collectionMixChanged)) { _ in
+			refreshCollectionMixIds()
+		}
+	}
+
+	private func refreshCollectionMixIds() {
+		guard kind == .mix else { return }
+		collectionMixIds = Set(viewState.cache.collectionMixes?.map(\.id) ?? [])
 	}
 }
 

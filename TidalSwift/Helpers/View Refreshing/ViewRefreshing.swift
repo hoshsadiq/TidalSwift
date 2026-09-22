@@ -27,16 +27,18 @@ extension ViewState {
 		case .collection:
 			placeholder(for: .collection)
 
-		case .favoriteArtists:
-			favoriteArtists()
-		case .favoriteAlbums:
-			favoriteAlbums()
-		case .favoritePlaylists:
-			favoritePlaylists()
-		case .favoriteTracks:
-			favoriteTracks()
-		case .favoriteVideos:
-			favoriteVideos()
+		case .collectionMixes:
+			collectionMixes()
+		case .collectionPlaylists, .favoritePlaylists:
+			collectionPlaylists()
+		case .collectionAlbums, .favoriteAlbums:
+			collectionAlbums()
+		case .collectionTracks, .favoriteTracks:
+			collectionTracks()
+		case .collectionVideos, .favoriteVideos:
+			collectionVideos()
+		case .collectionProfiles, .favoriteArtists:
+			collectionProfiles()
 
 		case .offlineAlbums:
 			offlineAlbums()
@@ -97,6 +99,17 @@ extension ViewState {
 		print("ViewState doNothing(): \(stack.last?.viewType.rawValue ?? "nil")")
 		refreshTask?.cancel()
 		refreshTask = nil
+	}
+
+	/// The view type a Collection loader should refresh.
+	///
+	/// A restored navigation stack can still hold a legacy `.favorite*` entry
+	/// (kept as a decode-compat alias). The loader must refresh that entry with
+	/// its own type: the refreshed view's `id` is derived from the view type, so
+	/// a different type would make `replaceCurrentView` reject it and the screen
+	/// would never receive its data.
+	func collectionViewType(_ collection: ViewType, legacy: ViewType) -> ViewType {
+		stack.last?.viewType == legacy ? legacy : collection
 	}
 
 	private func placeholder(for viewType: ViewType) {

@@ -1,29 +1,31 @@
 //
-//  RefreshFavoriteAlbums.swift
+//  RefreshCollectionAlbums.swift
 //  TidalSwift
 //
-//  Created by Melvin Gundlach on 01.08.20.
-//  Copyright © 2020 Melvin Gundlach. All rights reserved.
+//  Created by TidalSwift Contributors on 22.09.26.
+//  Copyright © 2026 TidalSwift Contributors. All rights reserved.
 //
 
 import Foundation
 import TidalSwiftLib
 
 extension ViewState {
-	func favoriteAlbums() {
-		var view = TidalSwiftView(viewType: .favoriteAlbums)
+	func collectionAlbums() {
+		let viewType = collectionViewType(.collectionAlbums, legacy: .favoriteAlbums)
+		var view = TidalSwiftView(viewType: viewType)
 		view.albums = cache.favoriteAlbums
 		view.loadingState = .loading
 		replaceCurrentView(with: view)
 
 		refreshTask?.cancel()
 		refreshTask = Task { [self] in
-			await refreshFavoriteAlbums()
+			await refreshCollectionAlbums()
 		}
 	}
 
-	private func refreshFavoriteAlbums() async {
-		var view = TidalSwiftView(viewType: .favoriteAlbums)
+	private func refreshCollectionAlbums() async {
+		let viewType = collectionViewType(.collectionAlbums, legacy: .favoriteAlbums)
+		var view = TidalSwiftView(viewType: viewType)
 		guard let favorites = session.favorites else {
 			guard !Task.isCancelled else { return }
 			view.albums = cache.favoriteAlbums

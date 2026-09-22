@@ -39,7 +39,7 @@ extension ViewState {
 			return
 		}
 
-		let tracks = await session.mixPlaylistTracks(mixId: mix.id)
+		let tracks = await session.collectionMixItems(mixId: mix.id)
 
 		guard !Task.isCancelled else { return }
 		if tracks != nil {

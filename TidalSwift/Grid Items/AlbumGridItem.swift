@@ -16,18 +16,30 @@ struct AlbumGridItem: View {
 	let session: Session
 	let player: Player
 	var artworkSize: CGFloat = 160
+	/// Opt-in year-only release line (`2026`) instead of the full date, matching
+	/// the Collection ▸ Albums cards. Off by default so other grids are unchanged.
+	var showsReleaseYear: Bool = false
 
 	@EnvironmentObject var viewState: ViewState
 	@State private var isOffline: Bool = false
 
-	init(album: Album, showArtists: Bool, showReleaseDate: Bool = false, session: Session, player: Player, artworkSize: CGFloat = 160) {
+	init(album: Album, showArtists: Bool, showReleaseDate: Bool = false, showsReleaseYear: Bool = false, session: Session, player: Player, artworkSize: CGFloat = 160) {
 		self.album = album
 		self.showArtists = showArtists
 		self.showReleaseDate = showReleaseDate
+		self.showsReleaseYear = showsReleaseYear
 		self.session = session
 		self.player = player
 		self.artworkSize = artworkSize
 	}
+
+	/// Year-only formatter for the Collection ▸ Albums cards, which show `2026`
+	/// rather than the full release date.
+	private static let yearOnlyFormatter: DateFormatter = {
+		let formatter = DateFormatter()
+		formatter.dateFormat = "yyyy"
+		return formatter
+	}()
 
 	var body: some View {
 		VStack {
@@ -95,7 +107,7 @@ struct AlbumGridItem: View {
 				}
 			}
 			if showReleaseDate, let releaseDate = album.releaseDate {
-				Text(DateFormatter.dateOnly.string(from: releaseDate))
+				Text(showsReleaseYear ? Self.yearOnlyFormatter.string(from: releaseDate) : DateFormatter.dateOnly.string(from: releaseDate))
 					.fontWeight(.light)
 					.foregroundColor(Color.secondary)
 					.lineLimit(1)

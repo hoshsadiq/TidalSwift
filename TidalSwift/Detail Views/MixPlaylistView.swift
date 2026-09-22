@@ -14,6 +14,7 @@ struct MixPlaylistView: View {
 	let player: Player
 
 	@EnvironmentObject var viewState: ViewState
+	@State private var isInCollection = false
 
 	var body: some View {
 		ScrollView {
@@ -45,6 +46,8 @@ struct MixPlaylistView: View {
 					.frame(height: 100)
 					.padding(EdgeInsets(top: 10, leading: 20, bottom: 10, trailing: 20))
 
+					actionRow(mix)
+
 					TrackList(wrappedTracks: tracks.wrapped(), showCover: true, showAlbumTrackNumber: false,
 							  showArtist: true, showAlbum: true, playlist: nil,
 							  session: session, player: player,
@@ -53,5 +56,68 @@ struct MixPlaylistView: View {
 				Spacer(minLength: 0)
 			}
 		}
+		.task(id: viewState.stack.last?.mix?.id) {
+			guard let mix = viewState.stack.last?.mix else { return }
+			await viewState.ensureCollectionMixesLoaded()
+			isInCollection = viewState.isMixInCollection(mix.id)
+		}
+		.onReceive(NotificationCenter.default.publisher(for: .collectionMixChanged)) { note in
+			guard let mixId = note.userInfo?["mixId"] as? String,
+				  mixId == viewState.stack.last?.mix?.id else { return }
+			isInCollection = note.userInfo?["isInCollection"] as? Bool ?? viewState.isMixInCollection(mixId)
+		}
+	}
+
+	/// The screenshot's action row: Play, Shuffle, the collection heart, Share
+	/// and the same ⋯ menu the mix cards carry.
+	private func actionRow(_ mix: MixesItem) -> some View {
+		HStack(spacing: 12) {
+			PlayShuffleHeader(onPlay: { play(mix) }, onShuffle: { shuffle(mix) })
+
+			Button {
+				viewState.toggleMixInCollection(mix)
+			} label: {
+				Label(isInCollection ? "Added" : "Add", systemImage: isInCollection ? "heart.fill" : "heart")
+					.font(.system(size: 13, weight: .semibold))
+					.foregroundColor(.white)
+					.padding(.horizontal, 18)
+					.frame(height: 36)
+					.background(Color.white.opacity(0.15), in: Capsule())
+			}
+			.buttonStyle(.plain)
+			.help(isInCollection ? "Remove from Collection" : "Add to Collection")
+
+			Button {
+				Pasteboard.copy(string: "https://www.tidal.com/mix/\(mix.id)")
+			} label: {
+				Image(systemName: "square.and.arrow.up")
+			}
+			.buttonStyle(.plain)
+			.help("Copy URL")
+
+			Menu {
+				MixContextMenu(mix: mix, session: session, player: player)
+			} label: {
+				Image(systemName: "ellipsis")
+			}
+			.menuStyle(.borderlessButton)
+			.fixedSize()
+			.help("More")
+
+			Spacer(minLength: 0)
+		}
+		.padding(.horizontal, 20)
+	}
+
+	private func play(_ mix: MixesItem) {
+		guard let tracks = viewState.stack.last?.tracks, !tracks.isEmpty else { return }
+		player.playbackInfo.shuffle = false
+		player.add(tracks: tracks, .now, source: QueueSource(type: .mix, title: mix.title, id: mix.id))
+	}
+
+	private func shuffle(_ mix: MixesItem) {
+		guard let tracks = viewState.stack.last?.tracks, !tracks.isEmpty else { return }
+		player.playbackInfo.shuffle = true
+		player.add(tracks: tracks, .now, source: QueueSource(type: .mix, title: mix.title, id: mix.id))
 	}
 }

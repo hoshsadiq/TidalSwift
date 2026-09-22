@@ -9,6 +9,16 @@
 import Foundation
 import TidalSwiftLib
 
+/// A favourite track with its date added, as stored in `ViewCache`.
+///
+/// The lib's `FavoriteTrack` is decode-only, so it can't be encoded into the
+/// persisted cache; this is its Codable twin for the app target.
+struct CollectionTrackEntry: Codable, Identifiable {
+	var id: Int { track.id }
+	let track: Track
+	let created: Date
+}
+
 struct ViewCache: Codable {
 	var searchResponses: [String: SearchResponse] = [:]
 
@@ -37,6 +47,15 @@ struct ViewCache: Codable {
 	var allPlaylists: [Playlist]?
 	/// Uuids of the favourited subset of `allPlaylists` (which also holds user-created playlists).
 	var favoritedPlaylistUuids: Set<String>?
+
+	/// The Collection ▸ Mixes & Radio list and the cursor of the page it came
+	/// from. Optional so previously saved caches still decode.
+	var collectionMixes: [MixesItem]?
+	var collectionMixesCursor: String?
+
+	/// The Collection ▸ Tracks favourites, kept as entries so each row can show
+	/// its date added. Optional so previously saved caches still decode.
+	var collectionTracks: [CollectionTrackEntry]?
 
 //	var artist: [Int: Artist] = [:]
 //	var album: [Int: Album] = [:]

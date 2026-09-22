@@ -259,6 +259,9 @@ private struct PagePagedModuleView: View {
 	let session: Session
 	let player: Player
 
+	@EnvironmentObject var viewState: ViewState
+	@State private var collectionMixIds: Set<String> = []
+
 	/// Measured grid content width, driving the responsive column count.
 	@State private var contentWidth: CGFloat = 0
 
@@ -298,6 +301,14 @@ private struct PagePagedModuleView: View {
 			}
 			footer
 		}
+		.task {
+			guard kind == .mix else { return }
+			await viewState.ensureCollectionMixesLoaded()
+			refreshCollectionMixIds()
+		}
+		.onReceive(NotificationCenter.default.publisher(for: .collectionMixChanged)) { _ in
+			refreshCollectionMixIds()
+		}
 	}
 
 	private var grid: some View {
@@ -306,7 +317,15 @@ private struct PagePagedModuleView: View {
 			spacing: 24
 		) {
 			ForEach(items.compactMap { PageShelfItem($0, kind: kind) }) { item in
-				pageCard(for: item.item, kind: kind, artworkSize: artworkSize, session: session, player: player)
+				pageCard(
+					for: item.item,
+					kind: kind,
+					artworkSize: artworkSize,
+					collectionMixIds: collectionMixIds,
+					onToggleMixHeart: { viewState.toggleMixInCollection($0) },
+					session: session,
+					player: player
+				)
 			}
 		}
 		.background(
@@ -319,6 +338,11 @@ private struct PagePagedModuleView: View {
 			}
 		)
 		.padding(.horizontal)
+	}
+
+	private func refreshCollectionMixIds() {
+		guard kind == .mix else { return }
+		collectionMixIds = Set(viewState.cache.collectionMixes?.map(\.id) ?? [])
 	}
 
 	/// The explicit paging control: "Load More" at rest, a spinner while a batch

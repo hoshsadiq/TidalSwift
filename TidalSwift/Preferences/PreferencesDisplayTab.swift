@@ -56,7 +56,6 @@ struct PreferencesDisplayTab: View {
 							.foregroundStyle(.secondary)
 					}
 				}
-				.disabled(true)
 			}
 		}
 		.formStyle(.grouped)

@@ -83,7 +83,8 @@ func homeFeedCard(
 
 /// The mix as a `MixesItem`, optionally overriding its second line. The
 /// View-all page shows TIDAL's genre description there, while the Music tab's
-/// shelves keep the artist list from `asMixesItem`.
+/// shelves keep the artist list from `asMixesItem`. The text colours are
+/// carried over so the override doesn't drop them.
 private func mixCardItem(_ mix: HomeFeedMix, subtitle: String?) -> MixesItem {
 	let base = mix.asMixesItem
 	guard let subtitle else { return base }
@@ -93,6 +94,8 @@ private func mixCardItem(_ mix: HomeFeedMix, subtitle: String?) -> MixesItem {
 		subTitle: subtitle,
 		graphic: base.graphic,
 		images: base.images,
-		mixType: base.mixType
+		mixType: base.mixType,
+		titleColor: base.titleColor,
+		subtitleColor: base.subtitleColor
 	)
 }

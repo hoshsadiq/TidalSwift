@@ -177,6 +177,6 @@ struct LoginView: View {
 		session.saveConfig()
 		session.saveSession()
 		player.setAudioQuality(to: offlineAudioQuality)
-		viewState.push(view: TidalSwiftView(viewType: .favoriteTracks))
+		viewState.push(view: TidalSwiftView(viewType: .collectionTracks))
 	}
 }

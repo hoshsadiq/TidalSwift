@@ -1,29 +1,31 @@
 //
-//  RefreshFavoriteVideos.swift
+//  RefreshCollectionVideos.swift
 //  TidalSwift
 //
-//  Created by Melvin Gundlach on 01.08.20.
-//  Copyright © 2020 Melvin Gundlach. All rights reserved.
+//  Created by TidalSwift Contributors on 22.09.26.
+//  Copyright © 2026 TidalSwift Contributors. All rights reserved.
 //
 
 import Foundation
 import TidalSwiftLib
 
 extension ViewState {
-	func favoriteVideos() {
-		var view = TidalSwiftView(viewType: .favoriteVideos)
+	func collectionVideos() {
+		let viewType = collectionViewType(.collectionVideos, legacy: .favoriteVideos)
+		var view = TidalSwiftView(viewType: viewType)
 		view.videos = cache.favoriteVideos
 		view.loadingState = .loading
 		replaceCurrentView(with: view)
 
 		refreshTask?.cancel()
 		refreshTask = Task { [self] in
-			await refreshFavoriteVideos()
+			await refreshCollectionVideos()
 		}
 	}
 
-	private func refreshFavoriteVideos() async {
-		var view = TidalSwiftView(viewType: .favoriteVideos)
+	private func refreshCollectionVideos() async {
+		let viewType = collectionViewType(.collectionVideos, legacy: .favoriteVideos)
+		var view = TidalSwiftView(viewType: viewType)
 		guard let favorites = session.favorites else {
 			guard !Task.isCancelled else { return }
 			view.videos = cache.favoriteVideos

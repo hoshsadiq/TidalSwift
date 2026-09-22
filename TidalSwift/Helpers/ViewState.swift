@@ -18,6 +18,17 @@ enum ViewType: String, Codable {
 	case feed = "Feed"
 	case collection = "Collection"
 
+	// Collection destinations.
+	case collectionMixes = "Mixes & Radio"
+	case collectionPlaylists = "Playlists"
+	case collectionAlbums = "Albums"
+	case collectionTracks = "Tracks"
+	case collectionVideos = "Videos"
+	case collectionProfiles = "Profiles"
+
+	// Legacy aliases. These are persisted in saved navigation stacks, so they
+	// stay in the enum for decoding; they route to the same screens and loaders
+	// as their Collection counterparts.
 	case favoriteArtists = "Favorite Artists"
 	case favoriteAlbums = "Favorite Albums"
 	case favoritePlaylists = "Favorite Playlists"
@@ -67,6 +78,10 @@ struct TidalSwiftView: Codable, Equatable, Identifiable {
 	var playlists: [Playlist]?
 	var tracks: [Track]?
 	var videos: [Video]?
+	/// The Collection ▸ Mixes & Radio list. Optional like every other payload so
+	/// previously saved views still decode; `MixesItem` is `Codable, Equatable`,
+	/// so the list is carried directly rather than by id.
+	var mixes: [MixesItem]?
 
 	static func == (lhs: TidalSwiftView, rhs: TidalSwiftView) -> Bool {
 		lhs.viewType == rhs.viewType && lhs.artist == rhs.artist &&
@@ -77,7 +92,7 @@ struct TidalSwiftView: Codable, Equatable, Identifiable {
 			lhs.searchResponse == rhs.searchResponse &&
 			lhs.artists == rhs.artists && lhs.albums == rhs.albums &&
 			lhs.playlists == rhs.playlists && lhs.tracks == rhs.tracks &&
-			lhs.videos == rhs.videos
+			lhs.videos == rhs.videos && lhs.mixes == rhs.mixes
 	}
 
 	static func equateBase(_ lhs: TidalSwiftView, _ rhs: TidalSwiftView) -> Bool {
@@ -90,6 +105,9 @@ struct TidalSwiftView: Codable, Equatable, Identifiable {
 	func isBase() -> Bool {
 		viewType == .music || viewType == .explore ||
 			viewType == .feed || viewType == .collection ||
+			viewType == .collectionMixes || viewType == .collectionPlaylists ||
+			viewType == .collectionAlbums || viewType == .collectionTracks ||
+			viewType == .collectionVideos || viewType == .collectionProfiles ||
 			viewType == .favoriteArtists || viewType == .favoriteAlbums ||
 			viewType == .favoritePlaylists || viewType == .favoriteTracks ||
 			viewType == .favoriteVideos || viewType == .offlineAlbums ||
