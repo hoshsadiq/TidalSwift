@@ -94,6 +94,7 @@ targets:
       - path: TidalSwift
         excludes:
           - Info.plist
+          - Preview Content
       - path: README.assets
         buildPhase: none
       - path: README.md
