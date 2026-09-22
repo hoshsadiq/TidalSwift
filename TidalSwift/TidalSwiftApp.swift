@@ -554,11 +554,24 @@ final class TidalSwiftAppModel: ObservableObject {
 	}
 
 	func initCancellables() {
+		setupUIRefreshCancellables()
+		setupPlaybackInfoCancellables()
+		setupQueueCancellables()
+		setupViewStateCancellables()
+		setupFavoriteSortingCancellables()
+		setupOfflineSortingCancellables()
+		setupNowPlayingCancellables()
+		setupTimerCancellable()
+	}
+
+	private func setupUIRefreshCancellables() {
 		uiRefreshCancellable = Publishers.Merge(player.playbackInfo.objectWillChange, player.queueInfo.objectWillChange)
 			.sink { [weak self] _ in
 				self?.objectWillChange.send()
 			}
+	}
 
+	private func setupPlaybackInfoCancellables() {
 		shuffleCancellable = player.playbackInfo.$shuffle.receive(on: DispatchQueue.main).sink { [weak self] _ in
 			self?.savePlaybackInfoOnNextTick = true
 		}
@@ -574,7 +587,9 @@ final class TidalSwiftAppModel: ObservableObject {
 		activePanelCancellable = player.playbackInfo.$activePanel.receive(on: DispatchQueue.main).sink { [weak self] _ in
 			self?.savePlaybackInfoOnNextTick = true
 		}
+	}
 
+	private func setupQueueCancellables() {
 		queueCancellable = player.queueInfo.$queue.receive(on: DispatchQueue.main).sink { [weak self] _ in
 			self?.savePlaybackInfoOnNextTick = true
 			self?.refreshFavoriteState()
@@ -583,14 +598,18 @@ final class TidalSwiftAppModel: ObservableObject {
 			self?.savePlaybackInfoOnNextTick = true
 			self?.refreshFavoriteState()
 		}
+	}
 
+	private func setupViewStateCancellables() {
 		viewStackCancellable = viewState.$stack.receive(on: DispatchQueue.main).sink { [weak self] _ in
 			self?.saveViewStateOnNextTick = true
 		}
 		viewStateObjectWillChangeCancellable = viewState.objectWillChange.sink { [weak self] _ in
 			self?.objectWillChange.send()
 		}
+	}
 
+	private func setupFavoriteSortingCancellables() {
 		favoritePlaylistSortingCancellable = sortingState.$favoritePlaylistSorting.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
 		favoritePlaylistReversedCancellable = sortingState.$favoritePlaylistReversed.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
 		favoriteAlbumSortingCancellable = sortingState.$favoriteAlbumSorting.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
@@ -601,14 +620,18 @@ final class TidalSwiftAppModel: ObservableObject {
 		favoriteVideoReversedCancellable = sortingState.$favoriteVideoReversed.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
 		favoriteArtistSortingCancellable = sortingState.$favoriteArtistSorting.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
 		favoriteArtistReversedCancellable = sortingState.$favoriteArtistReversed.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
+	}
 
+	private func setupOfflineSortingCancellables() {
 		offlinePlaylistSortingCancellable = sortingState.$offlinePlaylistSorting.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
 		offlinePlaylistReversedCancellable = sortingState.$offlinePlaylistReversed.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
 		offlineAlbumSortingCancellable = sortingState.$offlineAlbumSorting.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
 		offlineAlbumReversedCancellable = sortingState.$offlineAlbumReversed.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
 		offlineTrackSortingCancellable = sortingState.$offlineTrackSorting.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
 		offlineTrackReversedCancellable = sortingState.$offlineTrackReversed.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
+	}
 
+	private func setupNowPlayingCancellables() {
 		npPlayingCancellable = player.playbackInfo.$playing
 			.receive(on: DispatchQueue.main)
 			.sink { [weak self] isPlaying in
@@ -656,7 +679,9 @@ final class TidalSwiftAppModel: ObservableObject {
 			.sink { [weak self] _ in
 				self?.updateNowPlayingForTrackChange()
 			}
+	}
 
+	private func setupTimerCancellable() {
 		timerCancellable = Timer.publish(every: 10, on: .main, in: .default)
 			.autoconnect()
 			.sink { [weak self] _ in

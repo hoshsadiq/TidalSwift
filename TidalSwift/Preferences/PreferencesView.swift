@@ -164,8 +164,8 @@ private struct PlaybackPreferencesTab: View {
 	}
 }
 
-private extension AudioQuality {
-	var shortTitle: String {
+extension AudioQuality {
+	fileprivate var shortTitle: String {
 		switch self {
 		case .low, .medium: "Low"
 		case .high: "High"

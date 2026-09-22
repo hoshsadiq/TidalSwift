@@ -17,7 +17,7 @@ struct PreferencesDisplayTab: View {
 						Text("Blur").tag(1)
 					}
 					.pickerStyle(.segmented)
-					
+
 					Text("Choose your preferred look for the player background.")
 						.font(.caption)
 						.foregroundStyle(.secondary)

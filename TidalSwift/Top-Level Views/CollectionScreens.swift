@@ -822,9 +822,9 @@ private func relativeDateAddedString(_ date: Date) -> String {
 	return DateFormatter.collectionDateOnly.string(from: date)
 }
 
-private extension DateFormatter {
+extension DateFormatter {
 	/// `d MMM yyyy`, e.g. `3 Sep 2026`, for dates older than this month.
-	static let collectionDateOnly: DateFormatter = {
+	fileprivate static let collectionDateOnly: DateFormatter = {
 		let formatter = DateFormatter()
 		formatter.dateFormat = "d MMM yyyy"
 		return formatter

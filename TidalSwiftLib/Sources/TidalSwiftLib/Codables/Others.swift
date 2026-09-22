@@ -20,8 +20,8 @@ extension AudioQuality: Identifiable {
 	public var id: Self { self }
 }
 
-public extension AudioQuality {
-	var title: LocalizedStringResource {
+extension AudioQuality {
+	public var title: LocalizedStringResource {
 		switch self {
 		case .max: "Max (Lossless, 24 Bit, 192 kHz)"
 		case .high: "High (16 Bit / 44,1 kHz)"

@@ -33,8 +33,16 @@ import TidalSwiftLib
 	}
 
 	private func registerCommands() {
+		registerPlaybackCommands()
+		registerSkipCommands()
+		registerPositionCommand()
+		registerShuffleCommand()
+		registerRepeatCommand()
+		registerLikeCommands()
+	}
+
+	private func registerPlaybackCommands() {
 		let player = player
-		let session = session
 
 		commandCenter.playCommand.isEnabled = true
 		commandCenter.playCommand.addTarget { _ in
@@ -77,6 +85,10 @@ import TidalSwiftLib
 			}
 			return .success
 		}
+	}
+
+	private func registerSkipCommands() {
+		let player = player
 
 		let skipForwardCommand = commandCenter.skipForwardCommand as MPSkipIntervalCommand
 		skipForwardCommand.isEnabled = true
@@ -101,6 +113,10 @@ import TidalSwiftLib
 			}
 			return .success
 		}
+	}
+
+	private func registerPositionCommand() {
+		let player = player
 
 		commandCenter.changePlaybackPositionCommand.isEnabled = true
 		commandCenter.changePlaybackPositionCommand.addTarget { event in
@@ -111,6 +127,10 @@ import TidalSwiftLib
 			}
 			return .success
 		}
+	}
+
+	private func registerShuffleCommand() {
+		let player = player
 
 		let changeShuffleModeCommand = commandCenter.changeShuffleModeCommand as MPChangeShuffleModeCommand
 		changeShuffleModeCommand.isEnabled = true
@@ -132,6 +152,10 @@ import TidalSwiftLib
 				return .commandFailed
 			}
 		}
+	}
+
+	private func registerRepeatCommand() {
+		let player = player
 
 		let changeRepeatModeCommand = commandCenter.changeRepeatModeCommand as MPChangeRepeatModeCommand
 		changeRepeatModeCommand.isEnabled = true
@@ -144,6 +168,11 @@ import TidalSwiftLib
 			}
 			return .success
 		}
+	}
+
+	private func registerLikeCommands() {
+		let player = player
+		let session = session
 
 		commandCenter.likeCommand.isEnabled = true
 		commandCenter.likeCommand.localizedTitle = "Favorite"
