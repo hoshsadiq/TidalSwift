@@ -7,3 +7,6 @@ TidalSwift/Demo Login Information.txt
 .build/
 .worktrees/
 TidalSwift.xcodeproj/
+
+# Churns: swift build/test and xcodebuild write it for different graphs.
+TidalSwiftLib/Package.resolved
