@@ -5,4 +5,5 @@ xcuserdata/
 TidalSwift/Demo Login Information.txt
 .claude/*.local.*
 .build/
+.worktrees/
 TidalSwift.xcodeproj/

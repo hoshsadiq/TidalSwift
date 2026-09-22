@@ -50,7 +50,7 @@ Use Xcode's MCP if possible.
 - `xcodebuild -project TidalSwift.xcodeproj -scheme TidalSwiftLib -configuration Debug build`
   Build the framework target.
 
-There is no automated test suite. If `xcodebuild` fails due to local simulator/cache issues, build directly in Xcode and capture the exact error in the PR.
+There is no test suite for the app target. `TidalSwiftLib` has one: run `cd TidalSwiftLib && swift test`. If `mise run build` fails due to local cache issues, build directly in Xcode and capture the exact error in the PR.
 
 ## Coding Style & Naming Conventions
 
