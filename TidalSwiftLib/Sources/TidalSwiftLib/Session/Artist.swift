@@ -88,7 +88,6 @@ extension Session {
 
 			if linksRemoved {
 				let regex = #/(\[wimpLink.+?\])|(\[\/wimpLink\])/#
-				let range = NSMakeRange(0, alteredText.count)
 				alteredText.replace(regex, with: "")
 			}
 

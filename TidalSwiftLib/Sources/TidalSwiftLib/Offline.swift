@@ -186,11 +186,11 @@ public final class Offline {
 			displayError(title: "Offline: Error while creating Offline management class", content: "Error: \(error)")
 		}
 
-		Task { await asyncSync() }
+		Task { asyncSync() }
 	}
 
 	public func url(for track: Track) async -> URL? {
-		if await !db.tracks.contains(where: { (t, _) in t == track }) {
+		if !db.tracks.contains(where: { (t, _) in t == track }) {
 			return nil
 		}
 		// A DB entry without a file on disk must return nil so playback falls back to streaming
@@ -208,28 +208,28 @@ public final class Offline {
 
 	// The following always show the goal state (planned), i.e., after all downloads have finished
 	public func numberOfOfflineTracks() async -> Int {
-		await db.tracks.count
+		db.tracks.count
 	}
 	public func allOfflineTracks() async -> [Track] {
-		await db.tracks.map { (track, _) in track }
+		db.tracks.map { (track, _) in track }
 	}
 
 	public func numberOfOfflineAlbums() async -> Int {
-		await db.albums.count
+		db.albums.count
 	}
 	public func allOfflineAlbums() async -> [Album] {
-		await db.albums
+		db.albums
 	}
 
 	public func numberOfOfflinePlaylists() async -> Int {
-		await db.playlists.count
+		db.playlists.count
 	}
 	public func allOfflinePlaylists() async -> [Playlist] {
-		await db.playlists
+		db.playlists
 	}
 
 	public func isTrackMarkedForOffline(track: Track) async -> Bool {
-		await db.tracks[track] != nil
+		db.tracks[track] != nil
 	}
 
 	// Actual state
@@ -293,7 +293,7 @@ public final class Offline {
 		defer { downloadStatus.finishTask() }
 
 		// Load Local Track IDs
-		let dbTracks: [Track] = await db.tracks.map { $0.key }
+		let dbTracks: [Track] = db.tracks.map { $0.key }
 		guard let localTracksIds: [Int] = offlineTrackIds() else {
 			displayError(title: "Offline: Sync Error", content: "Couldn't load Tracks from Disk")
 			syncAgain = false
@@ -339,7 +339,7 @@ public final class Offline {
 				}
 			}
 			invalidateOfflineTrackIdsCache()
-			await uiRefreshFunc()
+			uiRefreshFunc()
 		}
 
 		for track in toAdd {
@@ -357,7 +357,7 @@ public final class Offline {
 				try await Network.download(url, path: path)
 				print("Offline: Finished Download of \(track.title)")
 				invalidateOfflineTrackIdsCache()
-				await uiRefreshFunc()
+				uiRefreshFunc()
 			} catch {
 				displayError(title: "Offline: Error while loading offline track", content: "Network error: \(error)")
 			}
@@ -390,7 +390,7 @@ public final class Offline {
 	private func add(tracks: [Track]) async {
 		for track in tracks {
 			if track.streamReady {
-				await db.incrementCounter(for: track)
+				db.incrementCounter(for: track)
 			} else {
 				print("Offline: Add. \(track.title) not streamReady, so not added.")
 			}
@@ -399,13 +399,13 @@ public final class Offline {
 
 	private func remove(tracks: [Track]) async {
 		for track in tracks {
-			await db.decrementCounter(for: track)
+			db.decrementCounter(for: track)
 		}
 	}
 
 	public func removeAll() {
 		Task {
-			print("Offline: Removing all \(await db.tracks.count) tracks in \(await db.albums.count) albums & \(await db.playlists.count) playlists")
+			print("Offline: Removing all \(db.tracks.count) tracks in \(db.albums.count) albums & \(db.playlists.count) playlists")
 		}
 
 		syncTask?.cancel()
@@ -414,7 +414,7 @@ public final class Offline {
 
 		saveFavoritesOffline = false
 		Task {
-			await db.clear()
+			db.clear()
 			asyncSync()
 		}
 	}
@@ -441,14 +441,14 @@ public final class Offline {
 		// Diff
 		var toAdd: [Track] = []
 		for track in tracks {
-			let isFavorite = await db.favoriteTracks.contains(track)
+			let isFavorite = db.favoriteTracks.contains(track)
 			if track.streamReady && !isFavorite {
 				toAdd.append(track)
 			}
 		}
 
 		var toRemove: [Track] = []
-		for track in await db.favoriteTracks {
+		for track in db.favoriteTracks {
 			if !tracks.contains(track) {
 				toRemove.append(track)
 			}
@@ -457,7 +457,7 @@ public final class Offline {
 		// Do
 		await add(tracks: toAdd)
 		await remove(tracks: toRemove)
-		await db.setFavoriteTracks(to: tracks)
+		db.setFavoriteTracks(to: tracks)
 		print("Offline: Favorite Tracks synchronized")
 
 		// Outro
@@ -484,30 +484,30 @@ public final class Offline {
 
 	@MainActor
 	public func asyncSyncFavoriteTracks() {
-		Task { await _asyncSyncFavoriteTracks() }
+		Task { _asyncSyncFavoriteTracks() }
 	}
 
 	// MARK: - Album
 
 	public func isAlbumOffline(album: Album) async -> Bool {
-		await db.albums.contains(album)
+		db.albums.contains(album)
 	}
 
 	public func getTracks(for album: Album) async -> [Track]? {
-		await db.albumTracks[album]
+		db.albumTracks[album]
 	}
 
 	// Probably no need to do async, as it's only a single quick call to the Tidal API
 	public func add(album: Album) async {
-		if await db.albums.contains(album) {
+		if db.albums.contains(album) {
 			print("Offline: Album \(album.title) is offline already. This suggests a bug.")
 			return
 		}
 		guard let tracks = await session.albumTracks(albumId: album.id) else {
 			return
 		}
-		await db.add(album)
-		await db.setTracks(for: album, to: tracks)
+		db.add(album)
+		db.setTracks(for: album, to: tracks)
 		await add(tracks: tracks)
 		asyncSync()
 	}
@@ -517,8 +517,8 @@ public final class Offline {
 			return
 		}
 		await remove(tracks: tracks)
-		await db.remove(album)
-		await db.setTracks(for: album, to: nil)
+		db.remove(album)
+		db.setTracks(for: album, to: nil)
 		asyncSync()
 	}
 
@@ -528,11 +528,11 @@ public final class Offline {
 	private var playlistSyncRunning = false
 
 	public func isPlaylistOffline(playlist: Playlist) async -> Bool {
-		await db.playlists.contains(playlist)
+		db.playlists.contains(playlist)
 	}
 
 	public func getTracks(for playlist: Playlist) async -> [Track]? {
-		await db.playlistTracks[playlist]
+		db.playlistTracks[playlist]
 	}
 
 	private func syncPlaylists() async {
@@ -552,8 +552,8 @@ public final class Offline {
 		print("Offline: Sync Playlist: \(playlist.title)")
 
 		var tracks: [Track] = []
-		let dbTracks: [Track] = await db.playlistTracks[playlist] ?? []
-		let syncThisPlaylist = await db.playlists.contains(playlist)
+		let dbTracks: [Track] = db.playlistTracks[playlist] ?? []
+		let syncThisPlaylist = db.playlists.contains(playlist)
 
 		if syncThisPlaylist {
 			if let playlistTracks = await session.playlistTracks(playlistId: playlist.id) {
@@ -588,7 +588,7 @@ public final class Offline {
 		// Do
 		await add(tracks: toAdd)
 		await remove(tracks: toRemove)
-		await db.setTracks(for: playlist, to: tracks)
+		db.setTracks(for: playlist, to: tracks)
 
 		// Outro
 		if !playlistsToSync.isEmpty {
@@ -614,18 +614,18 @@ public final class Offline {
 	}
 
 	public func add(playlist: Playlist) async {
-		await db.add(playlist)
+		db.add(playlist)
 		syncPlaylist(playlist)
 	}
 
 	public func remove(playlist: Playlist) async {
-		await db.remove(playlist)
+		db.remove(playlist)
 		syncPlaylist(playlist)
 	}
 
 	// Useful at startup to check for changes in all Offline Playlists
 	public func syncAllOfflinePlaylistsAndFavoriteTracks() async {
-		for playlist in await db.playlists {
+		for playlist in db.playlists {
 			syncPlaylist(playlist)
 		}
 		_asyncSyncFavoriteTracks()
