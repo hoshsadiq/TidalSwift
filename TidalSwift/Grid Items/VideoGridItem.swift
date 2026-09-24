@@ -14,10 +14,10 @@ struct VideoGridItem: View {
 	let showArtist: Bool
 	let session: Session
 	let player: Player
-	var artworkSize: CGFloat = 160
-	/// Opt-in wide (16:9) layout for Explore's video shelves: artwork about 2.1×
-	/// the square card width, title + artist, then `N MIN` and a `VIDEO` pill.
-	/// Off by default so the square Music tab / Favourites cards are unchanged.
+	var artworkSize: CGFloat = VideoGridItem.defaultArtworkSize
+	/// Opt-in wide (16:9) layout for video grids and shelves: a 16:9 thumbnail,
+	/// title + artist, then `N MIN` and a `VIDEO` pill. Off by default so the
+	/// square Music tab / Favourites cards are unchanged.
 	var wide: Bool = false
 	/// Opt-in "HD" chip overlaid on the artwork's top-leading corner, matching
 	/// the Collection ▸ Videos cards. Off by default so the Music tab and
@@ -27,10 +27,20 @@ struct VideoGridItem: View {
 	@EnvironmentObject var playbackInfo: PlaybackInfo
 	@EnvironmentObject var toastCenter: ToastCenter
 
-	private static let wideWidthMultiplier: CGFloat = 2.1
+	static let defaultArtworkSize: CGFloat = 160
+	/// Wide (16:9) tiles use their own width, not a multiple of the square card,
+	/// so they stay a normal grid size rather than an oversized hero.
+	static let wideCardWidth: CGFloat = 190
 	private static let wideAspectRatio: CGFloat = 16.0 / 9.0
 
-	private var cardWidth: CGFloat { wide ? artworkSize * Self.wideWidthMultiplier : artworkSize }
+	/// Horizontal space one card occupies: its width plus the 5pt padding on
+	/// each side. Grids size a column from this so a card is never clipped by a
+	/// column built for a different card size.
+	static func footprint(wide: Bool, artworkSize: CGFloat = VideoGridItem.defaultArtworkSize) -> CGFloat {
+		(wide ? wideCardWidth : artworkSize) + 10
+	}
+
+	private var cardWidth: CGFloat { wide ? Self.wideCardWidth : artworkSize }
 	private var artworkHeight: CGFloat { wide ? cardWidth / Self.wideAspectRatio : artworkSize }
 
 	var body: some View {
@@ -128,7 +138,8 @@ struct VideoGridItem: View {
 	@ViewBuilder
 	private func artwork(width: CGFloat, height: CGFloat) -> some View {
 		Group {
-			if let imageUrl = video.imageUrl(session: session, resolution: wide ? 640 : 320) {
+			if let imageUrl = video.imageUrl(session: session, resolution: wide ? 640 : 320,
+											 resolutionY: wide ? 360 : nil) {
 				ArtworkImage(url: imageUrl, size: width, height: height)
 			} else {
 				ZStack {

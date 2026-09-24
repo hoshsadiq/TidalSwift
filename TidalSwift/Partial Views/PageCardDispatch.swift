@@ -279,9 +279,9 @@ private struct PageShelfView: View {
 	}
 }
 
-/// A shelf of wide video cards. `VideoGridItem`'s wide layout multiplies its
-/// artwork size by 2.1 and adds 5pt padding on each side, so the shelf footprint
-/// has to match for the paging maths to stay correct.
+/// A shelf of wide video cards. `VideoGridItem`'s wide layout is a fixed 16:9
+/// tile with 5pt padding on each side, so the shelf footprint has to match for
+/// the paging maths to stay correct.
 private struct PageVideoShelfView: View {
 	let module: PageModule
 	let session: Session
@@ -289,9 +289,7 @@ private struct PageVideoShelfView: View {
 
 	@EnvironmentObject var viewState: ViewState
 
-	private static let wideMultiplier: CGFloat = 2.1
-	private static let artworkSize: CGFloat = 160
-	private static let cardFootprint: CGFloat = artworkSize * wideMultiplier + 10
+	private static let cardFootprint = VideoGridItem.footprint(wide: true)
 
 	private var items: [PageShelfItem] {
 		pageModuleItems(module).compactMap { PageShelfItem($0, kind: .video) }
@@ -305,7 +303,7 @@ private struct PageVideoShelfView: View {
 			items: items,
 			cardWidth: Self.cardFootprint
 		) { item, _ in
-			pageCard(for: item.item, kind: .video, artworkSize: Self.artworkSize, session: session, player: player)
+			pageCard(for: item.item, kind: .video, session: session, player: player)
 		}
 	}
 }
