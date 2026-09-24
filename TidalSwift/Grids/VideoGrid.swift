@@ -20,7 +20,7 @@ struct VideoGrid: View {
 	var showsHDBadge: Bool = false
 
 	var body: some View {
-		LazyVGrid(columns: [GridItem(.adaptive(minimum: 170))]) {
+		LazyVGrid(columns: [GridItem(.adaptive(minimum: VideoGridItem.footprint(wide: wide)))]) {
 			ForEach(videos) { video in
 				VideoGridItem(video: video, showArtist: showArtists, session: session, player: player,
 							  wide: wide, showsHDBadge: showsHDBadge)

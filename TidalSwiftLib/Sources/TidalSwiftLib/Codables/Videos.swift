@@ -45,11 +45,11 @@ public struct Video: Codable, Equatable, Identifiable, Hashable {
 		await session.videoUrl(videoId: id)
 	}
 
-	public func imageUrl(session: Session, resolution: Int) -> URL? {
+	public func imageUrl(session: Session, resolution: Int, resolutionY: Int? = nil) -> URL? {
 		guard let imageId = imageId else {
 			return nil
 		}
-		return session.imageUrl(imageId: imageId, resolution: resolution)
+		return session.imageUrl(imageId: imageId, resolution: resolution, resolutionY: resolutionY)
 	}
 
 	public static func == (lhs: Video, rhs: Video) -> Bool {
