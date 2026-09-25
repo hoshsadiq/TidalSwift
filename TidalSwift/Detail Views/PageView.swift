@@ -266,8 +266,12 @@ private struct PagePagedModuleView: View {
 	@State private var contentWidth: CGFloat = 0
 
 	/// Preferred card width used to derive the column count from the measured
-	/// content width, matching the v2 View-all grid.
-	private let preferredCardWidth: CGFloat = 275
+	/// content width. Videos use the fixed 16:9 card footprint; the other kinds
+	/// match the v2 View-all grid.
+	private var preferredCardWidth: CGFloat {
+		kind == .video ? VideoGridItem.footprint(wide: true) : Self.standardCardWidth
+	}
+	private static let standardCardWidth: CGFloat = 275
 	/// Horizontal gap between grid columns.
 	private let gridSpacing: CGFloat = 16
 
@@ -278,15 +282,13 @@ private struct PagePagedModuleView: View {
 		return max(2, Int((contentWidth + gridSpacing) / (preferredCardWidth + gridSpacing)))
 	}
 
-	/// Card footprint for the current column count. The cards add 5pt padding on
-	/// each side, so a square card's artwork is this minus 10pt; a wide video
-	/// card multiplies its artwork by 2.1, so its artwork is derived instead.
+	/// Artwork size for the current column count: the measured cell minus the
+	/// padding on each side. Videos use the wide layout, which sizes its own card.
 	private var artworkSize: CGFloat {
 		guard contentWidth > 0 else { return preferredCardWidth }
 		let columns = gridColumns
 		let cell = (contentWidth - CGFloat(columns - 1) * gridSpacing) / CGFloat(columns)
-		guard kind == .video else { return max(1, cell - 10) }
-		return max(1, (cell - 10) / 2.1)
+		return max(1, cell - 2 * VideoGridItem.cardPadding)
 	}
 
 	var body: some View {

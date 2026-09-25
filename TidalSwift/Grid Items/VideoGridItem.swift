@@ -14,6 +14,8 @@ struct VideoGridItem: View {
 	let showArtist: Bool
 	let session: Session
 	let player: Player
+	/// Square-layout artwork edge length. Ignored when `wide` is set, which uses
+	/// its own 16:9 card size.
 	var artworkSize: CGFloat = VideoGridItem.defaultArtworkSize
 	/// Opt-in wide (16:9) layout for video grids and shelves: a 16:9 thumbnail,
 	/// title + artist, then `N MIN` and a `VIDEO` pill. Off by default so the
@@ -31,13 +33,15 @@ struct VideoGridItem: View {
 	/// Wide (16:9) tiles use their own width, not a multiple of the square card,
 	/// so they stay a normal grid size rather than an oversized hero.
 	static let wideCardWidth: CGFloat = 190
+	/// Padding around each card, applied on every side.
+	static let cardPadding: CGFloat = 5
 	private static let wideAspectRatio: CGFloat = 16.0 / 9.0
 
-	/// Horizontal space one card occupies: its width plus the 5pt padding on
-	/// each side. Grids size a column from this so a card is never clipped by a
+	/// Horizontal space one card occupies: its width plus the padding on each
+	/// side. Grids size a column from this so a card is never clipped by a
 	/// column built for a different card size.
-	static func footprint(wide: Bool, artworkSize: CGFloat = VideoGridItem.defaultArtworkSize) -> CGFloat {
-		(wide ? wideCardWidth : artworkSize) + 10
+	static func footprint(wide: Bool) -> CGFloat {
+		(wide ? wideCardWidth : defaultArtworkSize) + 2 * cardPadding
 	}
 
 	private var cardWidth: CGFloat { wide ? Self.wideCardWidth : artworkSize }
@@ -47,13 +51,13 @@ struct VideoGridItem: View {
 		Group {
 			if wide {
 				wideCard
-					.padding(5)
+					.padding(Self.cardPadding)
 					.help("\(video.title) – \(video.artists.formArtistString())")
 					.contentShape(Rectangle())
 					.onTapGesture { toastCenter.show(ToastCenter.videoComingSoon) }
 			} else {
 				regularCard
-					.padding(5)
+					.padding(Self.cardPadding)
 					.help("\(video.title) – \(video.artists.formArtistString())")
 					#if canImport(AppKit)
 					.onTapGesture(count: 2) {
@@ -111,11 +115,13 @@ struct VideoGridItem: View {
 				}
 			}
 			.frame(width: cardWidth, alignment: .leading)
-			Text(video.artists.formArtistString())
-				.fontWeight(.light)
-				.foregroundColor(Color.secondary)
-				.lineLimit(1)
-				.frame(width: cardWidth, alignment: .leading)
+			if showArtist {
+				Text(video.artists.formArtistString())
+					.fontWeight(.light)
+					.foregroundColor(Color.secondary)
+					.lineLimit(1)
+					.frame(width: cardWidth, alignment: .leading)
+			}
 			HStack(spacing: 6) {
 				Text("\(video.duration / 60) MIN")
 					.font(.caption2)

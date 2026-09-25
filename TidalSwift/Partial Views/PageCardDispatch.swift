@@ -75,7 +75,7 @@ func pageCard(
 	case .artist:
 		artistCard(item.artist, artworkSize: artworkSize, session: session, player: player)
 	case .video:
-		videoCard(item.video, artworkSize: artworkSize, session: session, player: player)
+		videoCard(item.video, session: session, player: player)
 	case .mix:
 		mixCard(item.mix, artworkSize: artworkSize, collectionMixIds: collectionMixIds, onToggleMixHeart: onToggleMixHeart, session: session, player: player)
 	case .track:
@@ -128,14 +128,13 @@ private func artistCard(_ artist: Artist?, artworkSize: CGFloat, session: Sessio
 }
 
 @ViewBuilder
-private func videoCard(_ video: PageVideo?, artworkSize: CGFloat, session: Session, player: Player) -> some View {
+private func videoCard(_ video: PageVideo?, session: Session, player: Player) -> some View {
 	if let video {
 		VideoGridItem(
 			video: Video(pageVideo: video),
 			showArtist: true,
 			session: session,
 			player: player,
-			artworkSize: artworkSize,
 			wide: true
 		)
 	}
