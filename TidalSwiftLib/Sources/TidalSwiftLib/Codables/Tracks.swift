@@ -107,7 +107,7 @@ public struct Track: Codable, Equatable, Identifiable, Hashable {
 	}
 
 	public func isOffline(session: Session) async -> Bool {
-		await session.helpers.offline.isTrackOffline(track: self)
+		session.helpers.offline.isTrackOffline(track: self)
 	}
 
 	public func radio(session: Session) async -> [Track]? {

@@ -79,7 +79,7 @@ public class Download {
 		let filename = formFileName(track)
 		print("Downloading: \(filename)")
 		let optionalPath = buildPath(baseLocation: .downloads, parentFolder: parentFolder, name: filename, pathExtension: session.pathExtension(for: url, audioQuality: audioQuality))
-		guard var path = optionalPath else {
+		guard let path = optionalPath else {
 			displayError(title: "Error while downloading track", content: "Couldn't build path for track: \(track.title) -  \(track.artists.formArtistString())")
 			return false
 		}

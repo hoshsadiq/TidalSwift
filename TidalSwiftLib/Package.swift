@@ -27,10 +27,7 @@ let package = Package(
 			dependencies: ["SwiftTagger", "LRCParser"],
 			swiftSettings: [
 				.defaultIsolation(MainActor.self),
-				.enableUpcomingFeature("DisableOutwardActorInference"),
-				.enableUpcomingFeature("GlobalActorIsolatedTypesUsability"),
 				.enableUpcomingFeature("InferIsolatedConformances"),
-				.enableUpcomingFeature("InferSendableFromCaptures"),
 				.enableUpcomingFeature("NonisolatedNonsendingByDefault")
 			]
 		),
