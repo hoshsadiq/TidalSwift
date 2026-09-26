@@ -61,9 +61,9 @@ struct CollectionPlaylists: View {
 	// variant is treated as a separate playlist.
 	@State private var offlinePlaylists: [Playlist] = []
 
-	/// Favourites plus downloads, deduped by uuid. A favourited playlist that
-	/// is also downloaded appears once, as the favourite (it carries the full
-	/// record).
+	/// Owned and favourited playlists plus downloads, deduped by uuid. A
+	/// playlist that is also downloaded appears once, as the owned or
+	/// favourited variant (it carries the full record).
 	private var mergedPlaylists: [Playlist] {
 		let favorites = viewState.stack.last?.playlists ?? []
 		var known = Set(favorites.map(\.uuid))
@@ -373,7 +373,7 @@ struct CollectionTracks: View {
 		}
 	}
 
-	/// "Date added" needs favourite metadata, so downloaded mode drops it.
+	/// The offline list is not date-ordered, so downloaded mode drops "Date added".
 	private var sortOptions: [CollectionTrackSort] {
 		showDownloadedOnly ? [.alphabetical] : CollectionTrackSort.allCases
 	}

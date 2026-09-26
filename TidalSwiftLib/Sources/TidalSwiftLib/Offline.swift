@@ -23,19 +23,16 @@ public final class OfflineDB {
 	func decrementCounter(for track: Track) {
 		guard let counter = tracks[track] else { return }
 		if counter - 1 <= 0 {
-			tracks[track] = nil
 			trackAddedDates[track.id] = nil
+			tracks[track] = nil
 		} else {
 			tracks[track, default: 0] -= 1
 		}
 	}
 
 	// [TrackId: DateAddedToOffline]
-	private(set) var trackAddedDates: [Int: Date] = [:] {
-		didSet {
-			save()
-		}
-	}
+	// Persisted by the adjacent `tracks` mutation's save(); always changed together with it.
+	private(set) var trackAddedDates: [Int: Date] = [:]
 	func recordAddedDate(for trackId: Int) {
 		guard trackAddedDates[trackId] == nil else { return }
 		trackAddedDates[trackId] = Date()
@@ -145,8 +142,8 @@ public final class OfflineDB {
 	}
 
 	func clear() {
-		tracks = [:]
 		trackAddedDates = [:]
+		tracks = [:]
 		favoriteTracks = []
 		albums = []
 		playlists = []
@@ -447,10 +444,10 @@ public final class Offline {
 		for track in tracks {
 			if track.streamReady {
 				let isNewToOffline = db.tracks[track] == nil
-				db.incrementCounter(for: track)
 				if isNewToOffline {
 					db.recordAddedDate(for: track.id)
 				}
+				db.incrementCounter(for: track)
 			} else {
 				print("Offline: Add. \(track.title) not streamReady, so not added.")
 			}
