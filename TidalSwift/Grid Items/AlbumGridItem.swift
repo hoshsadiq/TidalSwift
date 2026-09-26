@@ -122,7 +122,7 @@ struct AlbumGridItem: View {
 		}
 		.onTapGesture(count: 1) {
 			print("First Click. \(album.title)")
-			if album.streamReady ?? false {
+			if (album.streamReady ?? false) || isOffline {
 				viewState.push(album: album)
 			}
 		}

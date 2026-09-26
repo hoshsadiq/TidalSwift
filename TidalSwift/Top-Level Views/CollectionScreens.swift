@@ -142,13 +142,26 @@ struct CollectionAlbums: View {
 	@State private var filterText = ""
 	@State private var sortOption: CollectionAlbumSort = .dateAdded
 	@State private var showDownloadedOnly = false
-	// Downloaded albums, loaded when the toggle is on. Matching is by id only:
-	// a downloaded variant whose id differs from the favourited variant is
-	// treated as a separate album.
+	// Downloaded albums, loaded when the screen appears. Matching is by id
+	// only: a downloaded variant whose id differs from the favourited variant
+	// is treated as a separate album.
 	@State private var offlineAlbums: [Album] = []
 
+	/// Favourites plus downloads, deduped by id. A favourited album that is
+	/// also downloaded appears once, as the favourite (it carries the full
+	/// record).
+	private var mergedAlbums: [Album] {
+		let favorites = viewState.stack.last?.albums ?? []
+		var known = Set(favorites.map(\.id))
+		var merged = favorites
+		for album in offlineAlbums where known.insert(album.id).inserted {
+			merged.append(album)
+		}
+		return merged
+	}
+
 	private var displayedAlbums: [Album] {
-		let albums = showDownloadedOnly ? offlineAlbums : (viewState.stack.last?.albums ?? [])
+		let albums = showDownloadedOnly ? offlineAlbums : mergedAlbums
 		let filtered = filterText.isEmpty ? albums : albums.filter {
 			$0.title.localizedCaseInsensitiveContains(filterText) ||
 				($0.artists?.formArtistString() ?? $0.artist?.name ?? "").localizedCaseInsensitiveContains(filterText)
@@ -189,12 +202,13 @@ struct CollectionAlbums: View {
 			}
 			.padding()
 		}
-		.task(id: showDownloadedOnly) {
-			guard showDownloadedOnly else { return }
-			if sortOption == .dateAdded {
+		.task {
+			offlineAlbums = await session.helpers.offline.completeOfflineAlbums()
+		}
+		.onChange(of: showDownloadedOnly) { _, isOn in
+			if isOn, sortOption == .dateAdded {
 				sortOption = .alphabetical
 			}
-			offlineAlbums = await session.helpers.offline.allOfflineAlbums()
 		}
 	}
 
@@ -209,8 +223,8 @@ struct CollectionAlbums: View {
 			} else {
 				albumList(count: offlineAlbums.count)
 			}
-		} else if let albums = viewState.stack.last?.albums, !albums.isEmpty {
-			albumList(count: albums.count)
+		} else if !mergedAlbums.isEmpty {
+			albumList(count: mergedAlbums.count)
 		} else if viewState.stack.last?.loadingState == .successful {
 			CollectionEmptyState(
 				systemImage: "opticaldisc",
@@ -275,11 +289,21 @@ struct CollectionTracks: View {
 		viewState.cache.collectionTracks ?? []
 	}
 
-	private var rows: [CollectionTrackRowModel] {
-		if showDownloadedOnly {
-			return offlineTracks.map { CollectionTrackRowModel(track: $0, created: nil) }
+	/// Favourites plus downloads, deduped by track id. A favourited track that
+	/// is also downloaded appears once, as the favourite (it carries its date
+	/// added).
+	private var mergedRows: [CollectionTrackRowModel] {
+		let favorites = entries.map { CollectionTrackRowModel(track: $0.track, created: $0.created) }
+		var known = Set(favorites.map(\.id))
+		var merged = favorites
+		for track in offlineTracks where known.insert(track.id).inserted {
+			merged.append(CollectionTrackRowModel(track: track, created: nil))
 		}
-		return entries.map { CollectionTrackRowModel(track: $0.track, created: $0.created) }
+		return merged
+	}
+
+	private var rows: [CollectionTrackRowModel] {
+		showDownloadedOnly ? offlineTracks.map { CollectionTrackRowModel(track: $0, created: nil) } : mergedRows
 	}
 
 	private var displayedRows: [CollectionTrackRowModel] {
@@ -325,12 +349,13 @@ struct CollectionTracks: View {
 			}
 			.padding()
 		}
-		.task(id: showDownloadedOnly) {
-			guard showDownloadedOnly else { return }
-			if sortOption == .dateAdded {
+		.task {
+			offlineTracks = await session.helpers.offline.allOfflineTracks()
+		}
+		.onChange(of: showDownloadedOnly) { _, isOn in
+			if isOn, sortOption == .dateAdded {
 				sortOption = .alphabetical
 			}
-			offlineTracks = await session.helpers.offline.allOfflineTracks()
 		}
 	}
 
@@ -345,7 +370,7 @@ struct CollectionTracks: View {
 			} else {
 				trackList(count: offlineTracks.count)
 			}
-		} else if entries.isEmpty {
+		} else if mergedRows.isEmpty {
 			if viewState.stack.last?.loadingState == .successful {
 				CollectionEmptyState(
 					systemImage: "music.note.list",
@@ -353,7 +378,7 @@ struct CollectionTracks: View {
 				)
 			}
 		} else {
-			trackList(count: entries.count)
+			trackList(count: mergedRows.count)
 		}
 	}
 
