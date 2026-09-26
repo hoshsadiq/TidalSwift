@@ -166,6 +166,7 @@ public final class Offline {
 	@AppStorage("SaveFavoritesOffline") public var saveFavoritesOffline = false
 
 	private let db = OfflineDB()
+	private var hydrationAttemptedAlbumIds: Set<Int> = []
 
 	public init(session: Session, downloadStatus: DownloadStatus) {
 		self.session = session
@@ -219,6 +220,31 @@ public final class Offline {
 	}
 	public func allOfflineAlbums() async -> [Album] {
 		db.albums
+	}
+
+	/// Returns the stored albums, rehydrating any that were saved without full
+	/// metadata.
+	///
+	/// Albums added from a page or search response only carry `{id, title,
+	/// cover, releaseDate}`, which leaves the Collection card without an artist
+	/// and the context menu without its streaming actions. Each incomplete
+	/// entry is refetched and the repair is persisted. A failed fetch keeps the
+	/// stored entry, so a download is never dropped, and is not retried within
+	/// the same session.
+	public func completeOfflineAlbums() async -> [Album] {
+		var albums = db.albums
+		var didChange = false
+		for (index, album) in albums.enumerated() where album.streamReady == nil || album.artists == nil {
+			guard !hydrationAttemptedAlbumIds.contains(album.id) else { continue }
+			hydrationAttemptedAlbumIds.insert(album.id)
+			guard let complete = await session.album(albumId: album.id) else { continue }
+			albums[index] = complete
+			didChange = true
+		}
+		if didChange {
+			db.albums = albums
+		}
+		return db.albums
 	}
 
 	public func numberOfOfflinePlaylists() async -> Int {
@@ -503,19 +529,25 @@ public final class Offline {
 			print("Offline: Album \(album.title) is offline already. This suggests a bug.")
 			return
 		}
+		// Albums from pages and search results arrive without `artists`/`streamReady`.
+		// Store the full record so the Collection card and context menu work.
+		var albumToStore = album
+		if album.streamReady == nil || album.artists == nil {
+			if let complete = await session.album(albumId: album.id) {
+				albumToStore = complete
+			}
+		}
 		guard let tracks = await session.albumTracks(albumId: album.id) else {
 			return
 		}
-		db.add(album)
-		db.setTracks(for: album, to: tracks)
+		db.add(albumToStore)
+		db.setTracks(for: albumToStore, to: tracks)
 		await add(tracks: tracks)
 		asyncSync()
 	}
 
 	public func remove(album: Album) async {
-		guard let tracks = await session.albumTracks(albumId: album.id) else {
-			return
-		}
+		let tracks = await session.albumTracks(albumId: album.id) ?? db.albumTracks[album] ?? []
 		await remove(tracks: tracks)
 		db.remove(album)
 		db.setTracks(for: album, to: nil)

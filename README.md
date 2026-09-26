@@ -34,9 +34,7 @@ Also, unlike the official app, it can display the Lyrics of the currently playin
 
 ### Offline
 
-This is a big one. The official desktop app still doesn't support offline playback – and probably never will. This app does!
-
-![My Mixes](README.assets/OfflineTracks.png)
+Unlike the official desktop app, TidalSwift supports offline playback. Downloaded albums and tracks appear in Collection alongside your favourites, and a "Downloaded only" toggle filters the list down to them. Items that are available offline show a cloud badge.
 
 ### Downloads
 

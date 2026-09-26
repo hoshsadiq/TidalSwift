@@ -98,40 +98,6 @@ struct AlbumContextMenu: View {
 						Text("Add to Playlist …")
 					}
 					Divider()
-					Group {
-						if isOffline {
-							Button {
-								Task {
-									print("Remove from Offline")
-									await album.removeOffline(session: session)
-									isOffline = false
-									viewState.refreshCurrentView()
-								}
-							} label: {
-								Text("Remove from Offline")
-							}
-						} else {
-							Button {
-								Task {
-									print("Add to Offline")
-									await album.addOffline(session: session)
-									isOffline = true
-								}
-							} label: {
-								Text("Add to Offline")
-							}
-						}
-
-						Button {
-							Task {
-								print("Download")
-								_ = await session.helpers.download.download(album: album)
-							}
-						} label: {
-							Text("Download")
-						}
-					}
-					Divider()
 					#if canImport(AppKit)
 					if let coverUrl = album.getCoverUrl(session: session, resolution: 1280) {
 						Button {
@@ -165,6 +131,41 @@ struct AlbumContextMenu: View {
 						} label: {
 							Text("Copy URL")
 						}
+					}
+				}
+				Divider()
+				Group {
+					if isOffline {
+						Button {
+							Task {
+								print("Remove from Offline")
+								await album.removeOffline(session: session)
+								isOffline = false
+								viewState.refreshCurrentView()
+							}
+						} label: {
+							Text("Remove from Offline")
+						}
+					} else {
+						Button {
+							Task {
+								print("Add to Offline")
+								await album.addOffline(session: session)
+								isOffline = true
+								viewState.refreshCurrentView()
+							}
+						} label: {
+							Text("Add to Offline")
+						}
+					}
+
+					Button {
+						Task {
+							print("Download")
+							_ = await session.helpers.download.download(album: album)
+						}
+					} label: {
+						Text("Download")
 					}
 				}
 			}

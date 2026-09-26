@@ -383,15 +383,7 @@ struct TopView: View {
 						}
 						.listRowBackground(Color.clear)
 					}
-					DisclosureGroup {
-						Label("Albums", systemImage: "square.stack")
-							.tag(SidebarSelection.view(.offlineAlbums))
-						Label("Tracks", systemImage: "music.note.list")
-							.tag(SidebarSelection.view(.offlineTracks))
-					} label: {
-						Label("Offline", systemImage: "arrow.down.circle")
-					}
-					.listRowBackground(Color.clear)
+					// Offline screens stay routed for persisted navigation stacks.
 				}
 
 				Section {

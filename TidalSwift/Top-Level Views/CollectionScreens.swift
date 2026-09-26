@@ -141,9 +141,27 @@ struct CollectionAlbums: View {
 
 	@State private var filterText = ""
 	@State private var sortOption: CollectionAlbumSort = .dateAdded
+	@State private var showDownloadedOnly = false
+	// Downloaded albums, loaded when the screen appears. Matching is by id
+	// only: a downloaded variant whose id differs from the favourited variant
+	// is treated as a separate album.
+	@State private var offlineAlbums: [Album] = []
+
+	/// Favourites plus downloads, deduped by id. A favourited album that is
+	/// also downloaded appears once, as the favourite (it carries the full
+	/// record).
+	private var mergedAlbums: [Album] {
+		let favorites = viewState.stack.last?.albums ?? []
+		var known = Set(favorites.map(\.id))
+		var merged = favorites
+		for album in offlineAlbums where known.insert(album.id).inserted {
+			merged.append(album)
+		}
+		return merged
+	}
 
 	private var displayedAlbums: [Album] {
-		guard let albums = viewState.stack.last?.albums else { return [] }
+		let albums = showDownloadedOnly ? offlineAlbums : mergedAlbums
 		let filtered = filterText.isEmpty ? albums : albums.filter {
 			$0.title.localizedCaseInsensitiveContains(filterText) ||
 				($0.artists?.formArtistString() ?? $0.artist?.name ?? "").localizedCaseInsensitiveContains(filterText)
@@ -158,6 +176,11 @@ struct CollectionAlbums: View {
 		}
 	}
 
+	/// "Date added" needs favourite metadata, so downloaded mode drops it.
+	private var sortOptions: [CollectionAlbumSort] {
+		showDownloadedOnly ? [.releaseDate, .alphabetical] : CollectionAlbumSort.allCases
+	}
+
 	var body: some View {
 		ScrollView {
 			VStack(alignment: .leading, spacing: 12) {
@@ -170,27 +193,45 @@ struct CollectionAlbums: View {
 				}
 				HStack(spacing: 12) {
 					FilterField(placeholder: "Filter albums", text: $filterText)
-					SortMenu(options: CollectionAlbumSort.allCases, label: { $0.label }, selection: $sortOption)
+					SortMenu(options: sortOptions, label: { $0.label }, selection: $sortOption)
+					Toggle("Downloaded only", isOn: $showDownloadedOnly)
+						.toggleStyle(.checkbox)
 				}
 				content
 				Spacer(minLength: 0)
 			}
 			.padding()
 		}
+		.task {
+			await reloadOffline()
+		}
+		.onChange(of: viewState.stack) { _, _ in
+			Task { await reloadOffline() }
+		}
+		.onChange(of: showDownloadedOnly) { _, isOn in
+			if isOn, sortOption == .dateAdded {
+				sortOption = .alphabetical
+			}
+		}
+	}
+
+	private func reloadOffline() async {
+		offlineAlbums = await session.helpers.offline.completeOfflineAlbums()
 	}
 
 	@ViewBuilder
 	private var content: some View {
-		if let albums = viewState.stack.last?.albums, !albums.isEmpty {
-			if displayedAlbums.isEmpty {
-				CollectionNoResultsState()
+		if showDownloadedOnly {
+			if offlineAlbums.isEmpty {
+				CollectionEmptyState(
+					systemImage: "arrow.down.circle",
+					message: "No downloaded albums yet. Download an album to see it here."
+				)
 			} else {
-				HStack {
-					Text("\(albums.count) \(albums.count == 1 ? "Album" : "Albums")")
-					Spacer()
-				}
-				AlbumGrid(albums: displayedAlbums, showArtists: true, showReleaseDate: true, showsReleaseYear: true, session: session, player: player)
+				albumList(count: offlineAlbums.count)
 			}
+		} else if !mergedAlbums.isEmpty {
+			albumList(count: mergedAlbums.count)
 		} else if viewState.stack.last?.loadingState == .successful {
 			CollectionEmptyState(
 				systemImage: "opticaldisc",
@@ -198,6 +239,19 @@ struct CollectionAlbums: View {
 				actionTitle: "View TIDAL's top albums",
 				action: { viewState.push(page: PageTarget(path: "pages/top_albums", title: "Top Albums")) }
 			)
+		}
+	}
+
+	@ViewBuilder
+	private func albumList(count: Int) -> some View {
+		if displayedAlbums.isEmpty {
+			CollectionNoResultsState()
+		} else {
+			HStack {
+				Text("\(count) \(count == 1 ? "Album" : "Albums")")
+				Spacer()
+			}
+			AlbumGrid(albums: displayedAlbums, showArtists: true, showReleaseDate: true, showsReleaseYear: true, session: session, player: player)
 		}
 	}
 }
@@ -218,6 +272,14 @@ private enum CollectionTrackSort: CaseIterable {
 	}
 }
 
+/// A row of the Collection ▸ Tracks table. Favourites carry their date added;
+/// downloaded tracks have none.
+private struct CollectionTrackRowModel: Identifiable {
+	var id: Int { track.id }
+	let track: Track
+	let created: Date?
+}
+
 struct CollectionTracks: View {
 	let session: Session
 	let player: Player
@@ -226,14 +288,33 @@ struct CollectionTracks: View {
 
 	@State private var filterText = ""
 	@State private var sortOption: CollectionTrackSort = .dateAdded
+	@State private var showDownloadedOnly = false
+	@State private var offlineTracks: [Track] = []
 
 	/// The favourites with their dates, as stored by the loader.
 	private var entries: [CollectionTrackEntry] {
 		viewState.cache.collectionTracks ?? []
 	}
 
-	private var displayedEntries: [CollectionTrackEntry] {
-		let filtered = filterText.isEmpty ? entries : entries.filter {
+	/// Favourites plus downloads, deduped by track id. A favourited track that
+	/// is also downloaded appears once, as the favourite (it carries its date
+	/// added).
+	private var mergedRows: [CollectionTrackRowModel] {
+		let favorites = entries.map { CollectionTrackRowModel(track: $0.track, created: $0.created) }
+		var known = Set(favorites.map(\.id))
+		var merged = favorites
+		for track in offlineTracks where known.insert(track.id).inserted {
+			merged.append(CollectionTrackRowModel(track: track, created: nil))
+		}
+		return merged
+	}
+
+	private var rows: [CollectionTrackRowModel] {
+		showDownloadedOnly ? offlineTracks.map { CollectionTrackRowModel(track: $0, created: nil) } : mergedRows
+	}
+
+	private var displayedRows: [CollectionTrackRowModel] {
+		let filtered = filterText.isEmpty ? rows : rows.filter {
 			$0.track.title.localizedCaseInsensitiveContains(filterText) ||
 				$0.track.artists.formArtistString().localizedCaseInsensitiveContains(filterText) ||
 				$0.track.album.title.localizedCaseInsensitiveContains(filterText)
@@ -246,6 +327,11 @@ struct CollectionTracks: View {
 		}
 	}
 
+	/// "Date added" needs favourite metadata, so downloaded mode drops it.
+	private var sortOptions: [CollectionTrackSort] {
+		showDownloadedOnly ? [.alphabetical] : CollectionTrackSort.allCases
+	}
+
 	var body: some View {
 		ScrollView {
 			VStack(alignment: .leading, spacing: 12) {
@@ -256,34 +342,67 @@ struct CollectionTracks: View {
 					Spacer()
 					LoadingSpinner()
 				}
-				if !displayedEntries.isEmpty {
+				if !displayedRows.isEmpty {
 					PlayShuffleHeader(onPlay: play, onShuffle: shuffle)
 				}
 				HStack(spacing: 12) {
 					FilterField(placeholder: "Filter tracks", text: $filterText)
-					SortMenu(options: CollectionTrackSort.allCases, label: { $0.label }, selection: $sortOption, triggerStyle: .label)
+					SortMenu(options: sortOptions, label: { $0.label }, selection: $sortOption, triggerStyle: .label)
+					Toggle("Downloaded only", isOn: $showDownloadedOnly)
+						.toggleStyle(.checkbox)
 				}
 				content
 				Spacer(minLength: 0)
 			}
 			.padding()
 		}
+		.task {
+			await reloadOffline()
+		}
+		.onChange(of: viewState.stack) { _, _ in
+			Task { await reloadOffline() }
+		}
+		.onChange(of: showDownloadedOnly) { _, isOn in
+			if isOn, sortOption == .dateAdded {
+				sortOption = .alphabetical
+			}
+		}
+	}
+
+	private func reloadOffline() async {
+		offlineTracks = await session.helpers.offline.allOfflineTracks()
 	}
 
 	@ViewBuilder
 	private var content: some View {
-		if entries.isEmpty {
+		if showDownloadedOnly {
+			if offlineTracks.isEmpty {
+				CollectionEmptyState(
+					systemImage: "arrow.down.circle",
+					message: "No downloaded tracks yet. Download a track to see it here."
+				)
+			} else {
+				trackList(count: offlineTracks.count)
+			}
+		} else if mergedRows.isEmpty {
 			if viewState.stack.last?.loadingState == .successful {
 				CollectionEmptyState(
 					systemImage: "music.note.list",
 					message: "You haven't added any tracks yet. Tap the heart icon on any track to add it to your collection."
 				)
 			}
-		} else if displayedEntries.isEmpty {
+		} else {
+			trackList(count: mergedRows.count)
+		}
+	}
+
+	@ViewBuilder
+	private func trackList(count: Int) -> some View {
+		if displayedRows.isEmpty {
 			CollectionNoResultsState()
 		} else {
 			HStack {
-				Text("\(entries.count) \(entries.count == 1 ? "Track" : "Tracks")")
+				Text("\(count) \(count == 1 ? "Track" : "Tracks")")
 				Spacer()
 			}
 			table
@@ -295,8 +414,8 @@ struct CollectionTracks: View {
 			header
 			Divider()
 			LazyVStack(spacing: 0) {
-				ForEach(Array(displayedEntries.enumerated()), id: \.element.id) { index, entry in
-					CollectionTrackRow(track: entry.track, index: index + 1, dateAdded: entry.created, session: session, player: player)
+				ForEach(Array(displayedRows.enumerated()), id: \.element.id) { index, row in
+					CollectionTrackRow(track: row.track, index: index + 1, dateAdded: row.created, session: session, player: player)
 					Divider()
 						.padding(.leading, 56)
 				}
@@ -333,14 +452,14 @@ struct CollectionTracks: View {
 	}
 
 	private func play() {
-		let tracks = displayedEntries.map(\.track)
+		let tracks = displayedRows.map(\.track)
 		guard !tracks.isEmpty else { return }
 		player.playbackInfo.shuffle = false
 		player.add(tracks: tracks, .now, source: QueueSource(type: .favorite, title: "Collection"))
 	}
 
 	private func shuffle() {
-		let tracks = displayedEntries.map(\.track)
+		let tracks = displayedRows.map(\.track)
 		guard !tracks.isEmpty else { return }
 		player.playbackInfo.shuffle = true
 		player.add(tracks: tracks, .now, source: QueueSource(type: .favorite, title: "Collection"))
@@ -362,6 +481,7 @@ private struct CollectionTrackRow: View {
 	@EnvironmentObject var queueInfo: QueueInfo
 	@EnvironmentObject var playbackInfo: PlaybackInfo
 	@State private var isFavorite: Bool?
+	@State private var isOffline = false
 
 	private var isPlaying: Bool {
 		guard !queueInfo.queue.isEmpty, queueInfo.queue.indices.contains(queueInfo.currentIndex) else { return false }
@@ -416,6 +536,7 @@ private struct CollectionTrackRow: View {
 			isFavorite = note.userInfo?["isFavorite"] as? Bool
 		}
 		.task(id: track.id) {
+			isOffline = await track.isOffline(session: session)
 			isFavorite = await track.isInFavorites(session: session)
 		}
 	}
@@ -460,6 +581,9 @@ private struct CollectionTrackRow: View {
 
 	private var actions: some View {
 		HStack(spacing: 12) {
+			if isOffline {
+				Image(systemName: "cloud.fill")
+			}
 			Button {
 				player.add(track: track, .last)
 			} label: {
