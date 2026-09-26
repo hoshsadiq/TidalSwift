@@ -152,6 +152,7 @@ struct AlbumContextMenu: View {
 								print("Add to Offline")
 								await album.addOffline(session: session)
 								isOffline = true
+								viewState.refreshCurrentView()
 							}
 						} label: {
 							Text("Add to Offline")

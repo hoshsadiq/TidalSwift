@@ -26,7 +26,7 @@ extension ViewState {
 			return
 		}
 		Task {
-			view.albums = await session.helpers.offline.allOfflineAlbums()
+			view.albums = await session.helpers.offline.completeOfflineAlbums()
 			view.loadingState = .successful
 			replaceCurrentView(with: view)
 		}

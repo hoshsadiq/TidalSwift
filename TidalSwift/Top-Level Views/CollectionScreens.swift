@@ -203,13 +203,20 @@ struct CollectionAlbums: View {
 			.padding()
 		}
 		.task {
-			offlineAlbums = await session.helpers.offline.completeOfflineAlbums()
+			await reloadOffline()
+		}
+		.onChange(of: viewState.stack) { _, _ in
+			Task { await reloadOffline() }
 		}
 		.onChange(of: showDownloadedOnly) { _, isOn in
 			if isOn, sortOption == .dateAdded {
 				sortOption = .alphabetical
 			}
 		}
+	}
+
+	private func reloadOffline() async {
+		offlineAlbums = await session.helpers.offline.completeOfflineAlbums()
 	}
 
 	@ViewBuilder
@@ -350,13 +357,20 @@ struct CollectionTracks: View {
 			.padding()
 		}
 		.task {
-			offlineTracks = await session.helpers.offline.allOfflineTracks()
+			await reloadOffline()
+		}
+		.onChange(of: viewState.stack) { _, _ in
+			Task { await reloadOffline() }
 		}
 		.onChange(of: showDownloadedOnly) { _, isOn in
 			if isOn, sortOption == .dateAdded {
 				sortOption = .alphabetical
 			}
 		}
+	}
+
+	private func reloadOffline() async {
+		offlineTracks = await session.helpers.offline.allOfflineTracks()
 	}
 
 	@ViewBuilder

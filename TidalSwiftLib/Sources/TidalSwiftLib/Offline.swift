@@ -166,6 +166,7 @@ public final class Offline {
 	@AppStorage("SaveFavoritesOffline") public var saveFavoritesOffline = false
 
 	private let db = OfflineDB()
+	private var hydrationAttemptedAlbumIds: Set<Int> = []
 
 	public init(session: Session, downloadStatus: DownloadStatus) {
 		self.session = session
@@ -228,11 +229,14 @@ public final class Offline {
 	/// cover, releaseDate}`, which leaves the Collection card without an artist
 	/// and the context menu without its streaming actions. Each incomplete
 	/// entry is refetched and the repair is persisted. A failed fetch keeps the
-	/// stored entry, so a download is never dropped.
+	/// stored entry, so a download is never dropped, and is not retried within
+	/// the same session.
 	public func completeOfflineAlbums() async -> [Album] {
 		var albums = db.albums
 		var didChange = false
 		for (index, album) in albums.enumerated() where album.streamReady == nil || album.artists == nil {
+			guard !hydrationAttemptedAlbumIds.contains(album.id) else { continue }
+			hydrationAttemptedAlbumIds.insert(album.id)
 			guard let complete = await session.album(albumId: album.id) else { continue }
 			albums[index] = complete
 			didChange = true
@@ -543,9 +547,7 @@ public final class Offline {
 	}
 
 	public func remove(album: Album) async {
-		guard let tracks = await session.albumTracks(albumId: album.id) else {
-			return
-		}
+		let tracks = await session.albumTracks(albumId: album.id) ?? db.albumTracks[album] ?? []
 		await remove(tracks: tracks)
 		db.remove(album)
 		db.setTracks(for: album, to: nil)
