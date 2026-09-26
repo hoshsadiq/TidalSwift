@@ -627,9 +627,8 @@ private struct CollectionTrackRow: View {
 
 	private var actions: some View {
 		HStack(spacing: 12) {
-			if isOffline {
-				Image(systemName: "cloud.fill")
-			}
+			Image(systemName: "cloud.fill")
+				.opacity(isOffline ? 1 : 0)
 			Button {
 				player.add(track: track, .last)
 			} label: {

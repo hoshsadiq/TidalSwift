@@ -85,8 +85,8 @@ struct PlaylistGridItem: View {
 						.resizable()
 						.scaledToFit()
 						.frame(width: 30)
-						.foregroundStyle(.white)
-						.shadow(color: .black.opacity(0.7), radius: 2, y: 1)
+						.secondaryIconColor()
+						.shadow(radius: SHADOWRADIUS)
 						.padding(5)
 				}
 			}
