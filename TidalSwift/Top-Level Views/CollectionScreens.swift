@@ -461,7 +461,7 @@ struct CollectionTracks: View {
 			Divider()
 			LazyVStack(spacing: 0) {
 				ForEach(Array(displayedRows.enumerated()), id: \.element.id) { index, row in
-					CollectionTrackRow(track: row.track, index: index + 1, dateAdded: row.created, session: session, player: player)
+					CollectionTrackRow(track: row.track, index: index + 1, dateAdded: row.created, session: session, player: player, onDoubleTap: { playFrom(index) })
 					Divider()
 						.padding(.leading, 56)
 				}
@@ -510,6 +510,12 @@ struct CollectionTracks: View {
 		player.playbackInfo.shuffle = true
 		player.add(tracks: tracks, .now, source: QueueSource(type: .favorite, title: "Collection"))
 	}
+
+	private func playFrom(_ offset: Int) {
+		let tracks = displayedRows.map(\.track)
+		guard !tracks.isEmpty else { return }
+		player.add(tracks: tracks, .now, playAt: offset, source: QueueSource(type: .favorite, title: "Collection"))
+	}
 }
 
 /// A single row of the Collection ▸ Tracks table.
@@ -523,6 +529,7 @@ private struct CollectionTrackRow: View {
 	let dateAdded: Date?
 	let session: Session
 	let player: Player
+	let onDoubleTap: () -> Void
 
 	@EnvironmentObject var queueInfo: QueueInfo
 	@EnvironmentObject var playbackInfo: PlaybackInfo
@@ -572,7 +579,7 @@ private struct CollectionTrackRow: View {
 		.foregroundColor(track.isUnavailable || playbackInfo.failedTrackIds.contains(track.id) ? .secondary : .primary)
 		.onTapGesture(count: 2) {
 			guard !track.isUnavailable else { return }
-			player.add(track: track, .now)
+			onDoubleTap()
 		}
 		.contextMenu {
 			TrackContextMenu(track: track, session: session, player: player)
