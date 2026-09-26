@@ -82,20 +82,20 @@ struct PlaylistGridItem: View {
 					}
 				}
 				if isOffline {
-					ZStack {
-						Image(systemName: "cloud.fill")
-							.resizable()
-							.scaledToFit()
-							.frame(width: 34)
-							.foregroundStyle(colorScheme == .dark ? Color.black : Color.white)
-						Image(systemName: "cloud.fill")
-							.resizable()
-							.scaledToFit()
-							.frame(width: 30)
-							.secondaryIconColor()
-					}
-					.frame(width: 30, height: 30)
-					.padding(5)
+					Image(systemName: "cloud.fill")
+						.resizable()
+						.scaledToFit()
+						.frame(width: 30)
+						.secondaryIconColor()
+						.background(
+							Image(systemName: "cloud.fill")
+								.resizable()
+								.scaledToFit()
+								.foregroundStyle(colorScheme == .dark ? Color.black : Color.white)
+								.scaleEffect(1.14)
+								.accessibilityHidden(true)
+						)
+						.padding(5)
 				}
 			}
 			.overlay(alignment: .topLeading) {
