@@ -30,6 +30,7 @@ struct PlaylistGridItem: View {
 	var showsMosaic: Bool = false
 
 	@EnvironmentObject var viewState: ViewState
+	@Environment(\.colorScheme) private var colorScheme
 	@State private var isOffline: Bool = false
 
 	/// Video playlists are labelled by their video count, everything else by
@@ -85,7 +86,15 @@ struct PlaylistGridItem: View {
 						.resizable()
 						.scaledToFit()
 						.frame(width: 30)
-						.shadow(radius: SHADOWRADIUS)
+						.secondaryIconColor()
+						.background(
+							Image(systemName: "cloud.fill")
+								.resizable()
+								.scaledToFit()
+								.foregroundStyle(colorScheme == .dark ? Color.black : Color.white)
+								.scaleEffect(1.14)
+								.accessibilityHidden(true)
+						)
 						.padding(5)
 				}
 			}

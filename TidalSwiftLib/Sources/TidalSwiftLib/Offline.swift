@@ -23,10 +23,19 @@ public final class OfflineDB {
 	func decrementCounter(for track: Track) {
 		guard let counter = tracks[track] else { return }
 		if counter - 1 <= 0 {
+			trackAddedDates[track.id] = nil
 			tracks[track] = nil
 		} else {
 			tracks[track, default: 0] -= 1
 		}
+	}
+
+	// [TrackId: DateAddedToOffline]
+	// Persisted by the adjacent `tracks` mutation's save(); always changed together with it.
+	private(set) var trackAddedDates: [Int: Date] = [:]
+	func recordAddedDate(for trackId: Int) {
+		guard trackAddedDates[trackId] == nil else { return }
+		trackAddedDates[trackId] = Date()
 	}
 
 	private(set) var favoriteTracks: [Track] = [] { // Used for Favorites
@@ -88,6 +97,13 @@ public final class OfflineDB {
 				self.tracks = [:]
 			}
 		}
+		if let data = UserDefaults.standard.data(forKey: "OfflineDB:TrackAddedDates") {
+			if let temp = try? JSONDecoder().decode([Int: Date].self, from: data) {
+				self.trackAddedDates = temp
+			} else {
+				self.trackAddedDates = [:]
+			}
+		}
 		if let data = UserDefaults.standard.data(forKey: "OfflineDB:FavoriteTracks") {
 			if let temp = try? JSONDecoder().decode([Track].self, from: data) {
 				self.favoriteTracks = temp
@@ -126,6 +142,7 @@ public final class OfflineDB {
 	}
 
 	func clear() {
+		trackAddedDates = [:]
 		tracks = [:]
 		favoriteTracks = []
 		albums = []
@@ -136,6 +153,9 @@ public final class OfflineDB {
 	private func save() {
 		let tracksData = try? JSONEncoder().encode(tracks)
 		UserDefaults.standard.set(tracksData, forKey: "OfflineDB:Tracks")
+
+		let trackAddedDatesData = try? JSONEncoder().encode(trackAddedDates)
+		UserDefaults.standard.set(trackAddedDatesData, forKey: "OfflineDB:TrackAddedDates")
 
 		let favoriteTracksData = try? JSONEncoder().encode(favoriteTracks)
 		UserDefaults.standard.set(favoriteTracksData, forKey: "OfflineDB:FavoriteTracks")
@@ -215,6 +235,12 @@ public final class Offline {
 		db.tracks.map { (track, _) in track }
 	}
 
+	/// When the track was first added to offline. Downloads from before dates
+	/// were recorded have none.
+	public func addedDate(forTrackId trackId: Int) -> Date? {
+		db.trackAddedDates[trackId]
+	}
+
 	public func numberOfOfflineAlbums() async -> Int {
 		db.albums.count
 	}
@@ -229,13 +255,14 @@ public final class Offline {
 	/// cover, releaseDate}`, which leaves the Collection card without an artist
 	/// and the context menu without its streaming actions. Each incomplete
 	/// entry is refetched and the repair is persisted. A failed fetch keeps the
-	/// stored entry, so a download is never dropped, and is not retried within
-	/// the same session.
-	public func completeOfflineAlbums() async -> [Album] {
+	/// stored entry, so a download is never dropped. The default skips ids
+	/// already attempted this session (used by frequent reloads); `retryFailed`
+	/// attempts them again, so a fresh screen entry can repair a failure.
+	public func completeOfflineAlbums(retryFailed: Bool = false) async -> [Album] {
 		var albums = db.albums
 		var didChange = false
 		for (index, album) in albums.enumerated() where album.streamReady == nil || album.artists == nil {
-			guard !hydrationAttemptedAlbumIds.contains(album.id) else { continue }
+			if !retryFailed, hydrationAttemptedAlbumIds.contains(album.id) { continue }
 			hydrationAttemptedAlbumIds.insert(album.id)
 			guard let complete = await session.album(albumId: album.id) else { continue }
 			albums[index] = complete
@@ -416,6 +443,10 @@ public final class Offline {
 	private func add(tracks: [Track]) async {
 		for track in tracks {
 			if track.streamReady {
+				let isNewToOffline = db.tracks[track] == nil
+				if isNewToOffline {
+					db.recordAddedDate(for: track.id)
+				}
 				db.incrementCounter(for: track)
 			} else {
 				print("Offline: Add. \(track.title) not streamReady, so not added.")

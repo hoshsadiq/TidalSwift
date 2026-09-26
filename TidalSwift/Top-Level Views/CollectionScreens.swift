@@ -55,9 +55,27 @@ struct CollectionPlaylists: View {
 
 	@State private var filterText = ""
 	@State private var sortOption: CollectionPlaylistSort = .created
+	@State private var showDownloadedOnly = false
+	// Downloaded playlists, loaded when the screen appears. Matching is by
+	// uuid only: a downloaded variant whose uuid differs from the favourited
+	// variant is treated as a separate playlist.
+	@State private var offlinePlaylists: [Playlist] = []
+
+	/// Owned and favourited playlists plus downloads, deduped by uuid. A
+	/// playlist that is also downloaded appears once, as the owned or
+	/// favourited variant (it carries the full record).
+	private var mergedPlaylists: [Playlist] {
+		let favorites = viewState.stack.last?.playlists ?? []
+		var known = Set(favorites.map(\.uuid))
+		var merged = favorites
+		for playlist in offlinePlaylists where known.insert(playlist.uuid).inserted {
+			merged.append(playlist)
+		}
+		return merged
+	}
 
 	private var displayedPlaylists: [Playlist] {
-		guard let playlists = viewState.stack.last?.playlists else { return [] }
+		let playlists = showDownloadedOnly ? offlinePlaylists : mergedPlaylists
 		let filtered = filterText.isEmpty ? playlists : playlists.filter {
 			$0.title.localizedCaseInsensitiveContains(filterText) ||
 				($0.creator.name ?? "").localizedCaseInsensitiveContains(filterText)
@@ -85,31 +103,57 @@ struct CollectionPlaylists: View {
 				HStack(spacing: 12) {
 					FilterField(placeholder: "Filter playlists", text: $filterText)
 					SortMenu(options: CollectionPlaylistSort.allCases, label: { $0.label }, selection: $sortOption)
+					Toggle("Downloaded only", isOn: $showDownloadedOnly)
+						.toggleStyle(.checkbox)
 				}
 				content
 				Spacer(minLength: 0)
 			}
 			.padding()
 		}
+		.task {
+			await reloadOffline()
+		}
+		.onChange(of: viewState.stack) { _, _ in
+			Task { await reloadOffline() }
+		}
+	}
+
+	private func reloadOffline() async {
+		offlinePlaylists = await session.helpers.offline.allOfflinePlaylists()
 	}
 
 	@ViewBuilder
 	private var content: some View {
-		if let playlists = viewState.stack.last?.playlists, !playlists.isEmpty {
-			if displayedPlaylists.isEmpty {
-				CollectionNoResultsState()
+		if showDownloadedOnly {
+			if offlinePlaylists.isEmpty {
+				CollectionEmptyState(
+					systemImage: "arrow.down.circle",
+					message: "No downloaded playlists yet. Download a playlist to see it here."
+				)
 			} else {
-				HStack {
-					Text("\(playlists.count) \(playlists.count == 1 ? "Playlist" : "Playlists")")
-					Spacer()
-				}
-				PlaylistGrid(playlists: displayedPlaylists, session: session, player: player, showCreator: true, showItemCount: true, showsMosaic: true)
+				playlistList(count: offlinePlaylists.count)
 			}
+		} else if !mergedPlaylists.isEmpty {
+			playlistList(count: mergedPlaylists.count)
 		} else if viewState.stack.last?.loadingState == .successful {
 			CollectionEmptyState(
 				systemImage: "list.bullet",
 				message: "You haven't added any playlists yet. Tap the heart icon on any playlist to add it to your collection."
 			)
+		}
+	}
+
+	@ViewBuilder
+	private func playlistList(count: Int) -> some View {
+		if displayedPlaylists.isEmpty {
+			CollectionNoResultsState()
+		} else {
+			HStack {
+				Text("\(count) \(count == 1 ? "Playlist" : "Playlists")")
+				Spacer()
+			}
+			PlaylistGrid(playlists: displayedPlaylists, session: session, player: player, showCreator: true, showItemCount: true, showsMosaic: true)
 		}
 	}
 }
@@ -203,7 +247,7 @@ struct CollectionAlbums: View {
 			.padding()
 		}
 		.task {
-			await reloadOffline()
+			await reloadOffline(retryHydration: true)
 		}
 		.onChange(of: viewState.stack) { _, _ in
 			Task { await reloadOffline() }
@@ -215,8 +259,8 @@ struct CollectionAlbums: View {
 		}
 	}
 
-	private func reloadOffline() async {
-		offlineAlbums = await session.helpers.offline.completeOfflineAlbums()
+	private func reloadOffline(retryHydration: Bool = false) async {
+		offlineAlbums = await session.helpers.offline.completeOfflineAlbums(retryFailed: retryHydration)
 	}
 
 	@ViewBuilder
@@ -273,7 +317,7 @@ private enum CollectionTrackSort: CaseIterable {
 }
 
 /// A row of the Collection ▸ Tracks table. Favourites carry their date added;
-/// downloaded tracks have none.
+/// downloaded tracks carry the date they were added to offline.
 private struct CollectionTrackRowModel: Identifiable {
 	var id: Int { track.id }
 	let track: Track
@@ -304,13 +348,15 @@ struct CollectionTracks: View {
 		var known = Set(favorites.map(\.id))
 		var merged = favorites
 		for track in offlineTracks where known.insert(track.id).inserted {
-			merged.append(CollectionTrackRowModel(track: track, created: nil))
+			merged.append(CollectionTrackRowModel(track: track, created: session.helpers.offline.addedDate(forTrackId: track.id)))
 		}
 		return merged
 	}
 
 	private var rows: [CollectionTrackRowModel] {
-		showDownloadedOnly ? offlineTracks.map { CollectionTrackRowModel(track: $0, created: nil) } : mergedRows
+		showDownloadedOnly
+			? offlineTracks.map { CollectionTrackRowModel(track: $0, created: session.helpers.offline.addedDate(forTrackId: $0.id)) }
+			: mergedRows
 	}
 
 	private var displayedRows: [CollectionTrackRowModel] {
@@ -327,7 +373,7 @@ struct CollectionTracks: View {
 		}
 	}
 
-	/// "Date added" needs favourite metadata, so downloaded mode drops it.
+	/// The offline list is not date-ordered, so downloaded mode drops "Date added".
 	private var sortOptions: [CollectionTrackSort] {
 		showDownloadedOnly ? [.alphabetical] : CollectionTrackSort.allCases
 	}
@@ -415,7 +461,7 @@ struct CollectionTracks: View {
 			Divider()
 			LazyVStack(spacing: 0) {
 				ForEach(Array(displayedRows.enumerated()), id: \.element.id) { index, row in
-					CollectionTrackRow(track: row.track, index: index + 1, dateAdded: row.created, session: session, player: player)
+					CollectionTrackRow(track: row.track, index: index + 1, dateAdded: row.created, session: session, player: player, onDoubleTap: { playFrom(index) })
 					Divider()
 						.padding(.leading, 56)
 				}
@@ -464,6 +510,12 @@ struct CollectionTracks: View {
 		player.playbackInfo.shuffle = true
 		player.add(tracks: tracks, .now, source: QueueSource(type: .favorite, title: "Collection"))
 	}
+
+	private func playFrom(_ offset: Int) {
+		let tracks = displayedRows.map(\.track)
+		guard !tracks.isEmpty else { return }
+		player.add(tracks: tracks, .now, playAt: offset, source: QueueSource(type: .favorite, title: "Collection"))
+	}
 }
 
 /// A single row of the Collection ▸ Tracks table.
@@ -477,6 +529,7 @@ private struct CollectionTrackRow: View {
 	let dateAdded: Date?
 	let session: Session
 	let player: Player
+	let onDoubleTap: () -> Void
 
 	@EnvironmentObject var queueInfo: QueueInfo
 	@EnvironmentObject var playbackInfo: PlaybackInfo
@@ -526,7 +579,7 @@ private struct CollectionTrackRow: View {
 		.foregroundColor(track.isUnavailable || playbackInfo.failedTrackIds.contains(track.id) ? .secondary : .primary)
 		.onTapGesture(count: 2) {
 			guard !track.isUnavailable else { return }
-			player.add(track: track, .now)
+			onDoubleTap()
 		}
 		.contextMenu {
 			TrackContextMenu(track: track, session: session, player: player)
@@ -581,9 +634,8 @@ private struct CollectionTrackRow: View {
 
 	private var actions: some View {
 		HStack(spacing: 12) {
-			if isOffline {
-				Image(systemName: "cloud.fill")
-			}
+			Image(systemName: "cloud.fill")
+				.opacity(isOffline ? 1 : 0)
 			Button {
 				player.add(track: track, .last)
 			} label: {

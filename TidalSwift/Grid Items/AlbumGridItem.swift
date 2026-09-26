@@ -21,6 +21,7 @@ struct AlbumGridItem: View {
 	var showsReleaseYear: Bool = false
 
 	@EnvironmentObject var viewState: ViewState
+	@Environment(\.colorScheme) private var colorScheme
 	@State private var isOffline: Bool = false
 
 	init(album: Album, showArtists: Bool, showReleaseDate: Bool = false, showsReleaseYear: Bool = false, session: Session, player: Player, artworkSize: CGFloat = 160) {
@@ -72,7 +73,15 @@ struct AlbumGridItem: View {
 						.resizable()
 						.scaledToFit()
 						.frame(width: 30)
-						.shadow(radius: SHADOWRADIUS)
+						.secondaryIconColor()
+						.background(
+							Image(systemName: "cloud.fill")
+								.resizable()
+								.scaledToFit()
+								.foregroundStyle(colorScheme == .dark ? Color.black : Color.white)
+								.scaleEffect(1.14)
+								.accessibilityHidden(true)
+						)
 						.padding(5)
 				}
 			}

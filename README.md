@@ -34,7 +34,7 @@ Also, unlike the official app, it can display the Lyrics of the currently playin
 
 ### Offline
 
-Unlike the official desktop app, TidalSwift supports offline playback. Downloaded albums and tracks appear in Collection alongside your favourites, and a "Downloaded only" toggle filters the list down to them. Items that are available offline show a cloud badge.
+Unlike the official desktop app, TidalSwift supports offline playback. Downloaded albums, tracks and playlists appear in Collection alongside your favourites, and a "Downloaded only" toggle filters the list down to them. Items that are available offline show a cloud badge.
 
 ### Downloads
 
