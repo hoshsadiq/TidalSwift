@@ -21,6 +21,7 @@ struct AlbumGridItem: View {
 	var showsReleaseYear: Bool = false
 
 	@EnvironmentObject var viewState: ViewState
+	@Environment(\.colorScheme) private var colorScheme
 	@State private var isOffline: Bool = false
 
 	init(album: Album, showArtists: Bool, showReleaseDate: Bool = false, showsReleaseYear: Bool = false, session: Session, player: Player, artworkSize: CGFloat = 160) {
@@ -68,13 +69,20 @@ struct AlbumGridItem: View {
 					}
 				}
 				if isOffline {
-					Image(systemName: "cloud.fill")
-						.resizable()
-						.scaledToFit()
-						.frame(width: 30)
-						.secondaryIconColor()
-						.shadow(radius: SHADOWRADIUS)
-						.padding(5)
+					ZStack {
+						Image(systemName: "cloud.fill")
+							.resizable()
+							.scaledToFit()
+							.frame(width: 34)
+							.foregroundStyle(colorScheme == .dark ? Color.black : Color.white)
+						Image(systemName: "cloud.fill")
+							.resizable()
+							.scaledToFit()
+							.frame(width: 30)
+							.secondaryIconColor()
+					}
+					.frame(width: 30, height: 30)
+					.padding(5)
 				}
 			}
 			HStack {

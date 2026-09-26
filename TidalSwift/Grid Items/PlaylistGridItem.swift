@@ -30,6 +30,7 @@ struct PlaylistGridItem: View {
 	var showsMosaic: Bool = false
 
 	@EnvironmentObject var viewState: ViewState
+	@Environment(\.colorScheme) private var colorScheme
 	@State private var isOffline: Bool = false
 
 	/// Video playlists are labelled by their video count, everything else by
@@ -81,13 +82,20 @@ struct PlaylistGridItem: View {
 					}
 				}
 				if isOffline {
-					Image(systemName: "cloud.fill")
-						.resizable()
-						.scaledToFit()
-						.frame(width: 30)
-						.secondaryIconColor()
-						.shadow(radius: SHADOWRADIUS)
-						.padding(5)
+					ZStack {
+						Image(systemName: "cloud.fill")
+							.resizable()
+							.scaledToFit()
+							.frame(width: 34)
+							.foregroundStyle(colorScheme == .dark ? Color.black : Color.white)
+						Image(systemName: "cloud.fill")
+							.resizable()
+							.scaledToFit()
+							.frame(width: 30)
+							.secondaryIconColor()
+					}
+					.frame(width: 30, height: 30)
+					.padding(5)
 				}
 			}
 			.overlay(alignment: .topLeading) {
