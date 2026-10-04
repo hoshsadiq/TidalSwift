@@ -226,10 +226,10 @@ class Player {
 		}
 
 		let url: URL
-		if let offlineUrl = await session.helpers.offline.url(for: track) {
-			print("Play \(track.title) from offline URL: \(offlineUrl)")
+		if let offlineStream = await session.helpers.offline.stream(for: track) {
+			print("Play \(track.title) from offline URL: \(offlineStream.url)")
 			print("[PLAYBACK] avSetItem(): resolved URL - title: \(track.title), quality: \(nextAudioQuality), source: offline")
-			url = offlineUrl
+			url = offlineStream.url
 			currentAudioQuality = nextAudioQuality
 		} else if let resolved = await session.bestAudioUrl(trackId: track.id, preferredQuality: nextAudioQuality) {
 			print("Play \(track.title) from online URL: \(resolved.url)")

@@ -16,10 +16,10 @@ public class Helpers {
 	public let offline: Offline
 	public let download: Download
 
-	public init(session: Session) {
+	public init(session: Session, offlineLibraryRoot: URL? = nil) {
 		self.session = session
 		self.metadata = Metadata(session: session)
-		self.offline = Offline(session: session, downloadStatus: downloadStatus)
+		self.offline = Offline(session: session, downloadStatus: downloadStatus, offlineLibraryRoot: offlineLibraryRoot)
 		self.download = Download(session: session, metadata: self.metadata, downloadStatus: downloadStatus)
 	}
 

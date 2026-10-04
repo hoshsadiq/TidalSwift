@@ -46,7 +46,6 @@ public class Config {
 	var apiToken: String
 	var offlineAudioQuality: AudioQuality
 	var imageSize: Int
-	public var urlType: AudioUrlType
 	var tokenExpirationDate: Date?
 
 	public init(
@@ -55,7 +54,6 @@ public class Config {
 		clientID: String,
 		apiToken: String? = nil,
 		offlineAudioQuality: AudioQuality,
-		urlType: AudioUrlType,
 		imageLocation: String = "",
 		imageSize: Int = 1280,
 		tokenExpirationDate: Date? = nil
@@ -71,7 +69,6 @@ public class Config {
 		}
 
 		self.offlineAudioQuality = offlineAudioQuality
-		self.urlType = urlType
 
 
 		self.imageSize = imageSize

@@ -37,7 +37,7 @@ public class Session {
 	/// drawer or the lyrics panel being torn down and rebuilt.
 	let lyricsCache = LyricsCache()
 
-	public init(config: Config?) {
+	public init(config: Config?, offlineLibraryRoot: URL? = nil) {
 		if let config = config {
 			self.config = config
 		} else {
@@ -48,12 +48,11 @@ public class Session {
 					accessToken: "",
 					refreshToken: "",
 					clientID: "",
-					offlineAudioQuality: .high,
-					urlType: .streaming
+					offlineAudioQuality: .high
 				)
 			}
 		}
-		helpers = Helpers(session: self)
+		helpers = Helpers(session: self, offlineLibraryRoot: offlineLibraryRoot)
 		playlistEditing = PlaylistEditing(session: self)
 	}
 }

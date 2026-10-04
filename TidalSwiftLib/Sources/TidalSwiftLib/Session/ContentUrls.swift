@@ -12,7 +12,7 @@ extension Session {
 	func audioUrl(trackId: Int, audioQuality: AudioQuality) async -> URL? {
 		var parameters = sessionParameters
 		parameters["soundQuality"] = "\(audioQuality.rawValue)"
-		let url = URL(string: "\(AuthInformation.APILocation)/tracks/\(trackId)/\(config.urlType.rawValue)")!
+		let url = URL(string: "\(AuthInformation.APILocation)/tracks/\(trackId)/streamUrl")!
 		do {
 			let response: AudioUrl = try await get(url: url, parameters: parameters)
 
@@ -23,6 +23,34 @@ extension Session {
 //			""")
 
 			return response.url.upgradedToHTTPS
+		} catch {
+			return nil
+		}
+	}
+
+	/// The Dolby Atmos rendition of a track, which `streamUrl` refuses.
+	///
+	/// Only an unencrypted E-AC-3 manifest is usable; anything else (a stereo
+	/// fallback, a DASH or DRM-wrapped manifest) returns nil so the caller keeps
+	/// the stereo path.
+	func dolbyAtmosUrl(trackId: Int) async -> URL? {
+		let url = URL(string: "\(AuthInformation.APILocation)/tracks/\(trackId)/playbackinfopostpaywall")!
+		var parameters = sessionParameters
+		parameters["audioquality"] = AudioQuality.high.rawValue
+		parameters["playbackmode"] = "STREAM"
+		parameters["assetpresentation"] = "FULL"
+		parameters["immersiveaudio"] = "true"
+		do {
+			let response: TrackPlaybackInfo = try await get(url: url, parameters: parameters)
+			guard response.audioMode == .dolbyAtmos,
+				  response.manifestMimeType == "application/vnd.tidal.bts",
+				  let decodedManifestData = Data(base64Encoded: response.manifest),
+				  let manifest = try? JSONDecoder().decode(BTSManifest.self, from: decodedManifestData),
+				  manifest.codecs == "eac3",
+				  manifest.encryptionType == "NONE" else {
+				return nil
+			}
+			return manifest.urls.first?.upgradedToHTTPS
 		} catch {
 			return nil
 		}
@@ -71,7 +99,7 @@ extension Session {
 	}
 
 	/// Resolves a track through `/tracks/{id}/playbackinfopostpaywall`, the fallback
-	/// for tracks `streamUrl`/`offlineUrl` refuse. Dolby Atmos-only tracks answer
+	/// for tracks `streamUrl` refuses. Dolby Atmos-only tracks answer
 	/// HTTP 401 subStatus 4005 "Asset is not ready for playback". Returns nil for
 	/// non-BTS manifests: hi-res answers with DASH, which AVPlayer cannot play.
 	func playbackManifestUrl(trackId: Int, audioQuality: AudioQuality) async -> URL? {

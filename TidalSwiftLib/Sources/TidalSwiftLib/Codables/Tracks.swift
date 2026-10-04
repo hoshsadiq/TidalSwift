@@ -102,6 +102,36 @@ public struct Track: Codable, Equatable, Identifiable, Hashable {
 		await session.trackCredits(trackId: id)
 	}
 
+	public var hasDolbyAtmos: Bool {
+		audioModes?.contains(.dolbyAtmos) ?? false
+	}
+
+	public var hasStereo: Bool {
+		guard let audioModes else { return true }
+		return audioModes.contains(.stereo) || audioModes.contains(.mono)
+	}
+
+	/// Sony 360 Reality Audio can't be played, so a track needs at least one other mode
+	public var isPlayable: Bool {
+		streamReady && (audioModes?.contains { $0 != .sony360RealityAudio } ?? true)
+	}
+
+	/// Dolby Atmos is used when preferred or when the track has no stereo version
+	public func audioStream(session: Session, audioQuality: AudioQuality, preferDolbyAtmos: Bool) async -> AudioStream? {
+		if hasDolbyAtmos && (preferDolbyAtmos || !hasStereo) {
+			if let url = await session.dolbyAtmosUrl(trackId: id) {
+				return AudioStream(url: url, pathExtension: "m4a", isDolbyAtmos: true)
+			}
+			if !hasStereo {
+				return nil
+			}
+		}
+		guard let url = await session.audioUrl(trackId: id, audioQuality: audioQuality) else {
+			return nil
+		}
+		return AudioStream(url: url, pathExtension: session.pathExtension(for: audioQuality), isDolbyAtmos: false)
+	}
+
 	public func audioUrl(session: Session, audioQuality: AudioQuality) async -> URL? {
 		await session.audioUrl(trackId: id, audioQuality: audioQuality)
 	}
@@ -123,6 +153,12 @@ public struct Track: Codable, Equatable, Identifiable, Hashable {
 	}
 }
 
+public struct AudioStream {
+	public let url: URL
+	public let pathExtension: String
+	public let isDolbyAtmos: Bool
+}
+
 struct AudioUrl: Decodable {
 	let url: URL
 	let trackId: Int
@@ -134,12 +170,14 @@ struct AudioUrl: Decodable {
 /// Response of `/tracks/{id}/playbackinfopostpaywall`. Hi-res answers with a DASH
 /// manifest, which AVPlayer cannot play, so only the BTS payload is used.
 struct TrackPlaybackInfo: Decodable {
+	let audioMode: AudioMode?
 	let manifestMimeType: String
 	let manifest: String
 }
 
 /// The BTS (Bento) manifest: a base64-encoded JSON payload with a direct stream URL.
 struct BTSManifest: Decodable {
+	let codecs: String?
 	let encryptionType: String?
 	let urls: [URL]
 }
