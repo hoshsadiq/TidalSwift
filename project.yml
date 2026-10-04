@@ -10,9 +10,6 @@ options:
 packages:
   TidalSwiftLib:
     path: TidalSwiftLib
-  Sliders:
-    url: https://github.com/spacenation/swiftui-sliders.git
-    exactVersion: 2.1.0
   UpdateNotification:
     url: https://github.com/melgu/UpdateNotification.git
     revision: 6d62a0ff10c27891bc20a4d898ce7ec8da6bf2ab
@@ -105,7 +102,6 @@ targets:
         buildPhase: none
     dependencies:
       - package: TidalSwiftLib
-      - package: Sliders
       - package: UpdateNotification
     settings:
       base:
