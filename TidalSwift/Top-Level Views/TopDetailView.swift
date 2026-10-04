@@ -302,6 +302,12 @@ struct TopDetailView: View {
 	// MARK: - Search
 
 	private func submitSearch() {
+		// A Tidal link opens the item it points to instead of searching for it.
+		if let link = TidalLink(string: viewState.searchTerm) {
+			viewState.searchTerm = ""
+			viewState.open(link)
+			return
+		}
 		guard !viewState.searchTerm.isEmpty else { return }
 		if viewState.stack.last?.viewType == .search {
 			viewState.doSearch(term: viewState.searchTerm)

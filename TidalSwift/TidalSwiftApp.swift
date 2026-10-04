@@ -7,7 +7,6 @@
 //
 
 import SwiftUI
-import Combine
 import AppKit
 import MediaPlayer
 import Observation
@@ -18,6 +17,9 @@ import UpdateNotification
 struct TidalSwiftApp: App {
 	@State private var appModel = TidalSwiftAppModel()
 	@Environment(\.scenePhase) private var scenePhase
+	#if canImport(AppKit)
+	@NSApplicationDelegateAdaptor private var appDelegate: AppDelegate
+	#endif
 
 	var body: some Scene {
 		WindowGroup("TidalSwift") {
@@ -31,6 +33,9 @@ struct TidalSwiftApp: App {
 			)
 			.environment(appModel)
 			.onAppear {
+				#if canImport(AppKit)
+				appDelegate.appModel = appModel
+				#endif
 				appModel.startupIfNeeded()
 			}
 			#if canImport(AppKit)
@@ -55,6 +60,35 @@ struct TidalSwiftApp: App {
 		#endif
 	}
 }
+
+#if canImport(AppKit)
+/// Copy and Paste travel up the responder chain and land here only when nothing
+/// focused handles them, so a text field keeps its own copy and paste.
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
+	weak var appModel: TidalSwiftAppModel?
+
+	@objc func copy(_ sender: Any?) {
+		guard let url = appModel?.viewState.currentShareUrl else { return }
+		Pasteboard.copy(string: url.absoluteString)
+	}
+
+	@objc func paste(_ sender: Any?) {
+		guard let link = Pasteboard.tidalLink() else { return }
+		appModel?.viewState.open(link)
+	}
+
+	func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+		switch menuItem.action {
+		case #selector(copy(_:)):
+			appModel?.viewState.currentShareUrl != nil
+		case #selector(paste(_:)):
+			Pasteboard.tidalLink() != nil
+		default:
+			true
+		}
+	}
+}
+#endif
 
 @Observable
 final class TidalSwiftAppModel {
@@ -93,7 +127,7 @@ final class TidalSwiftAppModel {
 	private static let nowPlayingShuffleKey = "MPNowPlayingInfoPropertyShuffle"
 	private static let nowPlayingRepeatKey = "MPNowPlayingInfoPropertyRepeat"
 
-	var timerCancellable: AnyCancellable?
+	@ObservationIgnored private var saveTask: Task<Void, Never>?
 	/// Timestamp of the last Now Playing elapsed-time update. The player's time
 	/// observer fires many times a second; this gates it back to the one-second
 	/// cadence the previous Combine `.throttle` imposed.
@@ -522,7 +556,7 @@ final class TidalSwiftAppModel {
 
 	func initCancellables() {
 		setupNowPlayingCancellables()
-		setupTimerCancellable()
+		startSaveLoop()
 	}
 
 	/// Observes a Now Playing input and re-arms after every change. Each helper
@@ -638,12 +672,19 @@ final class TidalSwiftAppModel {
 		MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsed
 	}
 
-	private func setupTimerCancellable() {
-		timerCancellable = Timer.publish(every: 10, on: .main, in: .default)
-			.autoconnect()
-			.sink { [weak self] _ in
+	/// Saves unsaved changes every 10 seconds, and only then: nothing is written
+	/// up front, matching the previous 10-second timer publisher's first fire.
+	private func startSaveLoop() {
+		saveTask = Task { [weak self] in
+			while !Task.isCancelled {
+				do {
+					try await Task.sleep(for: .seconds(10))
+				} catch {
+					return
+				}
 				self?.saveUnsavedChanges()
 			}
+		}
 	}
 
 	private func saveUnsavedChanges() {
@@ -663,7 +704,7 @@ final class TidalSwiftAppModel {
 	}
 
 	func cancelCancellables() {
-		timerCancellable?.cancel()
+		saveTask?.cancel()
 	}
 
 	// MARK: Menu Actions
@@ -1001,8 +1042,10 @@ struct TidalSwiftCommands: Commands {
 			}
 			.keyboardShortcut(.space, modifiers: [])
 			Button("Stop") {
+				guard !KeyboardGuard.isTextEntryActive else { return }
 				appModel.stop()
 			}
+			.keyboardShortcut(".", modifiers: .command)
 			Button("Next") {
 				guard !KeyboardGuard.isTextEntryActive else { return }
 				appModel.next()
@@ -1116,7 +1159,6 @@ struct TidalSwiftCommands: Commands {
 					}
 				}
 			}
-			.keyboardShortcut("l", modifiers: .command)
 		}
 
 		CommandMenu("Account") {
@@ -1138,22 +1180,30 @@ struct TidalSwiftCommands: Commands {
 		CommandGroup(after: .windowArrangement) {
 			Divider()
 			Button("Lyrics") {
+				guard !KeyboardGuard.isTextEntryActive else { return }
 				withAnimation(.easeInOut(duration: 0.3)) {
 					appModel.player.playbackInfo.isNowPlayingExpanded = true
 					appModel.player.playbackInfo.activePanel = .lyrics
 				}
 			}
+			.keyboardShortcut("l", modifiers: .command)
 			Button("Queue") {
+				guard !KeyboardGuard.isTextEntryActive else { return }
 				withAnimation {
 					appModel.showQueuePanel.toggle()
 				}
 			}
+			.keyboardShortcut("p", modifiers: .command)
 			Button("Playback History") {
+				guard !KeyboardGuard.isTextEntryActive else { return }
 				appModel.showPlaybackHistoryWindow()
 			}
+			.keyboardShortcut("k", modifiers: .command)
 			Button("View History") {
+				guard !KeyboardGuard.isTextEntryActive else { return }
 				appModel.showViewHistoryWindow()
 			}
+			.keyboardShortcut("u", modifiers: .command)
 		}
 		#endif
 
