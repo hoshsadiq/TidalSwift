@@ -58,20 +58,30 @@ struct MixGridItem: View {
 				.frame(width: artworkSize)
 		}
 		.padding(5)
-	.onTapGesture(count: 2) {
+		.onTapGesture(count: 2, perform: play)
+		.onTapGesture(count: 1, perform: open)
+		// `showsHeart` adds an interactive overlay; combining descendants would
+		// drop the heart's VoiceOver action, so keep it reachable as a child.
+		.accessibilityElement(children: showsHeart ? .contain : .combine)
+		.accessibilityAddTraits(.isButton)
+		.accessibilityAction(.default, open)
+		.accessibilityAction(named: "Play", play)
+		.contextMenu {
+			MixContextMenu(mix: mix, session: session, player: player)
+		}
+	}
+
+	private func open() {
+		print("First Click. \(mix.title)")
+		viewState.push(mix: mix)
+	}
+
+	private func play() {
 		print("Second Click. \(mix.title)")
 		Task {
 			if let tracks = await session.mixPlaylistTracks(mixId: mix.id) {
 				player.add(tracks: tracks, .now, source: QueueSource(type: .mix, title: mix.title, id: mix.id))
 			}
-		}
-	}
-		.onTapGesture(count: 1) {
-			print("First Click. \(mix.title)")
-			viewState.push(mix: mix)
-		}
-		.contextMenu {
-			MixContextMenu(mix: mix, session: session, player: player)
 		}
 	}
 
