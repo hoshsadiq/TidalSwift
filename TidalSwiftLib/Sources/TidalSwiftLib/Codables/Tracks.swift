@@ -46,6 +46,9 @@ public struct Track: Codable, Equatable, Identifiable, Hashable {
 	public let explicit: Bool
 	public let audioQuality: AudioQuality?
 	public let audioModes: [AudioMode]?
+	/// Defaulted so the long memberwise initialiser call sites stay unchanged; the field
+	/// only matters for tracks built from a payload that carries it.
+	public var mediaMetadata: MediaMetadata? = nil
 	public let artist: Artist?
 	public let artists: [Artist]
 	public let album: Album
@@ -106,6 +109,12 @@ public struct Track: Codable, Equatable, Identifiable, Hashable {
 		audioModes?.contains(.dolbyAtmos) ?? false
 	}
 
+	/// A track can advertise hi-res even though the playback endpoints answer a
+	/// `HI_RES_LOSSLESS` request with 44,1 kHz / 16 Bit. Showing the marker is honest;
+	/// claiming the audio is hi-res would not be. See `AudioQuality.max`.
+	public var hasHiRes: Bool {
+		mediaMetadata?.tags.contains("HIRES_LOSSLESS") ?? false
+	}
 	public var hasStereo: Bool {
 		guard let audioModes else { return true }
 		return audioModes.contains(.stereo) || audioModes.contains(.mono)
