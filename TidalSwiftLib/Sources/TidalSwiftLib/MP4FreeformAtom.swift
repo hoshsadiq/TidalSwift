@@ -44,7 +44,6 @@ nonisolated enum MP4FreeformAtom {
 	}
 
 	private struct Insertion {
-		let position: Int
 		let removed: Range<Int>
 		let content: [UInt8]
 		let ancestors: [Box]
@@ -121,7 +120,7 @@ nonisolated enum MP4FreeformAtom {
 			let ilst = box("ilst", body: freeformBox(isrc))
 			let meta = box("meta", body: ilst, versionFlags: true)
 			let newUdta = box("udta", body: meta)
-			return Insertion(position: moov.bodyEnd, removed: moov.bodyEnd..<moov.bodyEnd, content: newUdta, ancestors: [moov])
+			return Insertion(removed: moov.bodyEnd..<moov.bodyEnd, content: newUdta, ancestors: [moov])
 		}
 		guard let udtaChildren = boxes(in: bytes, from: udta.bodyStart, to: udta.bodyEnd) else {
 			return nil
@@ -129,7 +128,7 @@ nonisolated enum MP4FreeformAtom {
 		guard let meta = udtaChildren.first(where: { $0.type == "meta" }) else {
 			let ilst = box("ilst", body: freeformBox(isrc))
 			let newMeta = box("meta", body: ilst, versionFlags: true)
-			return Insertion(position: udta.bodyEnd, removed: udta.bodyEnd..<udta.bodyEnd, content: newMeta, ancestors: [moov, udta])
+			return Insertion(removed: udta.bodyEnd..<udta.bodyEnd, content: newMeta, ancestors: [moov, udta])
 		}
 		// meta is a full box: four version/flags bytes sit before its children.
 		guard let metaChildren = boxes(in: bytes, from: meta.bodyStart + 4, to: meta.bodyEnd) else {
@@ -137,7 +136,7 @@ nonisolated enum MP4FreeformAtom {
 		}
 		guard let ilst = metaChildren.first(where: { $0.type == "ilst" }) else {
 			let newIlst = box("ilst", body: freeformBox(isrc))
-			return Insertion(position: meta.bodyEnd, removed: meta.bodyEnd..<meta.bodyEnd, content: newIlst, ancestors: [moov, udta, meta])
+			return Insertion(removed: meta.bodyEnd..<meta.bodyEnd, content: newIlst, ancestors: [moov, udta, meta])
 		}
 
 		let ancestors = [moov, udta, meta, ilst]
@@ -147,9 +146,9 @@ nonisolated enum MP4FreeformAtom {
 		}
 		// Replace in place rather than appending, so repeated tagging doesn't pile up atoms.
 		if let existing = ilstChildren.first(where: { isISRC($0, in: bytes) }) {
-			return Insertion(position: existing.start, removed: existing.start..<existing.bodyEnd, content: replacement, ancestors: ancestors)
+			return Insertion(removed: existing.start..<existing.bodyEnd, content: replacement, ancestors: ancestors)
 		}
-		return Insertion(position: ilst.bodyEnd, removed: ilst.bodyEnd..<ilst.bodyEnd, content: replacement, ancestors: ancestors)
+		return Insertion(removed: ilst.bodyEnd..<ilst.bodyEnd, content: replacement, ancestors: ancestors)
 	}
 
 	// MARK: - Applying the edit

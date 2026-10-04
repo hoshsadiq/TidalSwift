@@ -141,10 +141,6 @@ public struct Track: Codable, Equatable, Identifiable, Hashable {
 		return AudioStream(url: url, pathExtension: session.pathExtension(for: audioQuality), isDolbyAtmos: false)
 	}
 
-	public func audioUrl(session: Session, audioQuality: AudioQuality) async -> URL? {
-		await session.audioUrl(trackId: id, audioQuality: audioQuality)
-	}
-
 	public func isOffline(session: Session) async -> Bool {
 		session.helpers.offline.isTrackOffline(track: self)
 	}
