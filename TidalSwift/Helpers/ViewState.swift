@@ -7,7 +7,6 @@
 //
 
 import SwiftUI
-import Combine
 import TidalSwiftLib
 
 enum ViewType: String, Codable {
@@ -115,15 +114,17 @@ struct TidalSwiftView: Codable, Equatable, Identifiable {
 	}
 }
 
-final class ViewState: ObservableObject {
+@Observable
+final class ViewState {
 	let session: Session
 	var cache: ViewCache
 
 	var searchTerm: String = ""
-	@Published var stack: [TidalSwiftView] = []
-	@Published var history: [TidalSwiftView] = []
-	@Published var forwardStack: [TidalSwiftView] = []
+	var stack: [TidalSwiftView] = [] { didSet { hasUnsavedChanges = true } }
+	var history: [TidalSwiftView] = []
+	var forwardStack: [TidalSwiftView] = []
 	var maxHistoryItems: Int = 100
+	@ObservationIgnored var hasUnsavedChanges = false
 
 	var refreshTask: Task<Void, Never>?
 	var lastSearchTerm: String = ""

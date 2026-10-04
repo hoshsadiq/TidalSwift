@@ -7,7 +7,6 @@
 //
 
 import Foundation
-import Combine
 import TidalSwiftLib
 
 struct QueueSource: Codable, Equatable {
@@ -24,15 +23,17 @@ struct QueueSource: Codable, Equatable {
 	var id: String?
 }
 
-final class QueueInfo: ObservableObject {
+@Observable
+final class QueueInfo {
 	var nonShuffledQueue = [WrappedTrack]()
-	@Published var queue = [WrappedTrack]()
-	@Published var currentIndex: Int = 0
+	var queue = [WrappedTrack]() { didSet { hasUnsavedChanges = true } }
+	var currentIndex: Int = 0 { didSet { hasUnsavedChanges = true } }
 
-	@Published var source: QueueSource?
+	var source: QueueSource?
 
-	@Published var history: [WrappedTrack] = []
+	var history: [WrappedTrack] = []
 	var maxHistoryItems: Int = 100
+	@ObservationIgnored var hasUnsavedChanges = false
 
 	var currentItem: WrappedTrack? {
 		queue.element(at: currentIndex)

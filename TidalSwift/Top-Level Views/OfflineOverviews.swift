@@ -13,10 +13,11 @@ struct OfflinePlaylistsView: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var viewState: ViewState
-	@EnvironmentObject var sortingState: SortingState
+	@Environment(ViewState.self) private var viewState
+	@Environment(SortingState.self) private var sortingState
 
 	var body: some View {
+		@Bindable var sortingState = sortingState
 		ScrollView {
 			VStack(alignment: .leading) {
 				HStack {
@@ -55,10 +56,11 @@ struct OfflineAlbumsView: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var viewState: ViewState
-	@EnvironmentObject var sortingState: SortingState
+	@Environment(ViewState.self) private var viewState
+	@Environment(SortingState.self) private var sortingState
 
 	var body: some View {
+		@Bindable var sortingState = sortingState
 		ScrollView {
 			VStack(alignment: .leading) {
 				HStack {
@@ -96,10 +98,11 @@ struct OfflineTracksView: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var viewState: ViewState
-	@EnvironmentObject var sortingState: SortingState
+	@Environment(ViewState.self) private var viewState
+	@Environment(SortingState.self) private var sortingState
 
 	var body: some View {
+		@Bindable var sortingState = sortingState
 		ScrollView {
 			VStack(alignment: .leading) {
 				VStack {
