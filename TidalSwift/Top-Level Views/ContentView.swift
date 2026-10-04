@@ -37,7 +37,7 @@ struct ContentView: View {
 			.environment(toastCenter)
 			.toast(toastCenter, bottomPadding: Self.toastBottomInset)
 			.background(EmptyView().sheet(isPresented: $loginInfo.showModal) {
-				LoginView(loginInfo: loginInfo, viewState: viewState, session: session, player: player)
+				LoginView(loginInfo: loginInfo, viewState: viewState, session: session)
 			})
 			.background(EmptyView().sheet(isPresented: $playlistEditingValues.showAddTracksModal) {
 				AddToPlaylistView(session: session, playlistEditingValues: playlistEditingValues, viewState: viewState)

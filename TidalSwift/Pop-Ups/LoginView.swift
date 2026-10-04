@@ -18,7 +18,6 @@ struct LoginView: View {
 	var viewState: ViewState
 
 	let session: Session
-	let player: Player
 
 	@Environment(\.openURL) private var openURL
 
@@ -29,7 +28,6 @@ struct LoginView: View {
 	@State var refreshToken: String = ""
 	@State var clientID: String = ""
 	@State var loginErrorMessage: String?
-	@State var offlineAudioQuality: AudioQuality = .high
 
 	var body: some View {
 		ScrollView {
@@ -89,8 +87,6 @@ struct LoginView: View {
 					.foregroundColor(.red)
 			}
 
-			qualityPicker
-
 			Button(action: startAuthorization) {
 				Text("Login")
 			}
@@ -104,8 +100,6 @@ struct LoginView: View {
 
 			TextField("Client ID", text: $clientID)
 
-			qualityPicker
-
 			if let loginErrorMessage {
 				Text(loginErrorMessage)
 					.foregroundColor(.red)
@@ -116,14 +110,6 @@ struct LoginView: View {
 			}
 		}
 		.padding()
-	}
-
-	var qualityPicker: some View {
-		Picker(selection: $offlineAudioQuality, label: Text("Offline Audio Quality")) {
-			ForEach(AudioQuality.allCases) { quality in
-				Text(quality.title).tag(quality)
-			}
-		}
 	}
 
 	func startAuthorization() {
@@ -166,7 +152,6 @@ struct LoginView: View {
 		loginInfo.showModal = false
 		session.saveConfig()
 		session.saveSession()
-		player.setAudioQuality(to: offlineAudioQuality)
 		viewState.push(view: TidalSwiftView(viewType: .collectionTracks))
 	}
 }
