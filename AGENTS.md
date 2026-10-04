@@ -10,6 +10,7 @@ TidalSwift is a macOS Tidal Music Streaming Client written in Swift. It supports
 `TidalSwiftLib` contains the reusable API/client library (session endpoints, codable models, downloads, metadata, and networking).
 `TidalSwift.xcodeproj` defines shared schemes for both targets.
 `README.assets` stores images used in project documentation, not runtime app assets.
+`docs` holds developer notes: API research, investigations, and plans for larger changes. Check it for background before working on a related area, and add findings there that are worth keeping but don't belong in code comments.
 
 Keep app-facing code in `TidalSwift/...` and platform-agnostic API/domain logic in `TidalSwiftLib/...`.
 
@@ -25,19 +26,17 @@ Keep app-facing code in `TidalSwift/...` and platform-agnostic API/domain logic 
 - `QueueInfo.swift` — observable queue state
 - `SortingState.swift` — observable sort preferences
 
-All state objects use `@Published` and are injected as `@EnvironmentObject` into SwiftUI views. `AppDelegate.swift` owns all instances, wires up Combine subscriptions (`AnyCancellable`), and persists state to UserDefaults via JSON encoding on a timer and on app quit.
+All state objects are `@Observable` classes, injected with `.environment(_:)` and read via `@Environment(Type.self)` (or passed directly, with `@Bindable` where a view needs bindings). Persisted properties set an `@ObservationIgnored` `hasUnsavedChanges` flag in `didSet`. `TidalSwiftAppModel` in `TidalSwiftApp.swift` owns all instances and saves flagged state to UserDefaults via JSON encoding from a 10-second task loop and on app quit. The project doesn't use Combine.
 
 **Player (`TidalSwift/Player.swift`):** Thin `AVPlayer` wrapper that manages the playback queue, shuffle, repeat, and stream URL resolution.
 
-**Offline & Downloads (`TidalSwiftLib/`):** The `Offline` and `Download` modules handle caching tracks locally and syncing favorites for offline use.
+**Offline & Downloads (`TidalSwiftLib/`):** The `Offline` and `Download` modules handle caching tracks locally and syncing favorites for offline use. `Metadata` tags downloaded tracks without dependencies: `FLACTagWriter` writes Vorbis comment and picture blocks, `MP4TagWriter` uses an AVFoundation passthrough export. Sync keeps one audio file per track, matched to the current offline quality, and removes files of other variants; per-track added dates are recorded so the Collection screens can show them, and `completeOfflineAlbums` repairs stored albums that arrived without artists.
 
 **Models (`TidalSwiftLib/Codables/`):** `Codable` structs for every Tidal entity — `Album`, `Artist`, `Track`, `Video`, `Playlist`, login responses, etc.
 
 ### Swift Package Manager Dependencies
 
 - `UpdateNotification` — in-app update checking
-- `swiftui-sliders` — custom slider UI component
-- `SwiftTagger` — audio file metadata tagging for downloads
 
 ## Build, Test, and Development Commands
 
@@ -51,13 +50,15 @@ Use Xcode's MCP if possible.
   Build the framework target.
 
 There is no test suite for the app target. `TidalSwiftLib` has one: run `cd TidalSwiftLib && swift test`. If `mise run build` fails due to local cache issues, build directly in Xcode and capture the exact error in the PR.
+Tests must stay away from the developer's own data: never let a test read the stored session (`Session(config: nil)` does, through `Config.load()`), and never let one write to the real offline folder — construct a `TemporaryOfflineLibrary` and pass its root to `Session`.
 
 ## Coding Style & Naming Conventions
 
-Use Swift defaults with tabs/indentation matching existing files.
+Indent with tabs, one per level, never spaces. Xcode and many tools default to four spaces, so check new code. `.editorconfig` encodes this for editors that support it.
 Types use `UpperCamelCase`; functions/properties use `lowerCamelCase`; file names match the primary type/feature (`ArtistView.swift`, `SearchResults.swift`).
 Prefer `async/await` over callback-style APIs for new async work (the codebase was recently migrated from callbacks).
-Indentation using tabs. Never mess with indentation or whitespace on unrelated lines, but make sure that new or edited blocks have correct indentation.
+Never mess with indentation or whitespace on unrelated lines, but make sure that new or edited blocks have correct indentation.
+Blank lines inside a type or function carry the indentation of the surrounding block (e.g. a single tab between two methods), they are not left empty. Only blank lines at the top level of a file are empty. Editors and tools tend to strip this whitespace, so check the diff of new or edited code for bare blank lines (`git diff | grep -n '^+$'`).
 Default Actor Isolation is set to `MainActor` and Approachable Concurrency is enabled for both `TidalSwift` and `TidalSwiftLib`.
 
 ## Commit & Pull Request Guidelines
