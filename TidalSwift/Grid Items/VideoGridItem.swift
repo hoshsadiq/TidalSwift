@@ -54,23 +54,19 @@ struct VideoGridItem: View {
 					.padding(Self.cardPadding)
 					.help("\(video.title) – \(video.artists.formArtistString())")
 					.contentShape(Rectangle())
+					.accessibilityElement(children: .combine)
+					.accessibilityAddTraits(.isButton)
+					.accessibilityAction { toastCenter.show(ToastCenter.videoComingSoon) }
 					.onTapGesture { toastCenter.show(ToastCenter.videoComingSoon) }
 			} else {
 				regularCard
 					.padding(Self.cardPadding)
 					.help("\(video.title) – \(video.artists.formArtistString())")
+					.accessibilityElement(children: .combine)
 					#if canImport(AppKit)
-					.onTapGesture(count: 2) {
-						print("Play Video: \(video.title)")
-						Task {
-							guard let url = await video.videoUrl(session: session) else { return }
-							print(url)
-							player.pause()
-							let controller = VideoPlayerController(videoUrl: url, volume: playbackInfo.volume)
-							controller.window?.title = "\(video.title) - \(video.artists.formArtistString())"
-							controller.showWindow(nil)
-						}
-					}
+					.onTapGesture(count: 2, perform: play)
+					.accessibilityAddTraits(.isButton)
+					.accessibilityAction(.default, play)
 					#endif
 			}
 		}
@@ -78,6 +74,20 @@ struct VideoGridItem: View {
 			VideoContextMenu(video: video, session: session, player: player)
 		}
 	}
+
+	#if canImport(AppKit)
+	private func play() {
+		print("Play Video: \(video.title)")
+		Task {
+			guard let url = await video.videoUrl(session: session) else { return }
+			print(url)
+			player.pause()
+			let controller = VideoPlayerController(videoUrl: url, volume: playbackInfo.volume)
+			controller.window?.title = "\(video.title) - \(video.artists.formArtistString())"
+			controller.showWindow(nil)
+		}
+	}
+	#endif
 
 	private var regularCard: some View {
 		VStack {

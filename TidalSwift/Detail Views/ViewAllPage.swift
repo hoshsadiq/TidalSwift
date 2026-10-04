@@ -461,6 +461,7 @@ private struct ViewAllTrackRow: View {
 			}
 			.menuStyle(.borderlessButton)
 			.fixedSize()
+			.accessibilityLabel("More")
 			.help("More")
 
 			Button {
@@ -469,6 +470,7 @@ private struct ViewAllTrackRow: View {
 				Image(systemName: "plus")
 			}
 			.buttonStyle(.plain)
+			.accessibilityLabel("Add to Queue")
 			.help("Add to Queue")
 
 			Button {
@@ -477,6 +479,7 @@ private struct ViewAllTrackRow: View {
 				Image(systemName: (isFavorite ?? false) ? "heart.fill" : "heart")
 			}
 			.buttonStyle(.plain)
+			.accessibilityLabel((isFavorite ?? false) ? "Remove from Favorites" : "Add to Favorites")
 			.help((isFavorite ?? false) ? "Remove from Favorites" : "Add to Favorites")
 		}
 		.secondaryIconColor()
