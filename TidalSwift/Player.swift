@@ -7,7 +7,6 @@
 //
 
 import SwiftUI
-@preconcurrency import Combine
 import AVFoundation
 import TidalSwiftLib
 

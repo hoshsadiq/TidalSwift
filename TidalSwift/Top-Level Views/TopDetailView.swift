@@ -8,7 +8,6 @@
 
 import SwiftUI
 import AppKit
-import Combine
 import TidalSwiftLib
 
 extension Notification.Name {
