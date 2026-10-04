@@ -21,9 +21,9 @@ struct TopDetailView: View {
     let session: Session
 	let player: Player
 
-	@EnvironmentObject var viewState: ViewState
-	@EnvironmentObject var appModel: TidalSwiftAppModel
-	@EnvironmentObject var playbackInfo: PlaybackInfo
+	@Environment(ViewState.self) private var viewState
+	@Environment(TidalSwiftAppModel.self) private var appModel
+	@Environment(PlaybackInfo.self) private var playbackInfo
 	@Environment(\.colorScheme) private var colorScheme
 
 	@State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -38,6 +38,7 @@ struct TopDetailView: View {
 	}
 
 	var body: some View {
+		@Bindable var viewState = viewState
 		let selectionBinding = Binding<SidebarSelection?>(
 			get: {
 				if let playlist = viewState.stack.last?.playlist {
@@ -346,7 +347,7 @@ struct TopView: View {
 
 	let session: Session
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 
 	/// "Show all collection items directly in the sidebar instead of a submenu."
 	/// On (the default) the Collection destinations are flat rows under a small
@@ -498,7 +499,7 @@ struct DetailView: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 
 	init(session: Session, player: Player) {
 		self.session = session

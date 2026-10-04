@@ -11,12 +11,12 @@ import AppKit
 import TidalSwiftLib
 
 struct ContentView: View {
-	@ObservedObject var loginInfo: LoginInfo
-	@ObservedObject var playlistEditingValues: PlaylistEditingValues
-	@ObservedObject var viewState: ViewState
-	@ObservedObject var sortingState: SortingState
+	var loginInfo: LoginInfo
+	var playlistEditingValues: PlaylistEditingValues
+	var viewState: ViewState
+	var sortingState: SortingState
 
-	@StateObject private var toastCenter = ToastCenter()
+	@State private var toastCenter = ToastCenter()
 
 	let session: Session
 	let player: Player
@@ -25,14 +25,16 @@ struct ContentView: View {
 	private static let toastBottomInset: CGFloat = 96
 
 	var body: some View {
+		@Bindable var loginInfo = loginInfo
+		@Bindable var playlistEditingValues = playlistEditingValues
 		TopDetailView(session: session, player: player)
-			.environmentObject(viewState)
-			.environmentObject(sortingState)
-			.environmentObject(playlistEditingValues)
-			.environmentObject(player.playbackInfo)
-			.environmentObject(player.queueInfo)
+			.environment(viewState)
+			.environment(sortingState)
+			.environment(playlistEditingValues)
+			.environment(player.playbackInfo)
+			.environment(player.queueInfo)
 			.environment(session.helpers.downloadStatus)
-			.environmentObject(toastCenter)
+			.environment(toastCenter)
 			.toast(toastCenter, bottomPadding: Self.toastBottomInset)
 			.background(EmptyView().sheet(isPresented: $loginInfo.showModal) {
 				LoginView(loginInfo: loginInfo, viewState: viewState, session: session, player: player)

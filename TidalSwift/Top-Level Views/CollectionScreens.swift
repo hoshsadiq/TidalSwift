@@ -51,7 +51,7 @@ struct CollectionPlaylists: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 
 	@State private var filterText = ""
 	@State private var sortOption: CollectionPlaylistSort = .created
@@ -181,7 +181,7 @@ struct CollectionAlbums: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 
 	@State private var filterText = ""
 	@State private var sortOption: CollectionAlbumSort = .dateAdded
@@ -328,7 +328,7 @@ struct CollectionTracks: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 
 	@State private var filterText = ""
 	@State private var sortOption: CollectionTrackSort = .dateAdded
@@ -531,8 +531,8 @@ private struct CollectionTrackRow: View {
 	let player: Player
 	let onDoubleTap: () -> Void
 
-	@EnvironmentObject var queueInfo: QueueInfo
-	@EnvironmentObject var playbackInfo: PlaybackInfo
+	@Environment(QueueInfo.self) private var queueInfo
+	@Environment(PlaybackInfo.self) private var playbackInfo
 	@State private var isFavorite: Bool?
 	@State private var isOffline = false
 
@@ -704,7 +704,7 @@ struct CollectionVideos: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 
 	@State private var filterText = ""
 	@State private var sortOption: CollectionVideoSort = .dateAdded
@@ -786,7 +786,7 @@ struct CollectionProfiles: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 
 	@State private var filterText = ""
 	@State private var sortOption: CollectionProfileSort = .dateAdded
@@ -852,7 +852,7 @@ struct CollectionMixes: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 
 	@State private var isLoadingMore = false
 	@State private var loadMoreFailed = false

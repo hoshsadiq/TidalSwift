@@ -133,8 +133,8 @@ enum NowPlayingAmbient {
 struct NowPlayingAmbientLayer: View {
 	let session: Session
 
-	@EnvironmentObject var playbackInfo: PlaybackInfo
-	@EnvironmentObject var queueInfo: QueueInfo
+	@Environment(PlaybackInfo.self) private var playbackInfo
+	@Environment(QueueInfo.self) private var queueInfo
 
 	var body: some View {
 		Rectangle()

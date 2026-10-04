@@ -7,15 +7,15 @@
 //
 
 import SwiftUI
-import Combine
 
 /// Owns the single transient toast shown over the app shell.
 ///
 /// A new `show` replaces the current message and restarts the dismiss timer, so
 /// toasts never stack. Injected at the app shell (`ContentView`) so any view can
-/// reach it through `@EnvironmentObject`.
-final class ToastCenter: ObservableObject {
-	@Published private(set) var message: String?
+/// reach it through `@Environment`.
+@Observable
+final class ToastCenter {
+	private(set) var message: String?
 
 	/// Shown when a video is clicked before video playback exists.
 	static let videoComingSoon = "Video playback is coming soon"

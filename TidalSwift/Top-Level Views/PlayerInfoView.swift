@@ -18,9 +18,9 @@ struct PlayerInfoView: View {
 	let player: Player
 
 
-	@EnvironmentObject var queueInfo: QueueInfo
-	@EnvironmentObject var appModel: TidalSwiftAppModel
-	@EnvironmentObject var playbackInfo: PlaybackInfo
+	@Environment(QueueInfo.self) private var queueInfo
+	@Environment(TidalSwiftAppModel.self) private var appModel
+	@Environment(PlaybackInfo.self) private var playbackInfo
 
 	var body: some View {
 		VStack {
@@ -136,7 +136,7 @@ struct FavoriteButton: View {
 	/// tap-to-expand container, so it needs a larger target than the miniplayer.
 	var hitPadding: CGFloat = 0
 
-	@EnvironmentObject var appModel: TidalSwiftAppModel
+	@Environment(TidalSwiftAppModel.self) private var appModel
 
 	var body: some View {
 		Button {
@@ -179,7 +179,7 @@ struct TrackInfoView: View {
 	let player: Player
 	let session: Session
 
-	@EnvironmentObject var queueInfo: QueueInfo
+	@Environment(QueueInfo.self) private var queueInfo
 
 	var body: some View {
 		HStack {
@@ -303,7 +303,7 @@ struct QualityBadge: View {
 struct PlaybackControls: View {
 	let player: Player
 
-	@EnvironmentObject var playbackInfo: PlaybackInfo
+	@Environment(PlaybackInfo.self) private var playbackInfo
 
 	var body: some View {
 		VStack(spacing: 6) {
@@ -369,10 +369,11 @@ struct PlaybackControls: View {
 struct ProgressBar: View {
 	let player: Player
 
-	@EnvironmentObject var playbackInfo: PlaybackInfo
+	@Environment(PlaybackInfo.self) private var playbackInfo
 	@Environment(\.colorScheme) var colorScheme: ColorScheme
 
 	var body: some View {
+		@Bindable var playbackInfo = playbackInfo
 		ValueSlider(value: $playbackInfo.fraction) { down in
 			if down { // Only apply while scrubbing, not when releasing
 				player.seek(to: Double(playbackInfo.fraction))
@@ -400,9 +401,10 @@ struct ProgressBar: View {
 struct VolumeControl: View {
 	let player: Player
 
-	@EnvironmentObject var playbackInfo: PlaybackInfo
+	@Environment(PlaybackInfo.self) private var playbackInfo
 
 	var body: some View {
+		@Bindable var playbackInfo = playbackInfo
 		HStack {
 			speakerSymbol
 				.frame(width: 20, alignment: .leading)
