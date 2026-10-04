@@ -3,4 +3,4 @@
 #MISE depends=["generate"]
 set -eo pipefail
 
-exec license-plist --xcodeproj TidalSwift.xcodeproj --output-path TidalSwift/Settings.bundle
+exec license-plist --xcodeproj-path TidalSwift.xcodeproj --output-path TidalSwift/Settings.bundle
