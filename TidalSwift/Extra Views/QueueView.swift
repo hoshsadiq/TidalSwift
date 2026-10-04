@@ -248,6 +248,9 @@ private struct QueueRow: View {
 					.foregroundColor(.primary)
 					.lineLimit(1)
 					.help(trackToolTipString)
+					.accessibilityAction {
+						onPlay()
+					}
 				Text(item.track.artists.formArtistString())
 					.font(.caption)
 					.foregroundColor(.secondary)
@@ -260,6 +263,7 @@ private struct QueueRow: View {
 				} label: {
 					Image(systemName: "xmark")
 						.secondaryIconColor()
+						.accessibilityLabel("Remove from Queue")
 				}
 				.buttonStyle(.plain)
 				.help("Remove from queue")

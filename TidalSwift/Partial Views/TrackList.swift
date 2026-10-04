@@ -45,9 +45,10 @@ struct TrackList: View {
 					}
 				}
 				.onTapGesture(count: 2) {
-					if wrappedTrack.track.isUnavailable { return }
-					print("\(wrappedTrack.track.id) \(wrappedTrack.track.title)")
-					player.add(tracks: wrappedTracks.unwrapped(), .now, playAt: wrappedTrack.id, source: source)
+					play(wrappedTrack)
+				}
+				.accessibilityAction {
+					play(wrappedTrack)
 				}
 				.onTapGesture(count: 1) {
 					selectedTrackId = wrappedTrack.id
@@ -78,6 +79,12 @@ struct TrackList: View {
 				selectedTrackId = newValue
 			}
 		}
+	}
+
+	private func play(_ wrappedTrack: WrappedTrack) {
+		guard !wrappedTrack.track.isUnavailable else { return }
+		print("\(wrappedTrack.track.id) \(wrappedTrack.track.title)")
+		player.add(tracks: wrappedTracks.unwrapped(), .now, playAt: wrappedTrack.id, source: source)
 	}
 
 	private func rowBackground(for trackId: Int) -> Color {
@@ -216,19 +223,22 @@ struct TrackRow: View {
 							.secondaryIconColor()
 					}
 					#if canImport(AppKit)
-					Image(systemName: "c.circle")
-						.onTapGesture {
-							let controller = ResizableWindowControllerFactory.create(rootView:
-								CreditsView(session: session, track: track)
+					Button {
+						let controller = ResizableWindowControllerFactory.create(rootView:
+							CreditsView(session: session, track: track)
 								.environment(viewState)
-							)
-							controller.window?.title = "Credits – \(track.title)"
-							controller.showWindow(nil)
-						}
+						)
+						controller.window?.title = "Credits – \(track.title)"
+						controller.showWindow(nil)
+					} label: {
+						Image(systemName: "c.circle")
+							.accessibilityLabel("Credits")
+							.help("Credits")
+					}
+					.buttonStyle(.plain)
 					#endif
-				if isFavorite ?? false {
-					Image(systemName: "heart.fill")
-						.onTapGesture {
+					Button {
+						if isFavorite ?? false {
 							print("Remove from Favorites")
 							Task {
 								if await session.favorites?.removeTrack(trackId: track.id) == true {
@@ -237,10 +247,7 @@ struct TrackRow: View {
 									NotificationCenter.default.post(name: .favoriteTrackChanged, object: nil, userInfo: ["trackId": track.id, "isFavorite": false])
 								}
 							}
-						}
-				} else {
-					Image(systemName: "heart")
-						.onTapGesture {
+						} else {
 							print("Add to Favorites")
 							Task {
 								if await session.favorites?.addTrack(trackId: track.id) == true {
@@ -250,7 +257,12 @@ struct TrackRow: View {
 								}
 							}
 						}
-				}
+					} label: {
+						Image(systemName: isFavorite ?? false ? "heart.fill" : "heart")
+							.accessibilityLabel("Favorite")
+							.accessibilityAddTraits(isFavorite ?? false ? .isSelected : [])
+					}
+					.buttonStyle(.plain)
 				}
 			}
 		.foregroundColor(track.isUnavailable || playbackInfo.failedTrackIds.contains(track.id) ? .secondary : .primary)
