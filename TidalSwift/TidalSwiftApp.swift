@@ -109,7 +109,6 @@ final class TidalSwiftAppModel {
 	private var viewHistoryViewController: NSWindowController?
 	private var playbackHistoryViewController: NSWindowController?
 	private var miniplayerWindowController: MiniplayerWindowController?
-	private var windowCloseObserver: NSObjectProtocol?
 	private var spaceKeyMonitor: Any?
 	/// The app's main content window. Captured when the miniplayer opens so it can be
 	/// hidden/shown for mutual exclusivity with the miniplayer.
@@ -213,10 +212,6 @@ final class TidalSwiftAppModel {
 	func prepareForTermination() {
 		guard !isTerminating else { return }
 		isTerminating = true
-		if let windowCloseObserver {
-			NotificationCenter.default.removeObserver(windowCloseObserver)
-			self.windowCloseObserver = nil
-		}
 		if let spaceKeyMonitor {
 			NSEvent.removeMonitor(spaceKeyMonitor)
 			self.spaceKeyMonitor = nil
@@ -238,17 +233,26 @@ final class TidalSwiftAppModel {
 	}
 
 	private func registerCloseLastWindowBehavior() {
-		windowCloseObserver = NotificationCenter.default.addObserver(
+		_ = NotificationCenter.default.addObserver(
 			forName: NSWindow.willCloseNotification,
 			object: nil,
 			queue: .main
-		) { [weak self] _ in
-			guard let self else { return }
-			DispatchQueue.main.async {
-				if !self.isTerminating && !NSApp.windows.contains(where: { $0.isVisible }) {
-					self.quit()
-				}
+		) { [weak self] notification in
+			let closingWindow = notification.object as? NSWindow
+			// Safe because the observer asks for delivery on the main queue
+			MainActor.assumeIsolated {
+				self?.quitIfLastWindow(closing: closingWindow)
 			}
+		}
+	}
+
+	private func quitIfLastWindow(closing closingWindow: NSWindow?) {
+		guard !isTerminating else { return }
+		// The closing window still counts as visible while the notification is
+		// being delivered, so ignore it and look for any other visible one
+		let hasOtherVisibleWindow = NSApp.windows.contains { $0.isVisible && $0 !== closingWindow }
+		if !hasOtherVisibleWindow {
+			quit()
 		}
 	}
 
