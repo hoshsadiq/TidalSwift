@@ -14,7 +14,7 @@ struct DownloadIndicator: View {
 	@State var animationState: Bool = false
 	@State var timerCancellable: AnyCancellable?
 
-	@EnvironmentObject var downloadStatus: DownloadStatus
+	@Environment(DownloadStatus.self) private var downloadStatus
 
 	var body: some View {
 		Group {

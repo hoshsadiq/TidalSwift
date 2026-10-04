@@ -20,8 +20,8 @@ struct NowPlayingDrawer: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var playbackInfo: PlaybackInfo
-	@EnvironmentObject var queueInfo: QueueInfo
+	@Environment(PlaybackInfo.self) private var playbackInfo
+	@Environment(QueueInfo.self) private var queueInfo
 
 	/// The large artwork reads better with a slightly softer corner than the
 	/// small cards' `CORNERRADIUS`.
@@ -173,8 +173,8 @@ struct NowPlayingDrawer: View {
 /// expanded. In that state the toolbar's own items (back/forward, search and the
 /// account button) are hidden, so these controls are all that remain.
 struct NowPlayingToolbarCluster: View {
-	@EnvironmentObject var playbackInfo: PlaybackInfo
-	@EnvironmentObject var appModel: TidalSwiftAppModel
+	@Environment(PlaybackInfo.self) private var playbackInfo
+	@Environment(TidalSwiftAppModel.self) private var appModel
 
 	var body: some View {
 		HStack(spacing: 6) {

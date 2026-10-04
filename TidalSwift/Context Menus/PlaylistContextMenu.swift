@@ -14,8 +14,8 @@ struct PlaylistContextMenu: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var viewState: ViewState
-	@EnvironmentObject var playlistEditingValues: PlaylistEditingValues
+	@Environment(ViewState.self) private var viewState
+	@Environment(PlaylistEditingValues.self) private var playlistEditingValues
 	@State private var isOffline: Bool = false
 
 	private var source: QueueSource {

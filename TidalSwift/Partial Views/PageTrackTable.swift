@@ -78,8 +78,8 @@ private struct PageTrackRow: View {
 	let isSelected: Bool
 	let onSelect: () -> Void
 
-	@EnvironmentObject var queueInfo: QueueInfo
-	@EnvironmentObject var playbackInfo: PlaybackInfo
+	@Environment(QueueInfo.self) private var queueInfo
+	@Environment(PlaybackInfo.self) private var playbackInfo
 	@State private var isFavorite: Bool?
 
 	private var isPlaying: Bool {

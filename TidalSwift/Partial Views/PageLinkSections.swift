@@ -33,7 +33,7 @@ private func pageLinkItems(_ module: PageModule) -> [PageLinkItem] {
 struct PageLinkPills: View {
 	let module: PageModule
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 
 	private var items: [PageLinkItem] { pageLinkItems(module) }
 
@@ -91,7 +91,7 @@ struct PageLinkPills: View {
 struct PageLinkGrid: View {
 	let module: PageModule
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 
 	private var items: [PageLinkItem] { pageLinkItems(module) }
 	private let columns = Array(repeating: GridItem(.flexible(), alignment: .leading), count: 3)
