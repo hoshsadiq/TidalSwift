@@ -31,7 +31,7 @@ struct ContentView: View {
 			.environmentObject(playlistEditingValues)
 			.environmentObject(player.playbackInfo)
 			.environmentObject(player.queueInfo)
-			.environmentObject(session.helpers.downloadStatus)
+			.environment(session.helpers.downloadStatus)
 			.environmentObject(toastCenter)
 			.toast(toastCenter, bottomPadding: Self.toastBottomInset)
 			.background(EmptyView().sheet(isPresented: $loginInfo.showModal) {

@@ -8,20 +8,18 @@
 
 import Foundation
 import AVFoundation
+import Observation
 
-public final class DownloadStatus: ObservableObject {
-	@Published public var downloadingTasks: Int = 0
+@Observable
+public final class DownloadStatus {
+	public var downloadingTasks: Int = 0
 
 	func startTask() {
-		DispatchQueue.main.async { [weak self] in
-			self?.downloadingTasks += 1
-		}
+		downloadingTasks += 1
 	}
 
 	func finishTask() {
-		DispatchQueue.main.async { [weak self] in
-			self?.downloadingTasks -= 1
-		}
+		downloadingTasks -= 1
 	}
 }
 
