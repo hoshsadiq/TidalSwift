@@ -22,6 +22,8 @@ class Player {
 
 	private var previousValue: Float = 1.0
 	private var failedItems = 0
+	// Incremented on every item change, so outdated async loads can be discarded
+	private var itemLoadID = 0
 
 
 	private var currentAudioQuality: AudioQuality
@@ -221,13 +223,20 @@ class Player {
 	}
 
 	private func avSetItem(from track: Track, resumeAfterSet: Bool? = nil) {
+		itemLoadID += 1
+		let loadID = itemLoadID
 		Task {
-			await avSetItemAsync(from: track, resumeAfterSet: resumeAfterSet)
+			await avSetItemAsync(from: track, loadID: loadID, resumeAfterSet: resumeAfterSet)
 		}
 	}
 
-	private func avSetItemAsync(from track: Track, resumeAfterSet: Bool? = nil) async {
+	private func avSetItemAsync(from track: Track, loadID: Int, resumeAfterSet: Bool? = nil) async {
 //		print("avSetItem(): \(track.title)")
+		// Loading is async, so a newer request can arrive while this one is in flight.
+		// Discard the stale load instead of replacing the newer item's playback.
+		guard loadID == itemLoadID else {
+			return
+		}
 		let shouldResume = resumeAfterSet ?? playbackInfo.playing
 		pause()
 
@@ -264,10 +273,17 @@ class Player {
 			url = resolved.url
 			currentAudioQuality = resolved.quality
 		} else {
+			guard loadID == itemLoadID else {
+				return
+			}
 			print("No URL so skipping \(track.title)")
 			print("[PLAYBACK] avSetItem(): no URL - title: \(track.title), id: \(track.id), failedItems: \(failedItems), queueCount: \(queueInfo.queue.count)")
 			playbackInfo.failedTrackIds.insert(track.id)
 			skip()
+			return
+		}
+		// Another item was requested while this one was loading
+		guard loadID == itemLoadID else {
 			return
 		}
 		failedItems = 0
@@ -474,6 +490,7 @@ class Player {
 			queueInfo.nonShuffledQueue = queueInfo.queue
 			queueInfo.assignQueueIndices()
 		} else {
+			itemLoadID += 1
 			avPlayer.pause()
 			playbackInfo.playing = false
 			queueInfo.currentIndex = 0
