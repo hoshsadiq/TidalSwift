@@ -23,7 +23,7 @@ struct MagazineGridItem: View {
 	let player: Player
 	var artworkSize: CGFloat = 160
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 	@Environment(\.openURL) private var openURL
 
 	/// TIDAL's magazine artwork is 550×400.

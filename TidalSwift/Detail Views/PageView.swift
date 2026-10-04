@@ -29,7 +29,7 @@ struct PageView: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 
 	@State private var page: Page?
 	@State private var loadingState: LoadingState = .loading
@@ -259,7 +259,7 @@ private struct PagePagedModuleView: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 	@State private var collectionMixIds: Set<String> = []
 
 	/// Measured grid content width, driving the responsive column count.

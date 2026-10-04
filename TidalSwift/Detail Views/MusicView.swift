@@ -62,7 +62,7 @@ struct MusicHomeView: View {
 	/// the View-all route is pushed onto the navigation stack.
 	var onViewAll: ((ViewAllTarget) -> Void)?
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 	@State private var selectedTab: MusicTab = .uploads
 
 	var body: some View {

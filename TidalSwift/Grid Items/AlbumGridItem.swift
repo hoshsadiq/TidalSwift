@@ -20,7 +20,7 @@ struct AlbumGridItem: View {
 	/// the Collection ▸ Albums cards. Off by default so other grids are unchanged.
 	var showsReleaseYear: Bool = false
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 	@Environment(\.colorScheme) private var colorScheme
 	@State private var isOffline: Bool = false
 
