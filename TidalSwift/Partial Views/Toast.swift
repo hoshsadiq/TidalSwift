@@ -33,7 +33,7 @@ struct ToastView: View {
 /// The toast fades in, holds for the duration set by `ToastCenter.show`, then
 /// fades out. It never intercepts clicks.
 private struct ToastModifier: ViewModifier {
-	@ObservedObject var toastCenter: ToastCenter
+	var toastCenter: ToastCenter
 	let bottomPadding: CGFloat
 
 	func body(content: Content) -> some View {

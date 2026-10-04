@@ -48,10 +48,10 @@ final class MiniplayerWindowController: NSWindowController, NSWindowDelegate {
 		let content = MiniplayerView(session: session, player: player, onClose: { [weak self] in
 			self?.close()
 		})
-		.environmentObject(player.playbackInfo)
-		.environmentObject(player.queueInfo)
-		.environmentObject(viewState)
-		.environmentObject(appModel)
+		.environment(player.playbackInfo)
+		.environment(player.queueInfo)
+		.environment(viewState)
+		.environment(appModel)
 		window.contentViewController = NSHostingController(rootView: content)
 
 		window.setContentSize(MiniplayerSettings.windowSize)
@@ -112,8 +112,8 @@ struct MiniplayerView: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var queueInfo: QueueInfo
-	@EnvironmentObject var playbackInfo: PlaybackInfo
+	@Environment(QueueInfo.self) private var queueInfo
+	@Environment(PlaybackInfo.self) private var playbackInfo
 
 	/// Persisted so the mode survives relaunches.
 	@AppStorage(MiniplayerSettings.modeKey) private var mode: MiniplayerMode = .artwork

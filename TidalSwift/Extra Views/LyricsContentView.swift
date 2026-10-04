@@ -62,8 +62,8 @@ struct LyricsContentView: View {
 	let player: Player
 	var style: Style = .drawer
 
-	@EnvironmentObject var playbackInfo: PlaybackInfo
-	@EnvironmentObject var queueInfo: QueueInfo
+	@Environment(PlaybackInfo.self) private var playbackInfo
+	@Environment(QueueInfo.self) private var queueInfo
 
 	/// Observed rather than read once, so flipping the Preferences toggle
 	/// re-resolves with the new precedence instead of showing a stale decision.

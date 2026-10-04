@@ -237,7 +237,7 @@ private struct PageShelfView: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 	@State private var collectionMixIds: Set<String> = []
 
 	private var items: [PageShelfItem] {
@@ -286,7 +286,7 @@ private struct PageVideoShelfView: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 
 	private static let cardFootprint = VideoGridItem.footprint(wide: true)
 
@@ -313,7 +313,7 @@ private struct PageTrackSectionView: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 
 	private var tracks: [Track] {
 		pageModuleItems(module).compactMap(\.track)

@@ -10,13 +10,13 @@ import SwiftUI
 import Combine
 import TidalSwiftLib
 
-final class LoginInfo: ObservableObject {
-	@Published var showModal = false
+@Observable final class LoginInfo {
+	var showModal = false
 }
 
 struct LoginView: View {
-	@ObservedObject var loginInfo: LoginInfo
-	@ObservedObject var viewState: ViewState
+	var loginInfo: LoginInfo
+	var viewState: ViewState
 
 	let session: Session
 	let player: Player

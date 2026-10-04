@@ -10,7 +10,7 @@ import SwiftUI
 import TidalSwiftLib
 
 struct PlaybackHistoryView: View {
-	@EnvironmentObject var queueInfo: QueueInfo
+	@Environment(QueueInfo.self) private var queueInfo
 
 	let session: Session
 	let player: Player

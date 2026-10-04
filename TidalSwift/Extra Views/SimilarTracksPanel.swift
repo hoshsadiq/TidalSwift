@@ -266,8 +266,8 @@ private struct SuggestionRow: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var queueInfo: QueueInfo
-	@EnvironmentObject var playbackInfo: PlaybackInfo
+	@Environment(QueueInfo.self) private var queueInfo
+	@Environment(PlaybackInfo.self) private var playbackInfo
 
 	private var isPlaying: Bool {
 		guard !queueInfo.queue.isEmpty, queueInfo.queue.indices.contains(queueInfo.currentIndex) else { return false }

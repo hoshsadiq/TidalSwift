@@ -14,8 +14,8 @@ struct QueueView: View {
 	unowned let session: Session
 	unowned let player: Player
 
-	@EnvironmentObject var queueInfo: QueueInfo
-	@EnvironmentObject var appModel: TidalSwiftAppModel
+	@Environment(QueueInfo.self) private var queueInfo
+	@Environment(TidalSwiftAppModel.self) private var appModel
 
 	/// How long auto-follow stays paused after the last manual scroll.
 	private static let autoScrollResumeDelay: TimeInterval = 10 * 60
@@ -315,7 +315,7 @@ struct QueuePanel: View {
 	unowned let session: Session
 	unowned let player: Player
 
-	@EnvironmentObject var playbackInfo: PlaybackInfo
+	@Environment(PlaybackInfo.self) private var playbackInfo
 	@Environment(\.colorScheme) private var colorScheme
 
 	var body: some View {

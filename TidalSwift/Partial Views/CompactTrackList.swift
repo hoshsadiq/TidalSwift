@@ -62,8 +62,8 @@ private struct CompactTrackRow: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var queueInfo: QueueInfo
-	@EnvironmentObject var playbackInfo: PlaybackInfo
+	@Environment(QueueInfo.self) private var queueInfo
+	@Environment(PlaybackInfo.self) private var playbackInfo
 
 	private var sharedTrack: Track { track.asTrack }
 
