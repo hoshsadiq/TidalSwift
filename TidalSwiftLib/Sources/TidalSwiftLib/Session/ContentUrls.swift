@@ -56,7 +56,17 @@ extension Session {
 		}
 	}
 
-	public func bestAudioUrl(trackId: Int, preferredQuality: AudioQuality) async -> (url: URL, quality: AudioQuality)? {
+	/// Resolves a track to a playable streaming URL.
+	///
+	/// When `preferDolbyAtmos` is set and the track has an Atmos rendition, that
+	/// rendition wins even when a stereo one exists. Atmos is not a tier in the
+	/// ladder below, so it is attempted once and never memoised; the returned
+	/// quality is the caller's preferred stereo tier and does not label the Atmos
+	/// stream (the UI labels that from the track itself).
+	public func bestAudioUrl(trackId: Int, preferredQuality: AudioQuality, preferDolbyAtmos: Bool = false) async -> (url: URL, quality: AudioQuality)? {
+		if preferDolbyAtmos, let atmosUrl = await dolbyAtmosUrl(trackId: trackId) {
+			return (atmosUrl, preferredQuality)
+		}
 		let descending: [AudioQuality] = [.max, .high, .medium, .low]
 		guard let preferredIndex = descending.firstIndex(of: preferredQuality) else {
 			return nil

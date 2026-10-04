@@ -254,7 +254,11 @@ class Player {
 			print("[PLAYBACK] avSetItem(): resolved URL - title: \(track.title), quality: \(nextAudioQuality), source: offline")
 			url = offlineStream.url
 			currentAudioQuality = nextAudioQuality
-		} else if let resolved = await session.bestAudioUrl(trackId: track.id, preferredQuality: nextAudioQuality) {
+		} else if let resolved = await session.bestAudioUrl(
+			trackId: track.id,
+			preferredQuality: nextAudioQuality,
+			preferDolbyAtmos: track.hasDolbyAtmos && session.helpers.offline.preferDolbyAtmos
+		) {
 			print("Play \(track.title) from online URL: \(resolved.url)")
 			print("[PLAYBACK] avSetItem(): resolved URL - title: \(track.title), quality: \(resolved.quality), source: online")
 			url = resolved.url
