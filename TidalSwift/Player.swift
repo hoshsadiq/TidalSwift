@@ -24,8 +24,6 @@ class Player {
 	private var previousValue: Float = 1.0
 	private var failedItems = 0
 
-	private var volumeCancellable: AnyCancellable?
-	private var shuffleCancellable: AnyCancellable?
 
 	private var currentAudioQuality: AudioQuality
 	private(set) var nextAudioQuality: AudioQuality
@@ -46,8 +44,8 @@ class Player {
 			}
 		}
 
-		volumeCancellable = playbackInfo.$volume.receive(on: DispatchQueue.main).sink(receiveValue: setVolume(to:))
-		shuffleCancellable = playbackInfo.$shuffle.receive(on: DispatchQueue.main).sink(receiveValue: shuffle(enabled:))
+		observeVolume()
+		observeShuffle()
 	}
 
 	@MainActor
@@ -56,8 +54,34 @@ class Player {
 			avPlayer.removeTimeObserver(token)
 			timeObserverToken = nil
 		}
-		volumeCancellable?.cancel()
-		shuffleCancellable?.cancel()
+	}
+
+	/// Applies a volume or shuffle change to the underlying player. Each observer
+	/// re-arms itself: `withObservationTracking` fires `onChange` only once, before the
+	/// new value is written, so the handler runs on the next main-actor turn with the
+	/// new value already in place.
+	private func observeVolume() {
+		withObservationTracking {
+			_ = playbackInfo.volume
+		} onChange: { [weak self] in
+			Task { @MainActor in
+				guard let self else { return }
+				self.setVolume(to: self.playbackInfo.volume)
+				self.observeVolume()
+			}
+		}
+	}
+
+	private func observeShuffle() {
+		withObservationTracking {
+			_ = playbackInfo.shuffle
+		} onChange: { [weak self] in
+			Task { @MainActor in
+				guard let self else { return }
+				self.shuffle(enabled: self.playbackInfo.shuffle)
+				self.observeShuffle()
+			}
+		}
 	}
 
 	func setAudioQuality(to audioQuality: AudioQuality) {

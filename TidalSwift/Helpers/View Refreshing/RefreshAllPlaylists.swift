@@ -12,7 +12,7 @@ import TidalSwiftLib
 extension ViewState {
 	/// Merges the user's own playlists with their favourited playlists, deduped by uuid.
 	/// Writes the result to `cache.allPlaylists` and returns it; the sidebar keeps its own
-	/// `@State` copy because `cache` is not `@Published`.
+	/// `@State` copy and reloads it on the view-state change it already watches.
 	///
 	/// `favorites.playlists()` returns user-created and user-favourited playlists combined,
 	/// so the favourited uuids are fetched separately from the favourites-only endpoint to
