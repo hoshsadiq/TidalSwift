@@ -328,9 +328,9 @@ private struct ViewAllTrackRow: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var viewState: ViewState
-	@EnvironmentObject var queueInfo: QueueInfo
-	@EnvironmentObject var playbackInfo: PlaybackInfo
+	@Environment(ViewState.self) private var viewState
+	@Environment(QueueInfo.self) private var queueInfo
+	@Environment(PlaybackInfo.self) private var playbackInfo
 	@State private var isFavorite: Bool?
 
 	private var isPlaying: Bool {

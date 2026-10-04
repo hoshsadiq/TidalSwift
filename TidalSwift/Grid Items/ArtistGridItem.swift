@@ -19,7 +19,7 @@ struct ArtistGridItem: View {
 	/// unchanged.
 	var circular: Bool = false
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 
 	var body: some View {
 		VStack {

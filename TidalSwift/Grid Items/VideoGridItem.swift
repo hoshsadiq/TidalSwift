@@ -26,8 +26,8 @@ struct VideoGridItem: View {
 	/// Favourites grids are unchanged.
 	var showsHDBadge: Bool = false
 
-	@EnvironmentObject var playbackInfo: PlaybackInfo
-	@EnvironmentObject var toastCenter: ToastCenter
+	@Environment(PlaybackInfo.self) private var playbackInfo
+	@Environment(ToastCenter.self) private var toastCenter
 
 	static let defaultArtworkSize: CGFloat = 160
 	/// Wide (16:9) tiles use their own width, not a multiple of the square card,

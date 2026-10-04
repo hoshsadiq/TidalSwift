@@ -7,7 +7,7 @@ import SwiftUI
 import TidalSwiftLib
 
 struct PreferencesView: View {
-	@EnvironmentObject private var appModel: TidalSwiftAppModel
+	@Environment(TidalSwiftAppModel.self) private var appModel
 
 	var body: some View {
 		TabView {
@@ -29,7 +29,7 @@ struct PreferencesView: View {
 }
 
 private struct PlaybackPreferencesTab: View {
-	@EnvironmentObject private var appModel: TidalSwiftAppModel
+	@Environment(TidalSwiftAppModel.self) private var appModel
 
 	var body: some View {
 		Form {

@@ -13,7 +13,7 @@ struct MixPlaylistView: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 	@State private var isInCollection = false
 
 	var body: some View {

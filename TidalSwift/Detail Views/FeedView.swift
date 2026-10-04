@@ -15,7 +15,7 @@ struct FeedView: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 
 	var body: some View {
 		ScrollView {

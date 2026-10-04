@@ -33,7 +33,7 @@ struct MixGridItem: View {
 	/// Falls back to white when nil.
 	var overlaySubtitleColor: Color?
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 
 	var body: some View {
 		VStack {

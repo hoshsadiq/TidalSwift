@@ -29,7 +29,7 @@ struct PlaylistGridItem: View {
 	/// existing single-cover artwork.
 	var showsMosaic: Bool = false
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 	@Environment(\.colorScheme) private var colorScheme
 	@State private var isOffline: Bool = false
 
