@@ -63,35 +63,32 @@ public class Download {
 		"\(video.trackNumber) \(video.title) - \(video.artists.formArtistString())"
 	}
 
+	/// `audioQuality` is explicit because this app keeps two qualities: the one the user
+	/// picked for playback, and a separate one for offline sync. A manual download
+	/// follows the playback choice; sync uses `config.offlineAudioQuality`.
 	public func download(track: Track, parentFolder: String = "", audioQuality: AudioQuality) async -> Bool {
 		downloadStatus.startTask()
 		defer { downloadStatus.finishTask() }
 
-		// Atmos-only tracks are refused by `streamUrl`/`offlineUrl`; the manifest
-		// endpoint serves them (as E-AC-3 MP4), hence the URL-derived extension.
-		var url = await track.audioUrl(session: session, audioQuality: audioQuality)
-		if url == nil {
-			url = await session.playbackManifestUrl(trackId: track.id, audioQuality: audioQuality)
-		}
-		guard let url else {
+		guard let stream = await track.audioStream(session: session, audioQuality: audioQuality, preferDolbyAtmos: session.helpers.offline.preferDolbyAtmos) else {
 			return false
 		}
 		let filename = formFileName(track)
 		print("Downloading: \(filename)")
-		let optionalPath = buildPath(baseLocation: .downloads, parentFolder: parentFolder, name: filename, pathExtension: session.pathExtension(for: url, audioQuality: audioQuality))
+		let optionalPath = buildPath(baseLocation: .downloads, parentFolder: parentFolder, name: filename, pathExtension: stream.pathExtension)
 		guard let path = optionalPath else {
 			displayError(title: "Error while downloading track", content: "Couldn't build path for track: \(track.title) -  \(track.artists.formArtistString())")
 			return false
 		}
 
 		do {
-			try await Network.download(url, path: path, overwrite: true)
+			try await Network.download(stream.url, path: path, overwrite: true)
 		} catch {
 			displayError(title: "Error while downloading track", content: "Download failed for track \(track.title). Error: \(error)")
 			return false
 		}
 
-//		await metadata.setMetadata(for: track, at: path)
+		await metadata.setMetadata(for: track, at: path)
 		print("Download Finished: \(filename)")
 		return true
 	}
