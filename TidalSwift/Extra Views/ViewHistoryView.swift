@@ -67,11 +67,14 @@ struct ViewHistoryViewRow: View {
 
 	var body: some View {
 		Text(text)
-			.onTapGesture(count: 2) {
-				if view.isBase() {
-					viewState.clearStack()
-				}
-				viewState.push(view: view)
-			}
+			.onTapGesture(count: 2, perform: open)
+			.accessibilityAction(.default, open)
+	}
+
+	private func open() {
+		if view.isBase() {
+			viewState.clearStack()
+		}
+		viewState.push(view: view)
 	}
 }
