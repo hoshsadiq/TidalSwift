@@ -106,7 +106,7 @@ private struct PlaybackPreferencesTab: View {
 				)) {
 					VStack(alignment: .leading) {
 						Text("Prefer Dolby Atmos")
-						Text("Use the Atmos version when a track has one, even if a stereo version exists.")
+						Text("Use the Atmos version when a track has one. Tidal does not always serve a stereo version of an Atmos track, so turning this off will not always change what you hear. Downloads follow this setting.")
 							.font(.caption)
 							.foregroundStyle(.secondary)
 					}
