@@ -126,6 +126,10 @@ final class TidalSwiftAppModel {
 	private static let nowPlayingShuffleKey = "MPNowPlayingInfoPropertyShuffle"
 	private static let nowPlayingRepeatKey = "MPNowPlayingInfoPropertyRepeat"
 
+	/// UserDefaults key for the Preferences toggle that lets quality exceed the
+	/// subscription cap. Shared with the view's `@AppStorage` so there is one spelling.
+	static let ignoreSubscriptionLimitsKey = "ignoreSubscriptionLimits"
+
 	@ObservationIgnored private var saveTask: Task<Void, Never>?
 	/// Timestamp of the last Now Playing elapsed-time update. The player's time
 	/// observer fires many times a second; this gates it back to the one-second
@@ -884,8 +888,10 @@ final class TidalSwiftAppModel {
 
 	/// Whether the subscription allows this tier. An unknown subscription (fetch
 	/// failed or not logged in yet) allows everything, so options are never hidden
-	/// on a guess.
+	/// on a guess. The "Ignore subscription limits" preference bypasses the cap so
+	/// a tier above the subscription becomes selectable.
 	func isAudioQualityAvailable(_ quality: AudioQuality) -> Bool {
+		if UserDefaults.standard.bool(forKey: Self.ignoreSubscriptionLimitsKey) { return true }
 		guard let highestSoundQuality else { return true }
 		let order: [AudioQuality] = [.low, .medium, .high, .max]
 		guard let rank = order.firstIndex(of: quality),
@@ -895,12 +901,13 @@ final class TidalSwiftAppModel {
 		return rank <= highestRank
 	}
 
+	/// Fetches the subscription's cap, which drives the disabled quality rows.
+	/// Deliberately does not rewrite `audioQuality`: a chosen tier must never be
+	/// changed behind the user's back. A tier Tidal refuses degrades gracefully in
+	/// `bestAudioUrl`, which walks the ladder downward.
 	func loadHighestSoundQuality() async {
 		guard let highest = await session.subscriptionInfo()?.highestSoundQuality else { return }
 		highestSoundQuality = highest
-		if !isAudioQualityAvailable(audioQuality) {
-			setAudioQuality(highest)
-		}
 	}
 
 	func clearQueue() {
@@ -1130,6 +1137,7 @@ struct TidalSwiftCommands: Commands {
 				audioQualityButton(title: "Low", quality: .low)
 				audioQualityButton(title: "High", quality: .medium)
 				audioQualityButton(title: "HiFi", quality: .high)
+				audioQualityButton(title: "Max", quality: .max)
 			}
 
 			Button("Clear Queue") {
@@ -1237,5 +1245,6 @@ struct TidalSwiftCommands: Commands {
 				Text(title)
 			}
 		}
+		.disabled(!appModel.isAudioQualityAvailable(quality))
 	}
 }
