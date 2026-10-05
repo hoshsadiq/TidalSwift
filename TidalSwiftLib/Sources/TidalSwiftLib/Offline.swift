@@ -15,6 +15,12 @@ public final class OfflineDB {
 	/// so a track is kept exactly as long as one of them still contains it.
 	private(set) var tracks: Set<Track> = []
 
+	/// Test seam: see `Offline.setOfflineTracksForTesting`. The app derives the set
+	/// from favourites, albums and playlists instead.
+	func replaceTracksForTesting(_ newTracks: Set<Track>) {
+		tracks = newTracks
+	}
+
 	private func updateTracks() {
 		let albumTracks = albums.flatMap { self.albumTracks[$0] ?? [] }
 		let playlistTracks = playlists.flatMap { self.playlistTracks[$0] ?? [] }
@@ -213,6 +219,17 @@ public final class Offline {
 	private let db = OfflineDB()
 	private var hydrationAttemptedAlbumIds: Set<Int> = []
 	private let offlineLibraryRoot: URL?
+
+	/// Resolves the stream a sync downloads for a track. The app leaves it nil and
+	/// uses the track's own stream; tests set it to force a download failure that
+	/// would otherwise need a live Tidal account.
+	var resolveOfflineStream: ((Track) async -> AudioStream?)?
+
+	/// Test seam: seeds the offline track set so a sync can be driven against a
+	/// known state without a Tidal account. The app never calls this.
+	func setOfflineTracksForTesting(_ tracks: [Track]) {
+		db.replaceTracksForTesting(Set(tracks))
+	}
 
 	public init(session: Session, downloadStatus: DownloadStatus, offlineLibraryRoot: URL? = nil) {
 		self.session = session
@@ -478,42 +495,21 @@ public final class Offline {
 			}
 		}
 
-		// Do
-		if !toRemove.isEmpty {
-			for trackId in toRemove {
-				print("Offline: Removing \(trackId)")
-				do {
-					guard let files = localFiles[trackId], !files.isEmpty else {
-						displayError(title: "Offline: Error while removing offline track", content: "File to remove doesn't exist: \(mainPath)/\(trackId)")
-						continue
-					}
-					for file in files {
-						try FileManager.default.removeItem(at: file)
-					}
-					print("Offline: Removed \(trackId)")
-				} catch {
-					displayError(title: "Offline: Error while removing offline track", content: "Error: \(error)")
-				}
-			}
-			invalidateOfflineTrackIdsCache()
-			uiRefreshFunc()
-		}
-
-		for file in leftoverFiles {
-			print("Offline: Removing leftover file \(file.lastPathComponent)")
-			do {
-				try FileManager.default.removeItem(at: file)
-			} catch {
-				displayError(title: "Offline: Error while removing old offline file", content: "Error: \(error)")
-			}
-		}
-
+		// Download first, so nothing is deleted before its replacement is on disk.
+		// A track whose download fails keeps the file it already has.
 		for track in toAdd {
 			print("Offline: Downloading \(track.title)")
 			let existingFiles = localFiles[track.id] ?? []
-			guard let stream = await track.audioStream(session: session, audioQuality: session.config.offlineAudioQuality, preferDolbyAtmos: preferDolbyAtmos) else {
+			let stream: AudioStream?
+			if let resolveOfflineStream {
+				stream = await resolveOfflineStream(track)
+			} else {
+				stream = await track.audioStream(session: session, audioQuality: session.config.offlineAudioQuality, preferDolbyAtmos: preferDolbyAtmos)
+			}
+			guard let stream else {
 				if !existingFiles.isEmpty {
-					print("Offline: Keeping existing file of \(track.title), as no Audio URL is available")
+					// The old file stays, so a refused quality never shrinks the library
+					displayError(title: "Offline: Error while loading offline track", content: "Couldn't get Audio URL for \(track.title). Keeping the existing file.")
 					continue
 				}
 				displayError(title: "Offline: Error while loading offline track", content: "Couldn't get Audio URL for \(track.title)")
@@ -551,6 +547,38 @@ public final class Offline {
 			uiRefreshFunc()
 		}
 
+		// Prune the variants a successful re-download made stale, so one file
+		// per track remains once its replacement is safely on disk.
+		for file in leftoverFiles {
+			print("Offline: Removing leftover file \(file.lastPathComponent)")
+			do {
+				try FileManager.default.removeItem(at: file)
+			} catch {
+				displayError(title: "Offline: Error while removing old offline file", content: "Error: \(error)")
+			}
+		}
+
+		// Tracks that genuinely left the offline set are removed in the same sync.
+		if !toRemove.isEmpty {
+			for trackId in toRemove {
+				print("Offline: Removing \(trackId)")
+				do {
+					guard let files = localFiles[trackId], !files.isEmpty else {
+						displayError(title: "Offline: Error while removing offline track", content: "File to remove doesn't exist: \(mainPath)/\(trackId)")
+						continue
+					}
+					for file in files {
+						try FileManager.default.removeItem(at: file)
+					}
+					print("Offline: Removed \(trackId)")
+				} catch {
+					displayError(title: "Offline: Error while removing offline track", content: "Error: \(error)")
+				}
+			}
+			invalidateOfflineTrackIdsCache()
+			uiRefreshFunc()
+		}
+
 		// Outro
 		if syncAgain {
 			syncAgain = false
@@ -573,6 +601,16 @@ public final class Offline {
 		syncRunning = true
 
 		syncTask = Task { await sync() }
+	}
+
+	/// Test seam: waits for the sync `init` starts in a Task to finish, so a test
+	/// can assert on the resulting files instead of racing the background sync.
+	func awaitOngoingSync() async {
+		// `syncTask` is only set once `asyncSync` runs; yield until that Task has.
+		while syncTask == nil {
+			await Task.yield()
+		}
+		await syncTask?.value
 	}
 
 	// MARK: - All
