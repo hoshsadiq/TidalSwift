@@ -19,6 +19,19 @@ extension Session {
 		try await populateVariablesForAccessToken()
 	}
 
+	/// Finishes the desktop-client PKCE login from the callback URL: parses the
+	/// code, exchanges it (no client secret), stores the token and loads the
+	/// user. The stored `clientID` is the desktop client's, which is what makes
+	/// `refreshAccessToken` skip the secret on later refreshes.
+	public func completeDesktopLogin(callbackURL: URL, codeVerifier: String) async throws {
+		let code = try DesktopLogin.authorizationCode(from: callbackURL)
+		let token = try await DesktopLogin.exchangeAuthorizationCode(code: code, verifier: codeVerifier)
+		setAccessToken(token.accessToken, refreshToken: token.refreshToken, expiresIn: token.expiresIn)
+		config.clientID = AuthInformation.DesktopClientID
+		saveConfig()
+		try await populateVariablesForAccessToken()
+	}
+
 	private func setAccessToken(_ accessToken: String, refreshToken: String?, expiresIn: Int) {
 		var token = accessToken
 		if !token.hasPrefix("Bearer ") {

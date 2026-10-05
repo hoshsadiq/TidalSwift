@@ -49,6 +49,13 @@ struct TidalSwiftApp: App {
 					appModel.saveState()
 				}
 			}
+			// The desktop login's `tidal://login/auth` callback. SwiftUI's
+			// `.onOpenURL` is the receiver because the app has no AppDelegate
+			// open-URL handler, and the URL must reach the shared `LoginInfo`
+			// that paused waiting for it. URLs with no pending login are ignored.
+			.onOpenURL { url in
+				appModel.loginInfo.receive(callbackURL: url)
+			}
 		}
 		.commands {
 			TidalSwiftCommands(appModel: appModel)

@@ -12,6 +12,22 @@ enum AuthInformation {
     static let OAuthClientID = "4ywnjRfroi84hz7i"
     static let OAuthClientSecret = "7cNdrLt3NIQg0CHEpMDjcbV38XlwVdstczHqf59QiI0="
 	static let scope = "r_usr+w_usr"
+	// The official desktop client, for the PKCE login. Unlike ours it needs no
+	// client secret, and its token carries the `cid` 7785 / `cuk` claims that
+	// make Tidal serve hi-res stereo instead of Atmos.
+	static let DesktopClientID = "mhPVJJEBNRzVjr2p"
+	static let DesktopAuthorizeLocation = "https://login.tidal.com/authorize"
+	// Captured from the official app's own token exchange: the authorize host is
+	// login.tidal.com, but the exchange happens on auth.tidal.com.
+	static let DesktopTokenLocation = "https://auth.tidal.com/v1/oauth2/token"
+	// Tidal binds the session to a client unique key, which the official app sends
+	// on the code exchange. Without it the token has no `cuk` claim, and Tidal
+	// serves the Atmos rendition instead of the stereo one for Atmos-capable
+	// tracks. Generated once per install and kept, because the server treats it as
+	// identifying this installation.
+	static let DesktopUniqueKeyDefaultsKey = "desktopClientUniqueKey"
+	// Fixed by the desktop client registration; a loopback redirect is refused.
+	static let DesktopRedirectURI = "tidal://login/auth"
     static let APILocation = "https://api.tidal.com/v1"
 	// The official desktop client asks the v2 feed on `tidal.com` (not
 	// `api.tidal.com`); both hosts answer identically.
