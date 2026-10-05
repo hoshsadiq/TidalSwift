@@ -60,12 +60,12 @@ extension Session {
 	///
 	/// When `preferDolbyAtmos` is set and the track has an Atmos rendition, that
 	/// rendition wins even when a stereo one exists. Atmos is not a tier in the
-	/// ladder below, so it is attempted once and never memoised; the returned
-	/// quality is the caller's preferred stereo tier and does not label the Atmos
-	/// stream (the UI labels that from the track itself).
-	public func bestAudioUrl(trackId: Int, preferredQuality: AudioQuality, preferDolbyAtmos: Bool = false) async -> (url: URL, quality: AudioQuality)? {
+	/// ladder below, so it is attempted once and never memoised; `isDolbyAtmos`
+	/// reports whether the returned URL is that rendition, so the caller can label
+	/// the stream that actually plays instead of the track's capabilities.
+	public func bestAudioUrl(trackId: Int, preferredQuality: AudioQuality, preferDolbyAtmos: Bool = false) async -> (url: URL, quality: AudioQuality, isDolbyAtmos: Bool)? {
 		if preferDolbyAtmos, let atmosUrl = await dolbyAtmosUrl(trackId: trackId) {
-			return (atmosUrl, preferredQuality)
+			return (atmosUrl, preferredQuality, true)
 		}
 		let descending: [AudioQuality] = [.max, .high, .medium, .low]
 		guard let preferredIndex = descending.firstIndex(of: preferredQuality) else {
@@ -79,12 +79,12 @@ extension Session {
 		for quality in descending[startIndex...] {
 			if let url = await audioUrl(trackId: trackId, audioQuality: quality) {
 				bestResolvedAudioQualities[trackId] = quality
-				return (url, quality)
+				return (url, quality, false)
 			}
 			// Atmos tracks are refused by `streamUrl`; the manifest endpoint serves them.
 			if let url = await playbackManifestUrl(trackId: trackId, audioQuality: quality) {
 				bestResolvedAudioQualities[trackId] = quality
-				return (url, quality)
+				return (url, quality, true)
 			}
 		}
 		return nil

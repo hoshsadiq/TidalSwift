@@ -27,6 +27,9 @@ class Player {
 
 
 	private var currentAudioQuality: AudioQuality
+	// Set from the resolved stream, not from the track: an Atmos-capable track
+	// plays its stereo rendition whenever the Atmos preference is off.
+	private var currentIsDolbyAtmos = false
 	private(set) var nextAudioQuality: AudioQuality
 
 	init(session: Session, audioQuality: AudioQuality, autoplayAfterAddNow: Bool = true) {
@@ -263,6 +266,7 @@ class Player {
 			print("[PLAYBACK] avSetItem(): resolved URL - title: \(track.title), quality: \(nextAudioQuality), source: offline")
 			url = offlineStream.url
 			currentAudioQuality = nextAudioQuality
+			currentIsDolbyAtmos = offlineStream.isDolbyAtmos
 		} else if let resolved = await session.bestAudioUrl(
 			trackId: track.id,
 			preferredQuality: nextAudioQuality,
@@ -272,6 +276,7 @@ class Player {
 			print("[PLAYBACK] avSetItem(): resolved URL - title: \(track.title), quality: \(resolved.quality), source: online")
 			url = resolved.url
 			currentAudioQuality = resolved.quality
+			currentIsDolbyAtmos = resolved.isDolbyAtmos
 		} else {
 			guard loadID == itemLoadID else {
 				return
@@ -573,9 +578,10 @@ class Player {
 			return ""
 		}
 		let track = queueInfo.queue[queueInfo.currentIndex].track
-		// Tidal reports Atmos tracks as `audioQuality: .low`, which would otherwise
-		// be shown as a bitrate; the stream itself is always Dolby Atmos.
-		if track.audioModes?.contains(.dolbyAtmos) ?? false {
+		// Describe the stream that plays, not what the track could offer: Tidal
+		// reports Atmos tracks as `audioQuality: .low`, and an Atmos track plays
+		// stereo when the preference is off.
+		if currentIsDolbyAtmos {
 			return "Dolby Atmos"
 		}
 		guard let quality = track.audioQuality else {
@@ -585,7 +591,9 @@ class Player {
 		var chosenQuality = currentAudioQuality
 //		print("\(chosenQuality) \(quality)")
 
-		if chosenQuality == .max && quality != .max {
+		// Tidal answers a HI_RES_LOSSLESS request with a 16 Bit / 44,1 kHz file, so a
+		// Max request never plays hi-res. See `AudioQuality.max`.
+		if chosenQuality == .max {
 			chosenQuality = .high
 		}
 		if chosenQuality == .high && (quality == .medium || quality == .low) {
