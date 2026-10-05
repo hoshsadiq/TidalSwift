@@ -24,7 +24,7 @@ public final class OfflineDB {
 	private func updateTracks() {
 		let albumTracks = albums.flatMap { self.albumTracks[$0] ?? [] }
 		let playlistTracks = playlists.flatMap { self.playlistTracks[$0] ?? [] }
-		let newTracks = Set((favoriteTracks + albumTracks + playlistTracks).filter(\.isPlayable))
+		let newTracks = Set((favoriteTracks + standaloneOfflineTracks + albumTracks + playlistTracks).filter(\.isPlayable))
 
 		// The dates are only touched once the persisted state is loaded, so a
 		// half-loaded db can't wipe a date for a track it simply hasn't read yet.
@@ -108,6 +108,23 @@ public final class OfflineDB {
 		playlistTracks[playlist] = tracks
 	}
 
+	/// Tracks pinned individually from the track context menu, independent of
+	/// favourites, albums and playlists. Stored as full records rather than ids:
+	/// the sync needs a track's metadata to download it.
+	private(set) var standaloneOfflineTracks: [Track] = [] {
+		didSet {
+			updateTracks()
+			save()
+		}
+	}
+	func addStandaloneOfflineTrack(_ track: Track) {
+		guard !standaloneOfflineTracks.contains(track) else { return }
+		standaloneOfflineTracks.append(track)
+	}
+	func removeStandaloneOfflineTrack(_ track: Track) {
+		standaloneOfflineTracks.removeAll(where: { $0 == track })
+	}
+
 	init() {
 		// Counters used before tracks were derived, which could drift and keep files forever
 		UserDefaults.standard.removeObject(forKey: "OfflineDB:Tracks")
@@ -154,6 +171,13 @@ public final class OfflineDB {
 				self.playlistTracks = [:]
 			}
 		}
+		if let data = UserDefaults.standard.data(forKey: "OfflineDB:StandaloneOfflineTracks") {
+			if let temp = try? JSONDecoder().decode([Track].self, from: data) {
+				self.standaloneOfflineTracks = temp
+			} else {
+				self.standaloneOfflineTracks = []
+			}
+		}
 
 		// Removals used to leave these behind
 		let albums = self.albums
@@ -168,6 +192,7 @@ public final class OfflineDB {
 	fileprivate func clear() {
 		trackAddedDates = [:]
 		favoriteTracks = []
+		standaloneOfflineTracks = []
 		albums = []
 		albumTracks = [:]
 		playlists = []
@@ -192,6 +217,9 @@ public final class OfflineDB {
 
 		let playlistTracksData = try? JSONEncoder().encode(playlistTracks)
 		UserDefaults.standard.set(playlistTracksData, forKey: "OfflineDB:PlaylistTracks")
+
+		let standaloneOfflineTracksData = try? JSONEncoder().encode(standaloneOfflineTracks)
+		UserDefaults.standard.set(standaloneOfflineTracksData, forKey: "OfflineDB:StandaloneOfflineTracks")
 	}
 }
 
@@ -397,6 +425,20 @@ public final class Offline {
 
 	public func isTrackMarkedForOffline(track: Track) async -> Bool {
 		db.tracks.contains(track)
+	}
+
+	// MARK: - Track
+
+	/// Pins a single track offline, independent of favourites, albums and playlists.
+	public func add(track: Track) async {
+		db.addStandaloneOfflineTrack(track)
+		asyncSync()
+	}
+
+	/// Unpins a single track. It stays offline if a favourite, album or playlist still contains it.
+	public func remove(track: Track) async {
+		db.removeStandaloneOfflineTrack(track)
+		asyncSync()
 	}
 
 	// Actual state
