@@ -28,7 +28,8 @@ struct TrackList: View {
 		LazyVStack {
 			ForEach(wrappedTracks) { wrappedTrack in
 				TrackRow(track: wrappedTrack.track, showCover: showCover, showArtist: showArtist, showAlbum: showAlbum,
-						 trackNumber: showAlbumTrackNumber ? nil : wrappedTrack.id, session: session)
+						 trackNumber: showAlbumTrackNumber ? nil : wrappedTrack.id, session: session,
+						 onPlay: { play(wrappedTrack) })
 				.padding(.horizontal, 8)
 				.background(
 					RoundedRectangle(cornerRadius: CORNERRADIUS)
@@ -45,9 +46,6 @@ struct TrackList: View {
 					}
 				}
 				.onTapGesture(count: 2) {
-					play(wrappedTrack)
-				}
-				.accessibilityAction {
 					play(wrappedTrack)
 				}
 				.onTapGesture(count: 1) {
@@ -114,6 +112,9 @@ struct TrackRow: View {
 	let showAlbum: Bool
 	let trackNumber: Int?
 	let session: Session
+	/// Runs the row's primary action (play) so VoiceOver's default action matches
+	/// the double-click gesture, which lives on the row wrapper in `TrackList`.
+	var onPlay: (() -> Void)?
 
 	var widthFactorTrack: CGFloat
 	var widthFactorArtist: CGFloat
@@ -126,7 +127,7 @@ struct TrackRow: View {
 	@State private var isFavorite: Bool? = nil
 
 	init(track: Track, showCover: Bool = false, showArtist: Bool, showAlbum: Bool,
-		 trackNumber: Int? = nil, session: Session) {
+		 trackNumber: Int? = nil, session: Session, onPlay: (() -> Void)? = nil) {
 		self.track = track
 		self.showCover = showCover
 		self.showArtist = showArtist
@@ -137,6 +138,7 @@ struct TrackRow: View {
 			self.trackNumber = nil
 		}
 		self.session = session
+		self.onPlay = onPlay
 
 		if showArtist && showAlbum { // Both
 			self.widthFactorTrack = 0.28
@@ -224,12 +226,7 @@ struct TrackRow: View {
 					}
 					#if canImport(AppKit)
 					Button {
-						let controller = ResizableWindowControllerFactory.create(rootView:
-							CreditsView(session: session, track: track)
-								.environment(viewState)
-						)
-						controller.window?.title = "Credits – \(track.title)"
-						controller.showWindow(nil)
+						openCredits()
 					} label: {
 						Image(systemName: "c.circle")
 							.accessibilityLabel("Credits")
@@ -238,25 +235,7 @@ struct TrackRow: View {
 					.buttonStyle(.plain)
 					#endif
 					Button {
-						if isFavorite ?? false {
-							print("Remove from Favorites")
-							Task {
-								if await session.favorites?.removeTrack(trackId: track.id) == true {
-									session.helpers.offline.asyncSyncFavoriteTracks()
-									isFavorite = false
-									NotificationCenter.default.post(name: .favoriteTrackChanged, object: nil, userInfo: ["trackId": track.id, "isFavorite": false])
-								}
-							}
-						} else {
-							print("Add to Favorites")
-							Task {
-								if await session.favorites?.addTrack(trackId: track.id) == true {
-									session.helpers.offline.asyncSyncFavoriteTracks()
-									isFavorite = true
-									NotificationCenter.default.post(name: .favoriteTrackChanged, object: nil, userInfo: ["trackId": track.id, "isFavorite": true])
-								}
-							}
-						}
+						toggleFavorite()
 					} label: {
 						Image(systemName: isFavorite ?? false ? "heart.fill" : "heart")
 							.accessibilityLabel("Favorite")
@@ -277,6 +256,14 @@ struct TrackRow: View {
 	}
 		.lineLimit(1)
 		.frame(height: showCover ? 30 : 16) // Values tested "by hand"
+		// The whole row is one VoiceOver element; its text and buttons merge into
+		// it, so each interactive child is re-exposed by name below.
+		.accessibilityElement(children: .combine)
+		.accessibilityLabel(accessibilityLabel)
+		.accessibilityAddTraits(.isButton)
+		.accessibilityAction(.default) { onPlay?() }
+		.accessibilityAction(named: "Toggle favourite", toggleFavorite)
+		.accessibilityAction(named: "Credits", openCredits)
 	}
 
 	var trackToolTipString: String {
@@ -286,5 +273,57 @@ struct TrackRow: View {
 		}
 		s += " – \(track.artists.formArtistString())"
 		return s
+	}
+
+	/// What VoiceOver reads for the row: only what the row actually shows.
+	private var accessibilityLabel: String {
+		var parts = [track.title]
+		if let version = track.version {
+			parts.append(version)
+		}
+		if showArtist {
+			parts.append(track.artists.formArtistString())
+		}
+		if showAlbum {
+			parts.append(track.album.title)
+		}
+		if isOffline {
+			parts.append("Available offline")
+		}
+		parts.append(secondsToHoursMinutesSecondsString(seconds: track.duration))
+		return parts.joined(separator: ", ")
+	}
+
+	private func toggleFavorite() {
+		if isFavorite ?? false {
+			print("Remove from Favorites")
+			Task {
+				if await session.favorites?.removeTrack(trackId: track.id) == true {
+					session.helpers.offline.asyncSyncFavoriteTracks()
+					isFavorite = false
+					NotificationCenter.default.post(name: .favoriteTrackChanged, object: nil, userInfo: ["trackId": track.id, "isFavorite": false])
+				}
+			}
+		} else {
+			print("Add to Favorites")
+			Task {
+				if await session.favorites?.addTrack(trackId: track.id) == true {
+					session.helpers.offline.asyncSyncFavoriteTracks()
+					isFavorite = true
+					NotificationCenter.default.post(name: .favoriteTrackChanged, object: nil, userInfo: ["trackId": track.id, "isFavorite": true])
+				}
+			}
+		}
+	}
+
+	private func openCredits() {
+		#if canImport(AppKit)
+		let controller = ResizableWindowControllerFactory.create(rootView:
+			CreditsView(session: session, track: track)
+				.environment(viewState)
+		)
+		controller.window?.title = "Credits – \(track.title)"
+		controller.showWindow(nil)
+		#endif
 	}
 }

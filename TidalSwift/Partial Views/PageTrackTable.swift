@@ -127,6 +127,33 @@ private struct PageTrackRow: View {
 		.task(id: track.id) {
 			isFavorite = await track.isInFavorites(session: session)
 		}
+		// The whole row is one VoiceOver element; its text and buttons merge into
+		// it, so each interactive child is re-exposed by name below.
+		.accessibilityElement(children: .combine)
+		.accessibilityLabel(accessibilityLabel)
+		.accessibilityAddTraits(.isButton)
+		.accessibilityAction(.default, play)
+		.accessibilityAction(named: "Add to queue", addToQueue)
+		.accessibilityAction(named: "Toggle favourite", toggleFavorite)
+	}
+
+	private func play() {
+		guard !track.isUnavailable else { return }
+		player.add(track: track, .now)
+	}
+
+	private func addToQueue() {
+		player.add(track: track, .last)
+	}
+
+	private var accessibilityLabel: String {
+		var parts = [track.title]
+		if let version = track.version {
+			parts.append(version)
+		}
+		parts.append(track.artists.formArtistString())
+		parts.append(secondsToHoursMinutesSecondsString(seconds: track.duration))
+		return parts.joined(separator: ", ")
 	}
 
 	private var rowBackground: Color {
@@ -185,6 +212,7 @@ private struct PageTrackRow: View {
 				Image(systemName: "plus")
 			}
 			.buttonStyle(.plain)
+			.accessibilityHidden(true)
 			.help("Add to Queue")
 
 			Button {
@@ -193,6 +221,7 @@ private struct PageTrackRow: View {
 				Image(systemName: (isFavorite ?? false) ? "heart.fill" : "heart")
 			}
 			.buttonStyle(.plain)
+			.accessibilityHidden(true)
 			.help((isFavorite ?? false) ? "Remove from Favorites" : "Add to Favorites")
 		}
 		.secondaryIconColor()

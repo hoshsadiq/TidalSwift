@@ -339,22 +339,33 @@ private struct ViewAllTrackRow: View {
 
 	var body: some View {
 		HStack(spacing: 8) {
-			cover
-			titleColumn
-			Text(track.artists.formArtistString())
-				.frame(maxWidth: .infinity, alignment: .leading)
-				.help(track.artists.formArtistString())
-			Text(track.album.title)
-				.frame(maxWidth: .infinity, alignment: .leading)
-				.help(track.album.title)
-			Text(secondsToHoursMinutesSecondsString(seconds: track.duration))
-				.frame(width: 52, alignment: .trailing)
-				.monospacedDigit()
-			Text(track.bpm.map(String.init) ?? "-")
-				.frame(width: 44, alignment: .trailing)
-				.monospacedDigit()
-			keyPill
-				.frame(width: 44)
+			// The informational columns are one VoiceOver element. The trailing
+			// ellipsis menu can't be a named action, so it stays its own focusable
+			// element outside this group.
+			HStack(spacing: 8) {
+				cover
+				titleColumn
+				Text(track.artists.formArtistString())
+					.frame(maxWidth: .infinity, alignment: .leading)
+					.help(track.artists.formArtistString())
+				Text(track.album.title)
+					.frame(maxWidth: .infinity, alignment: .leading)
+					.help(track.album.title)
+				Text(secondsToHoursMinutesSecondsString(seconds: track.duration))
+					.frame(width: 52, alignment: .trailing)
+					.monospacedDigit()
+				Text(track.bpm.map(String.init) ?? "-")
+					.frame(width: 44, alignment: .trailing)
+					.monospacedDigit()
+				keyPill
+					.frame(width: 44)
+			}
+			.accessibilityElement(children: .combine)
+			.accessibilityLabel(accessibilityLabel)
+			.accessibilityAddTraits(.isButton)
+			.accessibilityAction(.default, play)
+			.accessibilityAction(named: "Add to queue", addToQueue)
+			.accessibilityAction(named: "Toggle favourite", toggleFavorite)
 			actions
 				.frame(width: 84)
 		}
@@ -381,6 +392,32 @@ private struct ViewAllTrackRow: View {
 		.task(id: track.id) {
 			isFavorite = await track.isInFavorites(session: session)
 		}
+	}
+
+	private func play() {
+		guard !track.isUnavailable else { return }
+		player.add(track: track, .now)
+	}
+
+	private func addToQueue() {
+		player.add(track: track, .last)
+	}
+
+	private var accessibilityLabel: String {
+		var parts = [track.title]
+		if let version = track.version {
+			parts.append(version)
+		}
+		parts.append(track.artists.formArtistString())
+		parts.append(track.album.title)
+		parts.append(secondsToHoursMinutesSecondsString(seconds: track.duration))
+		if let bpm = track.bpm {
+			parts.append("\(bpm) BPM")
+		}
+		if track.camelotKey != "-" {
+			parts.append("Key \(track.camelotKey)")
+		}
+		return parts.joined(separator: ", ")
 	}
 
 	@ViewBuilder
@@ -469,7 +506,7 @@ private struct ViewAllTrackRow: View {
 				Image(systemName: "plus")
 			}
 			.buttonStyle(.plain)
-			.accessibilityLabel("Add to Queue")
+			.accessibilityHidden(true)
 			.help("Add to Queue")
 
 			Button {
@@ -478,7 +515,7 @@ private struct ViewAllTrackRow: View {
 				Image(systemName: (isFavorite ?? false) ? "heart.fill" : "heart")
 			}
 			.buttonStyle(.plain)
-			.accessibilityLabel((isFavorite ?? false) ? "Remove from Favorites" : "Add to Favorites")
+			.accessibilityHidden(true)
 			.help((isFavorite ?? false) ? "Remove from Favorites" : "Add to Favorites")
 		}
 		.secondaryIconColor()
