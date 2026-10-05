@@ -36,15 +36,37 @@ private struct PlaybackPreferencesTab: View {
 	/// The offline rows read `session.config`, which is not observable, so a changed
 	/// value has to be mirrored here or the selection circle would not move.
 	@State private var offlineQuality: AudioQuality?
+	/// Which target the Quality section edits. Streaming is what a user usually changes,
+	/// so it is the default; the choice survives tab switches while Preferences is open.
+	@State private var qualityTarget: QualityTarget = .playback
 
 	var body: some View {
 		Form {
 			Section {
-				AudioQualityRows(
-					selection: appModel.audioQuality,
-					isAvailable: { appModel.isAudioQualityAvailable($0) },
-					select: { appModel.setAudioQuality($0) }
-				)
+				Picker("Quality", selection: $qualityTarget) {
+					Text("Playback").tag(QualityTarget.playback)
+					Text("Offline").tag(QualityTarget.offline)
+				}
+				.pickerStyle(.segmented)
+				.labelsHidden()
+
+				switch qualityTarget {
+				case .playback:
+					AudioQualityRows(
+						selection: appModel.audioQuality,
+						isAvailable: { appModel.isAudioQualityAvailable($0) },
+						select: { appModel.setAudioQuality($0) }
+					)
+				case .offline:
+					AudioQualityRows(
+						selection: offlineQuality ?? appModel.session.config.offlineAudioQuality,
+						isAvailable: { appModel.isAudioQualityAvailable($0) },
+						select: { quality in
+							offlineQuality = quality
+							appModel.session.helpers.offline.setAudioQuality(to: quality)
+						}
+					)
+				}
 
 				Toggle(isOn: $ignoreSubscriptionLimits) {
 					VStack(alignment: .leading) {
@@ -55,17 +77,24 @@ private struct PlaybackPreferencesTab: View {
 					}
 				}
 			} header: {
-				Text("Audio quality")
+				Text("Quality")
 			} footer: {
 				VStack(alignment: .leading, spacing: 2) {
-					Text("Applies to the next track you play.")
-					if let highest = appModel.highestSoundQuality {
-						Text("Your subscription supports up to \(highest.shortTitle).")
+					switch qualityTarget {
+					case .playback:
+						Text("Applies to the next track you play.")
+						if let highest = appModel.highestSoundQuality {
+							Text("Your subscription supports up to \(highest.shortTitle).")
+						}
+					case .offline:
+						Text("Changing this re-checks your offline library and can re-download files.")
 					}
 				}
 			}
 
-			Section("Playback") {
+			// Dolby Atmos picks a different stream for a track rather than a quality tier,
+			// so it gets its own section instead of riding under Quality.
+			Section("Dolby Atmos") {
 				Toggle(isOn: Binding(
 					get: { preferDolbyAtmos },
 					set: { newValue in
@@ -82,20 +111,9 @@ private struct PlaybackPreferencesTab: View {
 							.foregroundStyle(.secondary)
 					}
 				}
+			}
 
-				Text("Offline quality")
-				AudioQualityRows(
-					selection: offlineQuality ?? appModel.session.config.offlineAudioQuality,
-					isAvailable: { appModel.isAudioQualityAvailable($0) },
-					select: { quality in
-						offlineQuality = quality
-						appModel.session.helpers.offline.setAudioQuality(to: quality)
-					}
-				)
-				Text("Changing this re-checks your offline library and can re-download files.")
-					.font(.caption)
-					.foregroundStyle(.secondary)
-
+			Section("Playback") {
 				Toggle(isOn: .constant(false)) {
 					VStack(alignment: .leading) {
 						Text("Normalize volume")
@@ -130,6 +148,12 @@ private struct PlaybackPreferencesTab: View {
 		.formStyle(.grouped)
 		.task { await appModel.loadHighestSoundQuality() }
 	}
+}
+
+/// The two targets the Quality section can edit.
+private enum QualityTarget: Hashable {
+	case playback
+	case offline
 }
 
 /// The quality tiers, shared by the streaming and offline pickers so both look and
