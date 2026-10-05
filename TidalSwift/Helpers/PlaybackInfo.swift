@@ -19,6 +19,10 @@ final class PlaybackInfo {
 	var repeatState: RepeatState = .off { didSet { hasUnsavedChanges = true } }
 	var pauseAfter: Bool = false { didSet { hasUnsavedChanges = true } }
 	var failedTrackIds: Set<Int> = []
+	/// The stream resolved for a track, tagged with the track it describes.
+	/// Resolution is async, so during a track change this still names the previous
+	/// track; readers must match `trackId` before describing the current track.
+	var resolvedStream: ResolvedStream?
 
 	@ObservationIgnored var hasUnsavedChanges = false
 
@@ -40,6 +44,13 @@ final class PlaybackInfo {
 	/// Ambient background colour derived from the current artwork. Shared with
 	/// the drawer so its panels can pick a foreground that contrasts with it.
 	var ambientColor: Color = NowPlayingAmbient.fallback
+}
+
+/// The stream that actually plays for a track (not what the track could offer).
+struct ResolvedStream {
+	let trackId: Int
+	let quality: AudioQuality
+	let isDolbyAtmos: Bool
 }
 
 /// Panels of the Now Playing drawer.

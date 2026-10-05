@@ -26,15 +26,10 @@ class Player {
 	private var itemLoadID = 0
 
 
-	private var currentAudioQuality: AudioQuality
-	// Set from the resolved stream, not from the track: an Atmos-capable track
-	// plays its stereo rendition whenever the Atmos preference is off.
-	private var currentIsDolbyAtmos = false
 	private(set) var nextAudioQuality: AudioQuality
 
 	init(session: Session, audioQuality: AudioQuality, autoplayAfterAddNow: Bool = true) {
 		self.session = session
-		self.currentAudioQuality = audioQuality
 		self.nextAudioQuality = audioQuality
 		self.autoplayAfterAddNow = autoplayAfterAddNow
 
@@ -265,8 +260,11 @@ class Player {
 			print("Play \(track.title) from offline URL: \(offlineStream.url)")
 			print("[PLAYBACK] avSetItem(): resolved URL - title: \(track.title), quality: \(nextAudioQuality), source: offline")
 			url = offlineStream.url
-			currentAudioQuality = nextAudioQuality
-			currentIsDolbyAtmos = offlineStream.isDolbyAtmos
+			playbackInfo.resolvedStream = ResolvedStream(
+				trackId: track.id,
+				quality: nextAudioQuality,
+				isDolbyAtmos: offlineStream.isDolbyAtmos
+			)
 		} else if let resolved = await session.bestAudioUrl(
 			trackId: track.id,
 			preferredQuality: nextAudioQuality,
@@ -275,8 +273,11 @@ class Player {
 			print("Play \(track.title) from online URL: \(resolved.url)")
 			print("[PLAYBACK] avSetItem(): resolved URL - title: \(track.title), quality: \(resolved.quality), source: online")
 			url = resolved.url
-			currentAudioQuality = resolved.quality
-			currentIsDolbyAtmos = resolved.isDolbyAtmos
+			playbackInfo.resolvedStream = ResolvedStream(
+				trackId: track.id,
+				quality: resolved.quality,
+				isDolbyAtmos: resolved.isDolbyAtmos
+			)
 		} else {
 			guard loadID == itemLoadID else {
 				return
@@ -580,15 +581,20 @@ class Player {
 		let track = queueInfo.queue[queueInfo.currentIndex].track
 		// Describe the stream that plays, not what the track could offer: Tidal
 		// reports Atmos tracks as `audioQuality: .low`, and an Atmos track plays
-		// stereo when the preference is off.
-		if currentIsDolbyAtmos {
+		// stereo when the preference is off. Resolution is async, so the stored
+		// stream still belongs to the previous track until this one resolves;
+		// say nothing then rather than borrow the previous track's label.
+		guard let stream = playbackInfo.resolvedStream, stream.trackId == track.id else {
+			return ""
+		}
+		if stream.isDolbyAtmos {
 			return "Dolby Atmos"
 		}
 		guard let quality = track.audioQuality else {
 			return ""
 		}
 
-		var chosenQuality = currentAudioQuality
+		var chosenQuality = stream.quality
 //		print("\(chosenQuality) \(quality)")
 
 		// Tidal answers a HI_RES_LOSSLESS request with a 16 Bit / 44,1 kHz file, so a
