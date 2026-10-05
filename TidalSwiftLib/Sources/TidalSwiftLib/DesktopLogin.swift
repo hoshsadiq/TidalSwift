@@ -74,8 +74,12 @@ public enum DesktopLogin {
 
 	public static func authorizeURL(codeChallenge: String) -> URL {
 		var components = URLComponents(string: AuthInformation.DesktopAuthorizeLocation)!
+		// The client unique key belongs here as well as on the exchange, which is what
+		// the official client does: captured from its own flow. Without it the code
+		// comes back bound to another client and the exchange is refused.
 		components.queryItems = [
 			URLQueryItem(name: "client_id", value: AuthInformation.DesktopClientID),
+			URLQueryItem(name: "client_unique_key", value: clientUniqueKey()),
 			URLQueryItem(name: "code_challenge", value: codeChallenge),
 			URLQueryItem(name: "code_challenge_method", value: "S256"),
 			URLQueryItem(name: "redirect_uri", value: AuthInformation.DesktopRedirectURI),
