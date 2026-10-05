@@ -17,6 +17,7 @@ struct ContentView: View {
 	var sortingState: SortingState
 
 	@Environment(ToastCenter.self) private var toastCenter
+	@Environment(TidalSwiftAppModel.self) private var appModel
 
 	let session: Session
 	let player: Player
@@ -51,6 +52,24 @@ struct ContentView: View {
 			.background(EmptyView().sheet(isPresented: $playlistEditingValues.showEditModal) {
 				EditPlaylistView(session: session, playlistEditingValues: playlistEditingValues, viewState: viewState)
 			})
+			.confirmationDialog(
+				"Log out of TidalSwift?",
+				isPresented: $loginInfo.showLogoutConfirmation,
+				titleVisibility: .visible
+			) {
+				Button("Log Out") {
+					appModel.logout()
+				}
+				.keyboardShortcut(.defaultAction)
+
+				Button("Log Out and Remove Downloads", role: .destructive) {
+					appModel.logout(removeDownloads: true)
+				}
+
+				Button("Cancel", role: .cancel) {}
+			} message: {
+				Text("Your downloaded music is kept on this Mac. Removing downloads deletes the files for good.")
+			}
 			#if canImport(AppKit)
 			.touchBar {
 				TouchBarView(player: player, playbackInfo: player.playbackInfo)

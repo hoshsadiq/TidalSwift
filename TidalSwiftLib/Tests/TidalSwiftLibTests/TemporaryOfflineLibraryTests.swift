@@ -165,7 +165,65 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 					   "the backfilled date must be persisted, not just held in memory")
 	}
 
+	// MARK: - Logout
+
+	/// Logging out while keeping downloads must leave the online library alone: the
+	/// keep path never calls `removeAll()`, so the file and its database entry both
+	/// survive the sync.
+	func testKeepingDownloadsLeavesFileAndDatabaseIntact() async throws {
+		let trackId = 987_654_501
+		let track = makeTrack(id: trackId)
+		try createOfflineFile(forTrackId: trackId, createdAt: Date(timeIntervalSince1970: 1_600_000_000))
+		persistOfflineState(album: makeAlbum(id: trackId), tracks: [track])
+
+		let session = offlineLibrary.makeSession()
+		let offline = session.helpers.offline
+		await offline.awaitOngoingSync()
+
+		XCTAssertTrue(fileExists(forTrackId: trackId), "keeping downloads must not delete the downloaded file")
+		XCTAssertTrue(OfflineDB().tracks.contains(track), "keeping downloads must not clear the database")
+	}
+
+	/// Logging out and removing downloads is the destructive path the confirmation
+	/// dialog offers. It must delete the file and clear the database, exactly as
+	/// the old unconditional `removeAll()` did.
+	func testRemovingDownloadsClearsFileAndDatabase() async throws {
+		let trackId = 987_654_502
+		let track = makeTrack(id: trackId)
+		try createOfflineFile(forTrackId: trackId, createdAt: Date(timeIntervalSince1970: 1_600_000_000))
+		persistOfflineState(album: makeAlbum(id: trackId), tracks: [track])
+
+		let session = offlineLibrary.makeSession()
+		let offline = session.helpers.offline
+		await offline.awaitOngoingSync()
+
+		offline.removeAll()
+		let cleared = await waitUntil {
+			!self.fileExists(forTrackId: trackId) && !OfflineDB().tracks.contains(track)
+		}
+
+		XCTAssertTrue(cleared, "removing downloads must delete the file and clear the database")
+	}
+
 	// MARK: - Helpers
+
+	/// Polls a MainActor condition while letting the sync tasks run. Bounded so a
+	/// broken sync fails the test instead of hanging it.
+	private func waitUntil(timeout: TimeInterval = 5, _ condition: @MainActor () -> Bool) async -> Bool {
+		let deadline = Date().addingTimeInterval(timeout)
+		while Date() < deadline {
+			if condition() { return true }
+			try? await Task.sleep(nanoseconds: 10_000_000)
+		}
+		return condition()
+	}
+
+	private func fileExists(forTrackId trackId: Int) -> Bool {
+		let file = offlineLibrary.root
+			.appendingPathComponent("TidalSwift Offline Library")
+			.appendingPathComponent("\(trackId).lossless.flac")
+		return FileManager.default.fileExists(atPath: file.path)
+	}
 
 	/// Writes the persisted offline state `OfflineDB` reads in `init`, so a test
 	/// can drive the load path — where dates are backfilled — without a Tidal

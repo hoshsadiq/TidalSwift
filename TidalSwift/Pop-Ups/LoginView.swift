@@ -12,6 +12,10 @@ import TidalSwiftLib
 @Observable final class LoginInfo {
 	var showModal = false
 
+	/// Asks what to do with the downloaded files before logging out. The app model
+	/// sets it from the Account menu; `ContentView` presents the dialog.
+	var showLogoutConfirmation = false
+
 	/// The desktop login waits here for the `tidal://login/auth` callback. It
 	/// lives on this app-wide object, not in the view, because the URL arrives
 	/// through the scene's `.onOpenURL`, which cannot reach the view's state.

@@ -988,8 +988,14 @@ final class TidalSwiftAppModel {
 		}
 	}
 
-	func logout() {
-		session.helpers.offline.removeAll()
+	/// Ends the session. `removeDownloads` decides what happens to the offline
+	/// library: by default it is left completely alone, and only an explicit
+	/// choice deletes the files. The offline decision is made before
+	/// `session.logout()`, so it does not depend on the session still being valid.
+	func logout(removeDownloads: Bool = false) {
+		if removeDownloads {
+			session.helpers.offline.removeAll()
+		}
 		closeModals()
 		#if canImport(AppKit)
 		closeAllSecondaryWindows()
@@ -1229,7 +1235,7 @@ struct TidalSwiftCommands: Commands {
 				appModel.refreshAccessToken()
 			}
 			Button("Logout") {
-				appModel.logout()
+				appModel.loginInfo.showLogoutConfirmation = true
 			}
 			Button("Remove All Offline Content") {
 				appModel.removeAllOfflineContent()
