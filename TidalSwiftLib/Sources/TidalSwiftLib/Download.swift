@@ -92,6 +92,27 @@ public class Download {
 			return true
 		}
 
+		// At High/Low `streamUrl` is refused and the desktop endpoint answers an
+		// unencrypted AAC DASH manifest instead. A track that wants Atmos keeps it,
+		// so the assembly only fills the plain stereo tiers.
+		let wantsAtmos = track.hasDolbyAtmos && (session.helpers.offline.preferDolbyAtmos || !track.hasStereo)
+		if audioQuality == .medium || audioQuality == .low, track.hasStereo, !wantsAtmos,
+		   let manifest = await session.dashAudioManifest(trackId: track.id, audioQuality: audioQuality) {
+			guard let path = buildPath(baseLocation: .downloads, parentFolder: parentFolder, name: filename, pathExtension: "m4a") else {
+				displayError(title: "Error while downloading track", content: "Couldn't build path for track: \(track.title) -  \(track.artists.formArtistString())")
+				return false
+			}
+			do {
+				try await DashAudio.assemble(manifest, to: path)
+			} catch {
+				displayError(title: "Error while downloading track", content: "Download failed for track \(track.title). Error: \(error)")
+				return false
+			}
+			await metadata.setMetadata(for: track, at: path)
+			print("Download Finished: \(filename)")
+			return true
+		}
+
 		guard let stream = await track.audioStream(session: session, audioQuality: audioQuality, preferDolbyAtmos: session.helpers.offline.preferDolbyAtmos) else {
 			return false
 		}

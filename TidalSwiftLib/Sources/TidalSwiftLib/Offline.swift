@@ -285,6 +285,12 @@ public final class Offline {
 	/// download-and-decrypt path without a live Tidal account. The app leaves it nil.
 	var resolveHiResOfflineStream: ((Track) async -> AcceptedHiResManifest?)?
 
+	/// Test seam for the DASH branch, again the counterpart of `resolveOfflineStream`:
+	/// returns the manifest a sync would assemble, so a test can drive the
+	/// segment-fetch path against `file://` segments without a live Tidal account.
+	/// The app leaves it nil and asks the session.
+	var resolveOfflineDashManifest: ((Track) async -> DashAudioManifest?)?
+
 	/// Test seam: seeds the offline track set and starts a sync, so a test can
 	/// drive a pass against a known state. The app never calls this.
 	func setOfflineTracksForTesting(_ tracks: [Track]) {
@@ -438,7 +444,9 @@ public final class Offline {
 
 	/// Resolves and downloads one wanted track, returning whether a file was written.
 	/// The hi-res stereo route comes first when the policy says so; what lands on disk
-	/// from it is decrypted, never the encrypted stream.
+	/// from it is decrypted, never the encrypted stream. A tier whose `streamUrl` is
+	/// refused falls back to the DASH assembly, which is a plain AAC file when it
+	/// succeeds and no file at all when it fails.
 	private func downloadOfflineTrack(_ track: Track, existingFiles: [URL]) async -> Bool {
 		print("Offline: Downloading \(track.title)")
 		let source: OfflineDownloadSource?
@@ -450,7 +458,13 @@ public final class Offline {
 		} else {
 			source = await track.audioStream(session: session, audioQuality: session.config.offlineAudioQuality, preferDolbyAtmos: preferDolbyAtmos).map(OfflineDownloadSource.stream)
 		}
-		guard let source else {
+		// DASH is the fallback for the tiers whose `streamUrl` is refused: only when
+		// nothing else resolved, so an Atmos or hi-res rendition still wins.
+		var resolvedSource = source
+		if resolvedSource == nil {
+			resolvedSource = await resolveDashSource(for: track).map(OfflineDownloadSource.dash)
+		}
+		guard let source = resolvedSource else {
 			if !existingFiles.isEmpty {
 				// The old file stays, so a refused quality never shrinks the library
 				displayError(title: "Offline: Error while loading offline track", content: "Couldn't get Audio URL for \(track.title). Keeping the existing file.")
@@ -476,6 +490,8 @@ public final class Offline {
 			switch source {
 			case .hiRes(let manifest):
 				try await HiResStreaming.downloadAndDecrypt(manifest, to: path)
+			case .dash(let manifest):
+				try await DashAudio.assemble(manifest, to: path)
 			case .stream(let stream):
 				try await Network.download(stream.url, path: path, overwrite: true)
 			}
@@ -498,12 +514,14 @@ public final class Offline {
 
 	private enum OfflineDownloadSource {
 		case hiRes(AcceptedHiResManifest)
+		case dash(DashAudioManifest)
 		case stream(AudioStream)
 	}
 
 	private func variant(of source: OfflineDownloadSource) -> FileVariant {
 		switch source {
 		case .hiRes: .hiResStereo
+		case .dash: .stereo(session.config.offlineAudioQuality)
 		case .stream(let stream): variant(of: stream)
 		}
 	}
@@ -511,6 +529,7 @@ public final class Offline {
 	private func pathExtension(of source: OfflineDownloadSource) -> String {
 		switch source {
 		case .hiRes: "flac"
+		case .dash: "m4a"
 		case .stream(let stream): stream.pathExtension
 		}
 	}
@@ -518,6 +537,7 @@ public final class Offline {
 	private func fileMarker(of source: OfflineDownloadSource) -> String {
 		switch source {
 		case .hiRes: hiResStereoFileMarker
+		case .dash: session.config.offlineAudioQuality.rawValue.lowercased()
 		case .stream(let stream): stream.isDolbyAtmos ? dolbyAtmosFileMarker : session.config.offlineAudioQuality.rawValue.lowercased()
 		}
 	}
@@ -532,6 +552,22 @@ public final class Offline {
 			return nil
 		}
 		return manifest
+	}
+
+	/// The DASH source for a sync, only for the stereo tiers Tidal serves as DASH.
+	/// The manifest is assembled into a local file; in production the session resolves
+	/// it, while a test substitutes `resolveOfflineDashManifest` so the fixture needs
+	/// no account. A test that substituted `resolveOfflineStream` must not hit the
+	/// network here either.
+	private func resolveDashSource(for track: Track) async -> DashAudioManifest? {
+		guard case .stereo(let quality) = wantedVariant(of: track), let quality, quality == .medium || quality == .low else {
+			return nil
+		}
+		if let resolveOfflineDashManifest {
+			return await resolveOfflineDashManifest(track)
+		}
+		guard resolveOfflineStream == nil else { return nil }
+		return await session.dashAudioManifest(trackId: track.id, audioQuality: quality)
 	}
 
 	// The following always show the goal state (planned), i.e., after all downloads have finished
