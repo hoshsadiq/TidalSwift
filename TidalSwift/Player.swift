@@ -58,6 +58,30 @@ class Player {
 		observeShuffle()
 	}
 
+	/// Prepares the tracks after the current one in the queue so they start instantly.
+	/// Lazy because its closures read this player's live settings.
+	private lazy var prefetcher = HiResStreaming.makePrefetcher(for: session) { [weak self] track in
+		self?.shouldPrefetch(track) ?? false
+	}
+
+	/// Whether the hi-res route is the one that plays first for `track`, which is when
+	/// preparing it in advance is worth the bandwidth. At `Lossless` the standard route
+	/// plays first, so its file is not fetched ahead of time.
+	private func shouldPrefetch(_ track: Track) -> Bool {
+		HiResStreamingPolicy.usesHiResStereo(
+			sessionHasHiResStereoAccess: session.hasHiResStereoAccess,
+			enabled: HiResStreamingPreferences.isEnabled,
+			preferDolbyAtmos: track.hasDolbyAtmos && preferDolbyAtmos,
+			trackHasStereo: track.hasStereo,
+			trackHasDolbyAtmos: track.hasDolbyAtmos,
+			quality: nextAudioQuality
+		)
+	}
+
+	private func prefetchUpcoming() {
+		prefetcher.queueChanged(queue: queueInfo.queue.map(\.track), currentIndex: queueInfo.currentIndex)
+	}
+
 	@MainActor
 	deinit {
 		if let token = timeObserverToken {
@@ -140,12 +164,21 @@ class Player {
 
 	func previous() {
 		guard !queueInfo.queue.isEmpty else { return }
+		// Restarting the current track (or already at the first) is not a skip.
+		if avPlayer.currentTime().seconds < 3 && queueInfo.currentIndex > 0 {
+			prefetcher.trackSkipped()
+		}
+		previousTrack()
+	}
+
+	private func previousTrack() {
+		guard !queueInfo.queue.isEmpty else { return }
 		if avPlayer.currentTime().seconds >= 3 || queueInfo.currentIndex == 0 {
 			avPlayer.seek(to: CMTime(seconds: 0, preferredTimescale: 1))
 			if queueInfo.currentIndex == 0 && !queueInfo.queue[queueInfo.currentIndex].track.streamReady {
 				print("Not possible to stream \(queueInfo.queue[queueInfo.currentIndex].track.title)")
 				pause()
-				next()
+				advance(resumeAfterSet: playbackInfo.playing)
 			}
 			return
 		}
@@ -157,15 +190,20 @@ class Player {
 //			print("previous() done")
 		} else {
 			print("Not possible to stream \(queueInfo.queue[queueInfo.currentIndex].track.title)")
-			previous()
+			previousTrack()
 		}
 	}
 
+	/// A user pressing next: counts towards the browsing guard that stops preparing
+	/// tracks in advance.
 	func next() {
-		next(resumeAfterSet: playbackInfo.playing)
+		prefetcher.trackSkipped()
+		advance(resumeAfterSet: playbackInfo.playing)
 	}
 
-	private func next(resumeAfterSet: Bool, visited: Int = 0) {
+	/// Moves to the next track without counting as a manual skip (auto-advance and
+	/// skipping past unplayable tracks).
+	private func advance(resumeAfterSet: Bool, visited: Int = 0) {
 		if playbackInfo.repeatState == .single {
 			seek(to: 0)
 			return
@@ -197,7 +235,7 @@ class Player {
 			let track = queueInfo.queue[queueInfo.currentIndex].track
 			print("[PLAYBACK] next(): skipping non-streamable track - title: \(track.title), id: \(track.id), streamReady: \(track.streamReady), isUnavailable: \(track.isUnavailable), currentIndex: \(queueInfo.currentIndex), queueCount: \(queueInfo.queue.count)")
 			failedItems += 1
-			next(resumeAfterSet: resumeAfterSet, visited: visited + 1)
+			advance(resumeAfterSet: resumeAfterSet, visited: visited + 1)
 		}
 
 		if playbackInfo.pauseAfter {
@@ -222,6 +260,7 @@ class Player {
 				queueInfo.currentIndex = i
 			}
 		}
+		prefetchUpcoming()
 	}
 
 	func seek(to percentage: Double) {
@@ -238,6 +277,7 @@ class Player {
 	private func avSetItem(from track: Track, resumeAfterSet: Bool? = nil) {
 		itemLoadID += 1
 		let loadID = itemLoadID
+		prefetchUpcoming()
 		Task {
 			await avSetItemAsync(from: track, loadID: loadID, resumeAfterSet: resumeAfterSet)
 		}
@@ -260,7 +300,7 @@ class Player {
 				pause()
 				seek(to: 0)
 			} else {
-				next(resumeAfterSet: shouldResume)
+				advance(resumeAfterSet: shouldResume)
 			}
 		}
 
@@ -281,31 +321,23 @@ class Player {
 				quality: nextAudioQuality,
 				isDolbyAtmos: offlineStream.isDolbyAtmos
 			)
-		} else if let hiRes = await HiResStreaming.playbackFile(for: track, session: session) {
-			// Explicit fallback order: hi-res stereo (downloaded and decrypted to a
-			// local file, which is what AVPlayer can read) first, today's ladder second.
-			print("Play \(track.title) from hi-res stereo cache: \(hiRes.url)")
-			print("[PLAYBACK] avSetItem(): resolved URL - title: \(track.title), quality: hi-res stereo, source: hi-res")
-			url = hiRes.url
-			isPlayingHiResStereo = true
-			currentHiResBitDepth = hiRes.bitDepth
-			playbackInfo.resolvedStream = ResolvedStream(
-				trackId: track.id,
-				quality: .max,
-				isDolbyAtmos: false
-			)
-		} else if let resolved = await session.bestAudioUrl(
-			trackId: track.id,
-			preferredQuality: nextAudioQuality,
-			preferDolbyAtmos: track.hasDolbyAtmos && preferDolbyAtmos
+		} else if let stream = await session.playableStream(
+			for: track,
+			quality: nextAudioQuality,
+			preferDolbyAtmos: preferDolbyAtmos
 		) {
-			print("Play \(track.title) from online URL: \(resolved.url)")
-			print("[PLAYBACK] avSetItem(): resolved URL - title: \(track.title), quality: \(resolved.quality), source: online")
-			url = resolved.url
+			// The policy orders the routes and the first one that produces a stream wins;
+			// a hi-res result is a local decrypted file, a standard one is today's path.
+			let source = stream.isHiResStereo ? "hi-res" : "online"
+			print("Play \(track.title) from \(source) URL: \(stream.url)")
+			print("[PLAYBACK] avSetItem(): resolved URL - title: \(track.title), quality: \(stream.isHiResStereo ? "hi-res stereo" : "\(stream.quality)"), source: \(source)")
+			url = stream.url
+			isPlayingHiResStereo = stream.isHiResStereo
+			currentHiResBitDepth = stream.hiResBitDepth
 			playbackInfo.resolvedStream = ResolvedStream(
 				trackId: track.id,
-				quality: resolved.quality,
-				isDolbyAtmos: resolved.isDolbyAtmos
+				quality: stream.quality,
+				isDolbyAtmos: stream.isDolbyAtmos
 			)
 		} else {
 			guard loadID == itemLoadID else {
@@ -341,7 +373,7 @@ class Player {
 
 	@objc func playerDidFinishPlaying(sender: Notification) {
 //		print("Song finished playing")
-		next()
+		advance(resumeAfterSet: playbackInfo.playing)
 	}
 
 	func add(playlists: [Playlist], _ when: When, source: QueueSource? = nil) {
@@ -454,6 +486,7 @@ class Player {
 			queueInfo.queue.insert(contentsOf: newQueueItems, at: queueInfo.currentIndex + 1)
 		}
 		queueInfo.assignQueueIndices()
+		prefetchUpcoming()
 //		print("addNext() finished. Items in Queue: \(queueInfo.queue.count)")
 	}
 
@@ -475,6 +508,7 @@ class Player {
 			queueInfo.source = source
 			avSetItem(from: queueInfo.queue[queueInfo.currentIndex].track)
 		}
+		prefetchUpcoming()
 //		print("addLast() finished. Items in Queue: \(queueInfo.queue.count)")
 	}
 
@@ -503,6 +537,7 @@ class Player {
 			queueInfo.currentIndex = max(0, queueInfo.queue.count - 1)
 		}
 		queueInfo.assignQueueIndices()
+		prefetchUpcoming()
 
 		if removedCurrent {
 			if !queueInfo.queue.isEmpty {
@@ -534,6 +569,7 @@ class Player {
 			queueInfo.nonShuffledQueue.removeAll()
 			queueInfo.source = nil
 		}
+		prefetchUpcoming()
 	}
 
 	func queueCount() -> Int {

@@ -34,6 +34,10 @@ private struct PlaybackPreferencesTab: View {
 	@AppStorage("offlinePreferDolbyAtmos") private var offlinePreferDolbyAtmos = false
 	/// Read through the library's key so the player sees the same value without new wiring.
 	@AppStorage(HiResStreamingPreferences.enabledKey) private var hiResStereoEnabled = true
+	@AppStorage(HiResStreamingPreferences.prefetchDepthKey) private var prefetchDepth = HiResStreamingPreferences.defaultPrefetchDepth
+	@AppStorage(HiResStreamingPreferences.cacheSizeBytesKey) private var cacheSizeBytes = HiResStreamingPreferences.defaultCacheBytes
+	/// Shown in the cache row; read once when the tab appears.
+	@State private var cacheUsageBytes = 0
 	@AppStorage(TidalSwiftAppModel.ignoreSubscriptionLimitsKey) private var ignoreSubscriptionLimits = false
 	/// The offline rows read `session.config`, which is not observable, so a changed
 	/// value has to be mirrored here or the selection circle would not move.
@@ -99,6 +103,28 @@ private struct PlaybackPreferencesTab: View {
 				}
 				.disabled(!appModel.session.hasHiResStereoAccess)
 
+				Stepper(value: $prefetchDepth, in: HiResStreamingPreferences.prefetchDepthRange) {
+					VStack(alignment: .leading) {
+						Text("Prepare upcoming tracks")
+						Text(prefetchDepthHelp)
+							.font(.caption)
+							.foregroundStyle(.secondary)
+					}
+				}
+
+				Picker(selection: $cacheSizeBytes) {
+					ForEach(HiResStreamingPreferences.cacheSizeOptions, id: \.self) { bytes in
+						Text(Self.byteCount(bytes)).tag(bytes)
+					}
+				} label: {
+					VStack(alignment: .leading) {
+						Text("Cache size")
+						Text("How much space prepared tracks may use. Tracks you have not played recently are removed first. Currently using \(Self.byteCount(cacheUsageBytes)).")
+							.font(.caption)
+							.foregroundStyle(.secondary)
+					}
+				}
+
 				Toggle(isOn: $ignoreSubscriptionLimits) {
 					VStack(alignment: .leading) {
 						Text("Ignore subscription limits")
@@ -156,7 +182,23 @@ private struct PlaybackPreferencesTab: View {
 			}
 		}
 		.formStyle(.grouped)
-		.task { await appModel.loadHighestSoundQuality() }
+		.task {
+			await appModel.loadHighestSoundQuality()
+			cacheUsageBytes = HiResStreaming.cacheUsageBytes()
+		}
+	}
+
+	/// What the depth control does, in plain words. 0 is a state worth naming rather
+	/// than leaving the user to infer from a number.
+	private var prefetchDepthHelp: String {
+		if prefetchDepth == 0 {
+			return "Off. Nothing is fetched in advance, so a track may pause before it starts."
+		}
+		return "Fetches the next \(prefetchDepth) \(prefetchDepth == 1 ? "track" : "tracks") in your queue before you play them, so they start straight away. Uses disk space and bandwidth in the background."
+	}
+
+	private static func byteCount(_ bytes: Int) -> String {
+		ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
 	}
 
 	/// Unavailable is a state worth explaining, not a toggle that quietly does nothing.

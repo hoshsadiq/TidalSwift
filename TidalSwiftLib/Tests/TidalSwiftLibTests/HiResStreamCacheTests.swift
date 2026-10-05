@@ -6,9 +6,10 @@
 import XCTest
 @testable import TidalSwiftLib
 
-/// Pins the playback cache: it stays bounded, it is pruned by age then size, it never
-/// reaches outside its own directory, and a file already there is reused instead of
-/// re-downloaded. Everything runs in a temporary directory, never the real caches.
+/// Pins the playback cache and the prefetcher: the cache stays bounded, LRU evicts the
+/// oldest while sparing the prefetch window, the prefetch window follows the queue, and
+/// the browsing guard stops then resumes preparing. Everything runs in a temporary
+/// directory, never the real caches, and never the offline library.
 @MainActor
 final class HiResStreamCacheTests: XCTestCase {
 	private var directory: URL!
@@ -33,7 +34,10 @@ final class HiResStreamCacheTests: XCTestCase {
 		return url
 	}
 
-	/// Size cap: the oldest entries go first until the directory is under the cap.
+	// MARK: - Pruning
+
+	/// Size cap: the least recently used entries go first until the directory is under
+	/// the cap.
 	func testPruneRemovesOldestUntilUnderTheSizeCap() throws {
 		let now = Date()
 		let oldest = try write("oldest.flac", bytes: 1000, modified: now.addingTimeInterval(-300))
@@ -61,6 +65,33 @@ final class HiResStreamCacheTests: XCTestCase {
 		XCTAssertTrue(FileManager.default.fileExists(atPath: fresh.path))
 	}
 
+	/// A file inside the prefetch window (or the track currently playing) is exempt
+	/// from eviction: removing a file prepared for playback would make the prefetch
+	/// pointless.
+	func testProtectedTrackIsNeverEvicted() throws {
+		let now = Date()
+		let oldest = try write("100.flac", bytes: 1000, modified: now.addingTimeInterval(-300))
+		let newer = try write("200.flac", bytes: 1000, modified: now.addingTimeInterval(-100))
+
+		let removed = HiResStreamCache.prune(in: directory, maxBytes: 0, maxAge: .greatestFiniteMagnitude, protecting: [100], now: now)
+
+		XCTAssertFalse(removed.map(\.lastPathComponent).contains(oldest.lastPathComponent))
+		XCTAssertTrue(FileManager.default.fileExists(atPath: oldest.path), "protected track must survive the size cap")
+		XCTAssertFalse(FileManager.default.fileExists(atPath: newer.path))
+	}
+
+	/// The protection also survives the age cap, so the window is not aged out from
+	/// under the player.
+	func testProtectedTrackSurvivesTheAgeCap() throws {
+		let now = Date()
+		let old = try write("300.flac", bytes: 100, modified: now.addingTimeInterval(-8 * 24 * 60 * 60))
+
+		let removed = HiResStreamCache.prune(in: directory, maxBytes: .max, maxAge: 7 * 24 * 60 * 60, protecting: [300], now: now)
+
+		XCTAssertTrue(removed.isEmpty)
+		XCTAssertTrue(FileManager.default.fileExists(atPath: old.path))
+	}
+
 	/// Pruning is scoped to its directory, so the offline library (or anything else on
 	/// disk) can never be a casualty of keeping the cache small.
 	func testPruneDoesNotTouchAnythingOutsideItsDirectory() throws {
@@ -76,6 +107,15 @@ final class HiResStreamCacheTests: XCTestCase {
 		_ = HiResStreamCache.prune(in: directory, maxBytes: 0, maxAge: 0, now: now)
 
 		XCTAssertTrue(FileManager.default.fileExists(atPath: libraryFile.path), "pruning must never leave its directory")
+	}
+
+	/// Usage counts the bytes in the cache directory, which is what the settings screen
+	/// shows.
+	func testUsageCountsCacheBytes() throws {
+		_ = try write("400.flac", bytes: 1500, modified: Date())
+		_ = try write("500.flac", bytes: 500, modified: Date())
+
+		XCTAssertEqual(HiResStreamCache.usageBytes(in: directory), 2000)
 	}
 
 	/// A file already in the cache is handed back as the stream, so a replay does not
@@ -104,7 +144,137 @@ final class HiResStreamCacheTests: XCTestCase {
 		XCTAssertEqual(playback?.url, cached)
 	}
 
+	// MARK: - Prefetch window
+
+	/// The window is the tracks after the current one, in queue order, and never wraps.
+	func testPrefetchWindowFollowsQueueOrder() {
+		let queue = makeTracks(ids: [10, 20, 30, 40, 50])
+
+		XCTAssertEqual(
+			HiResPrefetchPolicy.upcomingTracks(queue: queue, currentIndex: 0, depth: 3).map(\.id),
+			[20, 30, 40]
+		)
+		XCTAssertEqual(
+			HiResPrefetchPolicy.upcomingTracks(queue: queue, currentIndex: 2, depth: 3).map(\.id),
+			[40, 50]
+		)
+	}
+
+	/// The depth setting is respected, including 0 (off).
+	func testPrefetchDepthIsRespected() {
+		let queue = makeTracks(ids: [10, 20, 30, 40, 50])
+
+		XCTAssertTrue(HiResPrefetchPolicy.upcomingTracks(queue: queue, currentIndex: 0, depth: 0).isEmpty)
+		XCTAssertEqual(
+			HiResPrefetchPolicy.upcomingTracks(queue: queue, currentIndex: 0, depth: 2).map(\.id),
+			[20, 30]
+		)
+		XCTAssertEqual(
+			HiResPrefetchPolicy.upcomingTracks(queue: queue, currentIndex: 0, depth: 15).map(\.id),
+			[20, 30, 40, 50]
+		)
+	}
+
+	/// Tracks already in the cache, and tracks the settings would not play through the
+	/// hi-res route, are left out of the window.
+	func testWindowSkipsCachedAndIneligibleTracks() {
+		let queue = makeTracks(ids: [10, 20, 30, 40])
+
+		let window = HiResPrefetchPolicy.upcomingTracks(
+			queue: queue,
+			currentIndex: 0,
+			depth: 3,
+			shouldPrepare: { $0.id != 30 },
+			isCached: { $0.id == 20 }
+		)
+
+		XCTAssertEqual(window.map(\.id), [40])
+	}
+
+	// MARK: - Prefetch behaviour
+
+	/// Three skips in a row stop preparing until a track settles, then preparing
+	/// resumes with the window at the new current track.
+	func testThreeSkipsStopPreparingAndSettlingResumesIt() async {
+		var prepared: [Int] = []
+		let prefetcher = HiResStreamPrefetcher(
+			settleInterval: 0.2,
+			depthProvider: { 2 },
+			shouldPrepare: { _ in true },
+			isCached: { _ in false },
+			prepare: { prepared.append($0.id) }
+		)
+		let queue = makeTracks(ids: [10, 20, 30, 40])
+
+		prefetcher.queueChanged(queue: queue, currentIndex: 0)
+		await waitUntil { prepared.count == 2 }
+		XCTAssertEqual(prepared, [20, 30])
+
+		prefetcher.trackSkipped()
+		prefetcher.trackSkipped()
+		prefetcher.trackSkipped()
+		XCTAssertTrue(prefetcher.isPausedForBrowsing)
+
+		prefetcher.queueChanged(queue: queue, currentIndex: 1)
+		await Task.yield()
+		XCTAssertEqual(prepared, [20, 30], "preparing must stop while browsing")
+
+		await waitUntil(timeout: 1.0) { !prefetcher.isPausedForBrowsing && prepared.count == 4 }
+		XCTAssertFalse(prefetcher.isPausedForBrowsing)
+		XCTAssertEqual(prepared, [20, 30, 30, 40], "preparing resumes with the window at the new track")
+	}
+
+	/// Fewer than three skips do not stop preparing.
+	func testTwoSkipsDoNotStopPreparing() async {
+		var prepared: [Int] = []
+		let prefetcher = HiResStreamPrefetcher(
+			settleInterval: 0.05,
+			depthProvider: { 1 },
+			prepare: { prepared.append($0.id) }
+		)
+		let queue = makeTracks(ids: [10, 20, 30])
+
+		prefetcher.trackSkipped()
+		prefetcher.trackSkipped()
+		XCTAssertFalse(prefetcher.isPausedForBrowsing)
+
+		prefetcher.queueChanged(queue: queue, currentIndex: 0)
+		await waitUntil { prepared.count == 1 }
+		XCTAssertEqual(prepared, [20])
+	}
+
+	/// Preparing and pruning never reach into the offline library.
+	func testPrefetchAndPruneStayOutOfTheOfflineLibrary() async {
+		let offlineLibrary = FileManager.default.temporaryDirectory
+			.appendingPathComponent("HiResStreamCacheTests-library-\(UUID().uuidString)", isDirectory: true)
+		try? FileManager.default.createDirectory(at: offlineLibrary, withIntermediateDirectories: true)
+		defer { try? FileManager.default.removeItem(at: offlineLibrary) }
+		let libraryFile = offlineLibrary.appendingPathComponent("123.lossless.flac")
+		try? Data(repeating: 3, count: 1000).write(to: libraryFile)
+
+		let prefetcher = HiResStreamPrefetcher(
+			settleInterval: 0.05,
+			depthProvider: { 3 },
+			prepare: { _ in },
+			prune: { protected in HiResStreamCache.pruneIfNeeded(in: self.directory, protecting: protected) }
+		)
+		prefetcher.queueChanged(queue: makeTracks(ids: [1, 2, 3]), currentIndex: 0)
+		await Task.yield()
+
+		XCTAssertTrue(FileManager.default.fileExists(atPath: libraryFile.path), "the offline library must be untouched")
+	}
+
 	// MARK: - Helpers
+
+	/// Waits for a condition the prefetcher sets on the main actor, without a fixed
+	/// sleep that would make the test flaky.
+	private func waitUntil(timeout: TimeInterval = 0.5, _ condition: () -> Bool) async {
+		let deadline = Date().addingTimeInterval(timeout)
+		while Date() < deadline {
+			if condition() { return }
+			try? await Task.sleep(for: .milliseconds(5))
+		}
+	}
 
 	private static func tokenWithCukClaim() -> String {
 		let payload: [String: Any] = ["uid": 1, "cuk": "client-key"]
@@ -114,6 +284,10 @@ final class HiResStreamCacheTests: XCTestCase {
 			.replacingOccurrences(of: "/", with: "_")
 			.replacingOccurrences(of: "=", with: "")
 		return "Bearer .\(body).signature"
+	}
+
+	private func makeTracks(ids: [Int]) -> [Track] {
+		ids.map { makeTrack(id: $0) }
 	}
 
 	private func makeTrack(id: Int, audioModes: [AudioMode] = [.stereo]) -> Track {
