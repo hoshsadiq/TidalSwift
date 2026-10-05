@@ -40,7 +40,89 @@ enum PlaybackManifestPolicy {
 	}
 }
 
+/// A desktop `playbackinfo` response reduced to what the hi-res route needs: a
+/// direct URL plus the wrapped key that decrypts it.
+struct AcceptedHiResManifest {
+	let url: URL
+	let keyId: String
+}
+
+/// Reads a desktop `playbackinfo` response into the hi-res decision, with no
+/// request and no session, so the decision can be tested directly. Mirrors
+/// `PlaybackManifestPolicy`: only a stereo BTS FLAC manifest encrypted with Tidal's
+/// legacy `OLD_AES` is usable, so anything else is refused and the caller keeps
+/// today's path. A DASH body, an Atmos rendition, or a manifest encrypted with a
+/// scheme this app cannot unwrap all land here.
+enum HiResManifestPolicy {
+	static func accept(_ response: TrackPlaybackInfo) -> AcceptedHiResManifest? {
+		guard response.audioMode == .stereo,
+			  response.manifestMimeType == "application/vnd.tidal.bts",
+			  let data = Data(base64Encoded: response.manifest),
+			  let manifest = try? JSONDecoder().decode(BTSManifest.self, from: data),
+			  manifest.codecs == "flac",
+			  manifest.encryptionType == "OLD_AES",
+			  let keyId = manifest.keyId,
+			  let url = manifest.urls.first?.upgradedToHTTPS else {
+			return nil
+		}
+		return AcceptedHiResManifest(url: url, keyId: keyId)
+	}
+}
+
 extension Session {
+	/// Why the desktop route did or did not produce a stream. The last two cases are
+	/// the same to the caller (it falls back); they are separate so the log can say
+	/// whether the track has no stereo rendition or the request failed.
+	enum HiResStereoResolution {
+		case resolved(AcceptedHiResManifest)
+		case noStereoRendition
+		case failed
+	}
+
+	/// Resolves a track through the desktop client's `playbackinfo`, which serves
+	/// the 24-bit stereo rendition when the session carries a `cuk` claim.
+	///
+	/// The endpoint lives on `desktop.tidal.com` and is asked the way the official
+	/// desktop client asks it (measured 2026-10-05): `audioquality=HI_RES_LOSSLESS`,
+	/// `playbackmode=STREAM`, `assetpresentation=FULL`, the desktop
+	/// `X-Tidal-Token`, the desktop user agent and a fresh streaming session id per
+	/// request. A session without `cuk` is answered Atmos here, which the policy
+	/// refuses, so the same call is safe to make unconditionally.
+	func hiResStereoStream(trackId: Int, audioQuality: AudioQuality = .max) async -> HiResStereoResolution {
+		do {
+			let response: TrackPlaybackInfo = try await desktopPlaybackInfo(trackId: trackId, audioQuality: audioQuality)
+			guard let accepted = HiResManifestPolicy.accept(response) else { return .noStereoRendition }
+			return .resolved(accepted)
+		} catch {
+			return .failed
+		}
+	}
+
+	private func desktopPlaybackInfo(trackId: Int, audioQuality: AudioQuality) async throws -> TrackPlaybackInfo {
+		try? await refreshAccessTokenIfNeeded()
+		var components = URLComponents(string: "\(HiResStreaming.desktopAPILocation)/tracks/\(trackId)/playbackinfo")!
+		components.queryItems = [
+			URLQueryItem(name: "audioquality", value: audioQuality.rawValue),
+			URLQueryItem(name: "playbackmode", value: "STREAM"),
+			URLQueryItem(name: "assetpresentation", value: "FULL")
+		]
+		var request = URLRequest(url: components.url!)
+		request.setValue(config.accessToken, forHTTPHeaderField: "Authorization")
+		request.setValue(AuthInformation.DesktopClientID, forHTTPHeaderField: "X-Tidal-Token")
+		request.setValue(AuthInformation.tidalClientUserAgent, forHTTPHeaderField: "User-Agent")
+		request.setValue(UUID().uuidString.lowercased(), forHTTPHeaderField: "x-tidal-streamingsessionid")
+
+		let (data, response) = try await URLSession.shared.data(for: request)
+		guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+			throw SessionError.unexpectedResponse
+		}
+		let info = try JSONDecoder.custom.decode(TrackPlaybackInfo.self, from: data)
+		if let bitDepth = info.bitDepth, let sampleRate = info.sampleRate {
+			print("[PLAYBACK] hi-res stereo: desktop playbackinfo answered \(info.audioMode?.rawValue ?? "?") \(bitDepth)-bit \(sampleRate) Hz")
+		}
+		return info
+	}
+
 	func audioUrl(trackId: Int, audioQuality: AudioQuality) async -> URL? {
 		var parameters = sessionParameters
 		parameters["soundQuality"] = "\(audioQuality.rawValue)"

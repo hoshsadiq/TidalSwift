@@ -258,12 +258,16 @@ public final class Offline {
 	@AppStorage("SaveFavoritesOffline") public var saveFavoritesOffline = false
 	@AppStorage("offlinePreferDolbyAtmos") public private(set) var preferDolbyAtmos = false
 
-	/// Dolby Atmos files are named "<track ID>.atmos.m4a", stereo files "<track ID>.<audio quality>.<extension>"
+	/// The file markers, all middle path components: Dolby Atmos files are named
+	/// "<track ID>.atmos.m4a", decrypted hi-res stereo files "<track ID>.hires.flac",
+	/// and stereo files "<track ID>.<audio quality>.<extension>".
 	private let dolbyAtmosFileMarker = "atmos"
+	private let hiResStereoFileMarker = "hires"
 
 	/// What a file on disk holds. The quality is nil for m4a files stored before it was part of the name.
 	private enum FileVariant: Equatable, Hashable {
 		case dolbyAtmos
+		case hiResStereo
 		case stereo(AudioQuality?)
 	}
 
@@ -275,6 +279,11 @@ public final class Offline {
 	/// uses the track's own stream; tests set it to force a download failure that
 	/// would otherwise need a live Tidal account.
 	var resolveOfflineStream: ((Track) async -> AudioStream?)?
+
+	/// Test seam for the hi-res branch, the counterpart of `resolveOfflineStream`:
+	/// returns an encrypted source and its wrapped key so a test can drive the
+	/// download-and-decrypt path without a live Tidal account. The app leaves it nil.
+	var resolveHiResOfflineStream: ((Track) async -> AcceptedHiResManifest?)?
 
 	/// Test seam: seeds the offline track set and starts a sync, so a test can
 	/// drive a pass against a known state. The app never calls this.
@@ -374,10 +383,15 @@ public final class Offline {
 		asyncSync()
 	}
 
-	/// Same choice as streaming, so offline playback sounds the same
+	/// Same choice as streaming, so offline playback sounds the same. The hi-res
+	/// stereo route upgrades the stereo wish when the session can use it; the Atmos
+	/// preference still wins, so its meaning is unchanged.
 	private func wantedVariant(of track: Track) -> FileVariant {
 		if track.hasDolbyAtmos && (preferDolbyAtmos || !track.hasStereo) {
 			return .dolbyAtmos
+		}
+		if HiResStreaming.usesHiResStereo(for: track, session: session) {
+			return .hiResStereo
 		}
 		return .stereo(session.config.offlineAudioQuality)
 	}
@@ -393,14 +407,20 @@ public final class Offline {
 	/// sloppiness — `wantedVariant` above is only the rendition the sync prefers,
 	/// while this set is what it accepts.
 	private func acceptableVariants(of track: Track) -> Set<FileVariant> {
+		var variants: Set<FileVariant> = [wantedVariant(of: track)]
+		// A dual-format track with the Atmos preference off may still be served Atmos
+		// when Tidal refuses its stereo rendition, so either file satisfies the wish.
 		if track.hasDolbyAtmos && track.hasStereo && !preferDolbyAtmos {
-			return [.dolbyAtmos, .stereo(session.config.offlineAudioQuality)]
+			variants.insert(.dolbyAtmos)
 		}
-		return [wantedVariant(of: track)]
+		return variants
 	}
 
 	private func variant(of url: URL, track: Track) -> FileVariant {
 		let marker = url.deletingPathExtension().pathExtension
+		if marker == hiResStereoFileMarker {
+			return .hiResStereo
+		}
 		// Atmos-only tracks were stored without the marker before, but can't be anything else
 		if marker == dolbyAtmosFileMarker || (track.hasDolbyAtmos && !track.hasStereo) {
 			return .dolbyAtmos
@@ -414,6 +434,104 @@ public final class Offline {
 
 	private func variant(of stream: AudioStream) -> FileVariant {
 		stream.isDolbyAtmos ? .dolbyAtmos : .stereo(session.config.offlineAudioQuality)
+	}
+
+	/// Resolves and downloads one wanted track, returning whether a file was written.
+	/// The hi-res stereo route comes first when the policy says so; what lands on disk
+	/// from it is decrypted, never the encrypted stream.
+	private func downloadOfflineTrack(_ track: Track, existingFiles: [URL]) async -> Bool {
+		print("Offline: Downloading \(track.title)")
+		let source: OfflineDownloadSource?
+		if HiResStreaming.usesHiResStereo(for: track, session: session),
+		   let hiRes = await resolveHiResSource(for: track) {
+			source = .hiRes(hiRes)
+		} else if let resolveOfflineStream {
+			source = await resolveOfflineStream(track).map(OfflineDownloadSource.stream)
+		} else {
+			source = await track.audioStream(session: session, audioQuality: session.config.offlineAudioQuality, preferDolbyAtmos: preferDolbyAtmos).map(OfflineDownloadSource.stream)
+		}
+		guard let source else {
+			if !existingFiles.isEmpty {
+				// The old file stays, so a refused quality never shrinks the library
+				displayError(title: "Offline: Error while loading offline track", content: "Couldn't get Audio URL for \(track.title). Keeping the existing file.")
+			} else {
+				displayError(title: "Offline: Error while loading offline track", content: "Couldn't get Audio URL for \(track.title)")
+			}
+			return false
+		}
+		// The Atmos stream can be unavailable, in which case the existing file can be what we'd download again
+		let streamVariant = variant(of: source)
+		if existingFiles.contains(where: { variant(of: $0, track: track) == streamVariant }) {
+			print("Offline: Keeping existing file of \(track.title)")
+			return false
+		}
+		let pathExtension = pathExtension(of: source)
+		let marker = fileMarker(of: source)
+		let name = "\(track.id).\(marker)"
+		guard let path = offlinePath(parentFolder: mainPath, name: name, pathExtension: pathExtension) else {
+			displayError(title: "Offline: Error while loading offline track", content: "Error while building path to: \(mainPath)/\(name).\(pathExtension)")
+			return false
+		}
+		do {
+			switch source {
+			case .hiRes(let manifest):
+				try await HiResStreaming.downloadAndDecrypt(manifest, to: path)
+			case .stream(let stream):
+				try await Network.download(stream.url, path: path, overwrite: true)
+			}
+		} catch {
+			displayError(title: "Offline: Error while loading offline track", content: "Network error: \(error)")
+			return false
+		}
+		for file in existingFiles where file.standardizedFileURL != path.standardizedFileURL {
+			do {
+				try FileManager.default.removeItem(at: file)
+			} catch {
+				displayError(title: "Offline: Error while removing old offline file", content: "Error: \(error)")
+			}
+		}
+		print("Offline: Finished Download of \(track.title)")
+		invalidateOfflineTrackIdsCache()
+		uiRefreshFunc()
+		return true
+	}
+
+	private enum OfflineDownloadSource {
+		case hiRes(AcceptedHiResManifest)
+		case stream(AudioStream)
+	}
+
+	private func variant(of source: OfflineDownloadSource) -> FileVariant {
+		switch source {
+		case .hiRes: .hiResStereo
+		case .stream(let stream): variant(of: stream)
+		}
+	}
+
+	private func pathExtension(of source: OfflineDownloadSource) -> String {
+		switch source {
+		case .hiRes: "flac"
+		case .stream(let stream): stream.pathExtension
+		}
+	}
+
+	private func fileMarker(of source: OfflineDownloadSource) -> String {
+		switch source {
+		case .hiRes: hiResStereoFileMarker
+		case .stream(let stream): stream.isDolbyAtmos ? dolbyAtmosFileMarker : session.config.offlineAudioQuality.rawValue.lowercased()
+		}
+	}
+
+	/// The hi-res source for a sync. In production the session resolves it; a test
+	/// substitutes `resolveHiResOfflineStream` so the encrypted fixture needs no account.
+	private func resolveHiResSource(for track: Track) async -> AcceptedHiResManifest? {
+		if let resolveHiResOfflineStream {
+			return await resolveHiResOfflineStream(track)
+		}
+		guard case .resolved(let manifest) = await session.hiResStereoStream(trackId: track.id) else {
+			return nil
+		}
+		return manifest
 	}
 
 	// The following always show the goal state (planned), i.e., after all downloads have finished
@@ -607,53 +725,7 @@ public final class Offline {
 		// Download first, so nothing is deleted before its replacement is on disk.
 		// A track whose download fails keeps the file it already has.
 		for track in toAdd {
-			print("Offline: Downloading \(track.title)")
-			let existingFiles = localFiles[track.id] ?? []
-			let stream: AudioStream?
-			if let resolveOfflineStream {
-				stream = await resolveOfflineStream(track)
-			} else {
-				stream = await track.audioStream(session: session, audioQuality: session.config.offlineAudioQuality, preferDolbyAtmos: preferDolbyAtmos)
-			}
-			guard let stream else {
-				if !existingFiles.isEmpty {
-					// The old file stays, so a refused quality never shrinks the library
-					displayError(title: "Offline: Error while loading offline track", content: "Couldn't get Audio URL for \(track.title). Keeping the existing file.")
-					continue
-				}
-				displayError(title: "Offline: Error while loading offline track", content: "Couldn't get Audio URL for \(track.title)")
-				continue
-			}
-			// The Atmos stream can be unavailable, in which case the existing file can be what we'd download again
-			let streamVariant = variant(of: stream)
-			if existingFiles.contains(where: { variant(of: $0, track: track) == streamVariant }) {
-				print("Offline: Keeping existing file of \(track.title)")
-				continue
-			}
-			let url = stream.url
-			let pathExtension = stream.pathExtension
-			let marker = stream.isDolbyAtmos ? dolbyAtmosFileMarker : session.config.offlineAudioQuality.rawValue.lowercased()
-			let name = "\(track.id).\(marker)"
-			guard let path = offlinePath(parentFolder: mainPath, name: name, pathExtension: pathExtension) else {
-				displayError(title: "Offline: Error while loading offline track", content: "Error while building path to: \(mainPath)/\(name).\(pathExtension)")
-				continue
-			}
-			do {
-				try await Network.download(url, path: path, overwrite: true)
-			} catch {
-				displayError(title: "Offline: Error while loading offline track", content: "Network error: \(error)")
-				continue
-			}
-			for file in existingFiles where file.standardizedFileURL != path.standardizedFileURL {
-				do {
-					try FileManager.default.removeItem(at: file)
-				} catch {
-					displayError(title: "Offline: Error while removing old offline file", content: "Error: \(error)")
-				}
-			}
-			print("Offline: Finished Download of \(track.title)")
-			invalidateOfflineTrackIdsCache()
-			uiRefreshFunc()
+			await downloadOfflineTrack(track, existingFiles: localFiles[track.id] ?? [])
 		}
 
 		// Prune the variants a successful re-download made stale, so one file
