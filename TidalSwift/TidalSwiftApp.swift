@@ -913,19 +913,18 @@ final class TidalSwiftAppModel {
 		self.audioQuality == audioQuality
 	}
 
-	/// Whether the subscription allows this tier. An unknown subscription (fetch
-	/// failed or not logged in yet) allows everything, so options are never hidden
-	/// on a guess. The "Ignore subscription limits" preference bypasses the cap so
-	/// a tier above the subscription becomes selectable.
+	/// Whether the subscription allows this tier. The rule lives in
+	/// `AudioQualityPolicy` so it can be tested without a view or a session. An
+	/// unknown subscription (fetch failed or not logged in yet) allows everything,
+	/// so options are never hidden on a guess. The "Ignore subscription limits"
+	/// preference bypasses the cap so a tier above the subscription becomes
+	/// selectable.
 	func isAudioQualityAvailable(_ quality: AudioQuality) -> Bool {
-		if UserDefaults.standard.bool(forKey: Self.ignoreSubscriptionLimitsKey) { return true }
-		guard let highestSoundQuality else { return true }
-		let order: [AudioQuality] = [.low, .medium, .high, .max]
-		guard let rank = order.firstIndex(of: quality),
-			  let highestRank = order.firstIndex(of: highestSoundQuality) else {
-			return true
-		}
-		return rank <= highestRank
+		AudioQualityPolicy.isAvailable(
+			quality,
+			subscriptionHighest: highestSoundQuality,
+			ignoringLimits: UserDefaults.standard.bool(forKey: Self.ignoreSubscriptionLimitsKey)
+		)
 	}
 
 	/// Fetches the subscription's cap, which drives the disabled quality rows.
