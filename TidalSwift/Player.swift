@@ -60,15 +60,19 @@ class Player {
 
 	/// Prepares the tracks after the current one in the queue so they start instantly.
 	/// Lazy because its closures read this player's live settings.
-	private lazy var prefetcher = HiResStreaming.makePrefetcher(for: session) { [weak self] track in
+	private lazy var prefetcher = HiResStreaming.makePrefetcher(
+		for: session,
+		qualityProvider: { [weak self] in self?.nextAudioQuality ?? .high }
+	) { [weak self] track in
 		self?.shouldPrefetch(track) ?? false
 	}
 
-	/// Whether the hi-res route is the one that plays first for `track`, which is when
-	/// preparing it in advance is worth the bandwidth. At `Lossless` the standard route
-	/// plays first, so its file is not fetched ahead of time.
+	/// Whether a local-file route is the one that plays first for `track`, which is
+	/// when preparing it in advance is worth the bandwidth: the decrypted FLAC route at
+	/// `Max`/`Lossless`, or the DASH route at `High`/`Low`. The direct-stream route
+	/// streams, so nothing is prepared for it.
 	private func shouldPrefetch(_ track: Track) -> Bool {
-		HiResStreamingPolicy.usesHiResStereo(
+		HiResStreamingPolicy.usesLocalFile(
 			sessionHasHiResStereoAccess: session.hasHiResStereoAccess,
 			enabled: HiResStreamingPreferences.isEnabled,
 			preferDolbyAtmos: track.hasDolbyAtmos && preferDolbyAtmos,

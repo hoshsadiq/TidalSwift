@@ -92,6 +92,45 @@ final class HiResStreamCacheTests: XCTestCase {
 		XCTAssertTrue(FileManager.default.fileExists(atPath: old.path))
 	}
 
+	// MARK: - Unified budget
+
+	/// A DASH file and a hi-res file both count toward the one budget the settings
+	/// screen shows.
+	func testDashAndHiResFilesShareOneBudget() throws {
+		_ = try write("600.aac.m4a", bytes: 1500, modified: Date())
+		_ = try write("601.flac", bytes: 500, modified: Date())
+
+		XCTAssertEqual(HiResStreamCache.usageBytes(in: directory), 2000)
+	}
+
+	/// Eviction takes the oldest file whichever kind it is, not one lane's files before
+	/// the other's.
+	func testEvictionTakesTheOldestFileOfEitherKind() throws {
+		let now = Date()
+		let oldDash = try write("700.aac.m4a", bytes: 1000, modified: now.addingTimeInterval(-300))
+		let newHiRes = try write("701.flac", bytes: 1000, modified: now.addingTimeInterval(-100))
+
+		let removed = HiResStreamCache.prune(in: directory, maxBytes: 1500, maxAge: .greatestFiniteMagnitude, now: now)
+
+		XCTAssertEqual(removed.map(\.lastPathComponent), [oldDash.lastPathComponent])
+		XCTAssertFalse(FileManager.default.fileExists(atPath: oldDash.path))
+		XCTAssertTrue(FileManager.default.fileExists(atPath: newHiRes.path))
+	}
+
+	/// A DASH file belonging to a track inside the prefetch window is spared by the same
+	/// exemption a hi-res file gets.
+	func testProtectedDashFileSurvivesTheSizeCap() throws {
+		let now = Date()
+		let oldestDash = try write("800.aac.m4a", bytes: 1000, modified: now.addingTimeInterval(-300))
+		let newerHiRes = try write("801.flac", bytes: 1000, modified: now.addingTimeInterval(-100))
+
+		let removed = HiResStreamCache.prune(in: directory, maxBytes: 0, maxAge: .greatestFiniteMagnitude, protecting: [800], now: now)
+
+		XCTAssertFalse(removed.map(\.lastPathComponent).contains(oldestDash.lastPathComponent))
+		XCTAssertTrue(FileManager.default.fileExists(atPath: oldestDash.path), "the DASH file inside the window must survive")
+		XCTAssertFalse(FileManager.default.fileExists(atPath: newerHiRes.path))
+	}
+
 	/// Pruning is scoped to its directory, so the offline library (or anything else on
 	/// disk) can never be a casualty of keeping the cache small.
 	func testPruneDoesNotTouchAnythingOutsideItsDirectory() throws {
@@ -138,6 +177,7 @@ final class HiResStreamCacheTests: XCTestCase {
 		let playback = await HiResStreaming.playbackFile(
 			for: makeTrack(id: trackId),
 			session: session,
+			quality: .max,
 			cacheDirectory: directory
 		)
 
@@ -189,6 +229,78 @@ final class HiResStreamCacheTests: XCTestCase {
 		)
 
 		XCTAssertEqual(window.map(\.id), [40])
+	}
+
+	/// Eligibility follows the same route rule as playback: at High/Low a stereo track
+	/// leads with DASH, so its upcoming tracks are prepared.
+	func testHighQualityQueuePreparesItsUpcomingTracks() {
+		let queue = makeTracks(ids: [10, 20, 30, 40])
+
+		let window = HiResPrefetchPolicy.upcomingTracks(
+			queue: queue,
+			currentIndex: 0,
+			depth: 2,
+			shouldPrepare: { track in
+				HiResStreamingPolicy.usesLocalFile(
+					sessionHasHiResStereoAccess: true,
+					enabled: true,
+					preferDolbyAtmos: false,
+					trackHasStereo: track.hasStereo,
+					trackHasDolbyAtmos: track.hasDolbyAtmos,
+					quality: .medium
+				)
+			}
+		)
+
+		XCTAssertEqual(window.map(\.id), [20, 30])
+	}
+
+	/// At Lossless Tidal's route leads too, so the upcoming tracks are prepared — the
+	/// prepared cache is what keeps that uniform choice instant at playback time.
+	func testLosslessStereoQueuePreparesItsUpcomingTracks() {
+		let queue = makeTracks(ids: [10, 20, 30])
+
+		let window = HiResPrefetchPolicy.upcomingTracks(
+			queue: queue,
+			currentIndex: 0,
+			depth: 3,
+			shouldPrepare: { track in
+				HiResStreamingPolicy.usesLocalFile(
+					sessionHasHiResStereoAccess: true,
+					enabled: true,
+					preferDolbyAtmos: false,
+					trackHasStereo: track.hasStereo,
+					trackHasDolbyAtmos: track.hasDolbyAtmos,
+					quality: .high
+				)
+			}
+		)
+
+		XCTAssertEqual(window.map(\.id), [20, 30])
+	}
+
+	/// With the toggle off nothing is prepared at any tier: the direct-stream path
+	/// streams, so there is no local file to fetch ahead of time.
+	func testToggleOffPreparesNothing() {
+		let queue = makeTracks(ids: [10, 20, 30])
+
+		let window = HiResPrefetchPolicy.upcomingTracks(
+			queue: queue,
+			currentIndex: 0,
+			depth: 3,
+			shouldPrepare: { track in
+				HiResStreamingPolicy.usesLocalFile(
+					sessionHasHiResStereoAccess: true,
+					enabled: false,
+					preferDolbyAtmos: false,
+					trackHasStereo: track.hasStereo,
+					trackHasDolbyAtmos: track.hasDolbyAtmos,
+					quality: .max
+				)
+			}
+		)
+
+		XCTAssertTrue(window.isEmpty)
 	}
 
 	// MARK: - Prefetch behaviour
@@ -262,6 +374,33 @@ final class HiResStreamCacheTests: XCTestCase {
 		await Task.yield()
 
 		XCTAssertTrue(FileManager.default.fileExists(atPath: libraryFile.path), "the offline library must be untouched")
+	}
+
+	/// A High-quality queue is prepared one at a time, up to the depth: the same depth
+	/// and one-at-a-time rules, now eligible at High/Low too.
+	func testHighQualityPrefetcherPreparesUpToTheDepth() async {
+		var prepared: [Int] = []
+		let prefetcher = HiResStreamPrefetcher(
+			settleInterval: 0.05,
+			depthProvider: { 2 },
+			shouldPrepare: { track in
+				HiResStreamingPolicy.usesLocalFile(
+					sessionHasHiResStereoAccess: true,
+					enabled: true,
+					preferDolbyAtmos: false,
+					trackHasStereo: track.hasStereo,
+					trackHasDolbyAtmos: track.hasDolbyAtmos,
+					quality: .medium
+				)
+			},
+			isCached: { _ in false },
+			prepare: { prepared.append($0.id) }
+		)
+
+		prefetcher.queueChanged(queue: makeTracks(ids: [10, 20, 30, 40]), currentIndex: 0)
+		await waitUntil { prepared.count == 2 }
+
+		XCTAssertEqual(prepared, [20, 30])
 	}
 
 	// MARK: - Helpers

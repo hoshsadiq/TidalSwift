@@ -296,13 +296,14 @@ extension DashAudio {
 	///
 	/// Mirrors `HiResStreaming.playbackFile`: the assembled file is cached, so a
 	/// replay does not re-fetch every segment, and the download indicator is reused
-	/// while the segments download. Main-actor isolated because it reads the
+	/// while the segments download. The file lives in the same cache directory as the
+	/// decrypted hi-res files and is bounded by the same budget, so the settings
+	/// screen's one number is the truth. Main-actor isolated because it reads the
 	/// session and its download status.
 	@MainActor
 	public static func playbackFile(for track: Track, session: Session, preferredQuality: AudioQuality) async -> DashPlayback? {
 		guard preferredQuality == .medium || preferredQuality == .low else { return nil }
-		let directory = DashAudioCache.directory
-		if let cached = DashAudioCache.cachedFile(forTrackId: track.id, in: directory) {
+		if let cached = HiResStreamCache.cachedDashFile(forTrackId: track.id) {
 			print("[PLAYBACK] dash: reusing cached file for \(track.title)")
 			return describe(cached)
 		}
@@ -312,10 +313,10 @@ extension DashAudio {
 		let status = session.helpers.downloadStatus
 		status.startTask()
 		defer { status.finishTask() }
-		let destination = DashAudioCache.fileURL(forTrackId: track.id, in: directory)
+		let destination = HiResStreamCache.dashFileURL(forTrackId: track.id)
 		do {
 			try await assemble(manifest, to: destination)
-			DashAudioCache.pruneIfNeeded(in: directory)
+			HiResStreamCache.pruneIfNeeded()
 			print("[PLAYBACK] dash: assembled \(track.title) to cache")
 			return describe(destination)
 		} catch {
@@ -332,68 +333,5 @@ extension DashAudio {
 			sampleRate = Int(file.fileFormat.sampleRate)
 		}
 		return DashPlayback(url: url, sampleRate: sampleRate)
-	}
-}
-
-/// The local cache for assembled DASH streams, at
-/// `~/Library/Caches/TidalSwift/dash/`. A playback cache, never the offline
-/// library. One file per track (`<id>.aac.m4a`), reused on replay and bounded the
-/// same way as the hi-res cache: files not touched in a week are dropped, then the
-/// oldest until the directory is under 2 GiB.
-nonisolated enum DashAudioCache {
-	static let maxBytes = 2 * 1024 * 1024 * 1024
-	static let maxAge: TimeInterval = 7 * 24 * 60 * 60
-
-	static var directory: URL {
-		let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-		return base.appendingPathComponent("TidalSwift/dash", isDirectory: true)
-	}
-
-	static func fileURL(forTrackId trackId: Int, in directory: URL = DashAudioCache.directory) -> URL {
-		directory.appendingPathComponent("\(trackId).aac.m4a")
-	}
-
-	static func cachedFile(forTrackId trackId: Int, in directory: URL = DashAudioCache.directory) -> URL? {
-		let url = fileURL(forTrackId: trackId, in: directory)
-		return FileManager.default.fileExists(atPath: url.path) ? url : nil
-	}
-
-	static func pruneIfNeeded(in directory: URL = DashAudioCache.directory, now: Date = Date()) {
-		prune(in: directory, maxBytes: maxBytes, maxAge: maxAge, now: now)
-	}
-
-	/// One cache file's sort keys, kept together so the prune can order by date.
-	private struct CacheEntry {
-		let url: URL
-		let date: Date
-		let size: Int
-	}
-
-	/// Removes stale files first, then the oldest until the directory is under the
-	/// size cap. Returns the removed URLs so a test can pin what went.
-	@discardableResult
-	static func prune(in directory: URL, maxBytes: Int, maxAge: TimeInterval, now: Date = Date()) -> [URL] {
-		let keys: Set<URLResourceKey> = [.contentModificationDateKey, .fileSizeKey]
-		guard let contents = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys)) else {
-			return []
-		}
-		let entries: [CacheEntry] = contents.compactMap { url in
-			guard let values = try? url.resourceValues(forKeys: keys) else { return nil }
-			return CacheEntry(url: url, date: values.contentModificationDate ?? .distantPast, size: values.fileSize ?? 0)
-		}
-		var remaining = entries
-		var removed: [URL] = []
-		for entry in entries.sorted(by: { $0.date < $1.date }) where now.timeIntervalSince(entry.date) > maxAge {
-			try? FileManager.default.removeItem(at: entry.url)
-			removed.append(entry.url)
-			remaining.removeAll { $0.url == entry.url }
-		}
-		var total = remaining.reduce(0) { $0 + $1.size }
-		for entry in remaining.sorted(by: { $0.date < $1.date }) where total > maxBytes {
-			try? FileManager.default.removeItem(at: entry.url)
-			removed.append(entry.url)
-			total -= entry.size
-		}
-		return removed
 	}
 }
