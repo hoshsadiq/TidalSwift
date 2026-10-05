@@ -28,12 +28,21 @@ class Player {
 
 	private(set) var nextAudioQuality: AudioQuality
 	private(set) var preferDolbyAtmos: Bool
+	/// Whether the stream that plays is the locally decrypted hi-res rendition, and
+	/// its bit depth, read from the file. Plain, not observable, but written just
+	/// before `playbackInfo.resolvedStream`, so the view that re-renders on that
+	/// write reads the new value.
+	private(set) var isPlayingHiResStereo = false
+	private(set) var currentHiResBitDepth: Int?
 
 	init(session: Session, audioQuality: AudioQuality, preferDolbyAtmos: Bool = false, autoplayAfterAddNow: Bool = true) {
 		self.session = session
 		self.nextAudioQuality = audioQuality
 		self.preferDolbyAtmos = preferDolbyAtmos
 		self.autoplayAfterAddNow = autoplayAfterAddNow
+
+		// A cache that grew while the app was closed is bounded before it is read.
+		HiResStreaming.pruneCache()
 
 		timeObserverToken = avPlayer.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1, preferredTimescale: 1), queue: nil) { [weak self] _ in
 			if let self {
@@ -262,6 +271,7 @@ class Player {
 		}
 
 		let url: URL
+		isPlayingHiResStereo = false
 		if let offlineStream = await session.helpers.offline.stream(for: track) {
 			print("Play \(track.title) from offline URL: \(offlineStream.url)")
 			print("[PLAYBACK] avSetItem(): resolved URL - title: \(track.title), quality: \(nextAudioQuality), source: offline")
@@ -270,6 +280,19 @@ class Player {
 				trackId: track.id,
 				quality: nextAudioQuality,
 				isDolbyAtmos: offlineStream.isDolbyAtmos
+			)
+		} else if let hiRes = await HiResStreaming.playbackFile(for: track, session: session) {
+			// Explicit fallback order: hi-res stereo (downloaded and decrypted to a
+			// local file, which is what AVPlayer can read) first, today's ladder second.
+			print("Play \(track.title) from hi-res stereo cache: \(hiRes.url)")
+			print("[PLAYBACK] avSetItem(): resolved URL - title: \(track.title), quality: hi-res stereo, source: hi-res")
+			url = hiRes.url
+			isPlayingHiResStereo = true
+			currentHiResBitDepth = hiRes.bitDepth
+			playbackInfo.resolvedStream = ResolvedStream(
+				trackId: track.id,
+				quality: .max,
+				isDolbyAtmos: false
 			)
 		} else if let resolved = await session.bestAudioUrl(
 			trackId: track.id,
@@ -595,6 +618,10 @@ class Player {
 		}
 		if stream.isDolbyAtmos {
 			return "Dolby Atmos"
+		}
+		if isPlayingHiResStereo {
+			guard let bitDepth = currentHiResBitDepth else { return "Hi-Res" }
+			return "\(bitDepth)-bit"
 		}
 		guard let quality = track.audioQuality else {
 			return ""

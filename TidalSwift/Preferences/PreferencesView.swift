@@ -32,6 +32,8 @@ private struct PlaybackPreferencesTab: View {
 	@Environment(TidalSwiftAppModel.self) private var appModel
 
 	@AppStorage("offlinePreferDolbyAtmos") private var offlinePreferDolbyAtmos = false
+	/// Read through the library's key so the player sees the same value without new wiring.
+	@AppStorage(HiResStreamingPreferences.enabledKey) private var hiResStereoEnabled = true
 	@AppStorage(TidalSwiftAppModel.ignoreSubscriptionLimitsKey) private var ignoreSubscriptionLimits = false
 	/// The offline rows read `session.config`, which is not observable, so a changed
 	/// value has to be mirrored here or the selection circle would not move.
@@ -86,6 +88,16 @@ private struct PlaybackPreferencesTab: View {
 						help: "Store the Atmos version when a track has one. Decides which file is saved offline."
 					)
 				}
+
+				Toggle(isOn: $hiResStereoEnabled) {
+					VStack(alignment: .leading) {
+						Text("Hi-Res Stereo")
+						Text(hiResStereoHelp)
+							.font(.caption)
+							.foregroundStyle(.secondary)
+					}
+				}
+				.disabled(!appModel.session.hasHiResStereoAccess)
 
 				Toggle(isOn: $ignoreSubscriptionLimits) {
 					VStack(alignment: .leading) {
@@ -145,6 +157,15 @@ private struct PlaybackPreferencesTab: View {
 		}
 		.formStyle(.grouped)
 		.task { await appModel.loadHighestSoundQuality() }
+	}
+
+	/// Unavailable is a state worth explaining, not a toggle that quietly does nothing.
+	private var hiResStereoHelp: String {
+		if appModel.session.hasHiResStereoAccess {
+			return "Play the 24-bit stereo version when Tidal offers it. It comes from Tidal's desktop service and is decrypted on this Mac. Where no stereo version is served, the app plays Atmos instead."
+		} else {
+			return "Unavailable with this login. Log in with the desktop client to get the 24-bit stereo version; this session is served the Atmos version instead."
+		}
 	}
 }
 

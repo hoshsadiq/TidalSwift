@@ -68,11 +68,33 @@ public class Download {
 		downloadStatus.startTask()
 		defer { downloadStatus.finishTask() }
 
+		let filename = formFileName(track)
+		print("Downloading: \(filename)")
+
+		// The hi-res stereo route when the session and the preference allow it: the
+		// encrypted rendition is downloaded and decrypted, so the file on disk is a
+		// playable FLAC and never the encrypted stream. Anything else falls through to
+		// today's stream, unchanged.
+		if HiResStreaming.usesHiResStereo(for: track, session: session),
+		   case .resolved(let manifest) = await session.hiResStereoStream(trackId: track.id) {
+			guard let path = buildPath(baseLocation: .downloads, parentFolder: parentFolder, name: filename, pathExtension: "flac") else {
+				displayError(title: "Error while downloading track", content: "Couldn't build path for track: \(track.title) -  \(track.artists.formArtistString())")
+				return false
+			}
+			do {
+				try await HiResStreaming.downloadAndDecrypt(manifest, to: path)
+			} catch {
+				displayError(title: "Error while downloading track", content: "Download failed for track \(track.title). Error: \(error)")
+				return false
+			}
+			await metadata.setMetadata(for: track, at: path)
+			print("Download Finished: \(filename)")
+			return true
+		}
+
 		guard let stream = await track.audioStream(session: session, audioQuality: audioQuality, preferDolbyAtmos: session.helpers.offline.preferDolbyAtmos) else {
 			return false
 		}
-		let filename = formFileName(track)
-		print("Downloading: \(filename)")
 		let optionalPath = buildPath(baseLocation: .downloads, parentFolder: parentFolder, name: filename, pathExtension: stream.pathExtension)
 		guard let path = optionalPath else {
 			displayError(title: "Error while downloading track", content: "Couldn't build path for track: \(track.title) -  \(track.artists.formArtistString())")
