@@ -105,6 +105,90 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 		XCTAssertTrue(OfflineDB().tracks.contains(track), "a pinned track must be reloaded from the persisted set")
 	}
 
+	/// A track whose file is already on disk but whose date was lost must come
+	/// back from the file's own creation date, not from "now". The setup writes
+	/// the date into the file, so a "now" result would be clearly different.
+	func testFileOnDiskWithoutStoredDateBackfillsFromItsCreationDate() throws {
+		let trackId = 987_654_401
+		let fileDate = Date(timeIntervalSince1970: 1_600_000_000)
+		try createOfflineFile(forTrackId: trackId, createdAt: fileDate)
+		persistOfflineState(album: makeAlbum(id: trackId), tracks: [makeTrack(id: trackId)])
+
+		let session = offlineLibrary.makeSession()
+		let added = try XCTUnwrap(session.helpers.offline.addedDate(forTrackId: trackId))
+		XCTAssertEqual(added.timeIntervalSince1970, fileDate.timeIntervalSince1970, accuracy: 1,
+					   "a date must come from the file on disk, not the current time")
+	}
+
+	/// A date that already exists is history and must survive a load unchanged,
+	/// even though the file on disk carries a different creation date.
+	func testExistingAddedDateSurvivesAReload() throws {
+		let trackId = 987_654_402
+		let existingDate = Date(timeIntervalSince1970: 1_500_000_000)
+		try createOfflineFile(forTrackId: trackId, createdAt: Date(timeIntervalSince1970: 1_700_000_000))
+		persistOfflineState(album: makeAlbum(id: trackId), tracks: [makeTrack(id: trackId)], dates: [trackId: existingDate])
+
+		let session = offlineLibrary.makeSession()
+		let added = try XCTUnwrap(session.helpers.offline.addedDate(forTrackId: trackId))
+		XCTAssertEqual(added.timeIntervalSince1970, existingDate.timeIntervalSince1970, accuracy: 1,
+					   "an existing date must not be moved by a file that has a different creation date")
+	}
+
+	/// A wanted track that has no file yet still gets a date, so the offline list
+	/// shows something as soon as the user asks for it.
+	func testWantedTrackWithoutAFileStillGetsADate() throws {
+		let trackId = 987_654_403
+		persistOfflineState(album: makeAlbum(id: trackId), tracks: [makeTrack(id: trackId)])
+
+		let before = Date()
+		let session = offlineLibrary.makeSession()
+		let added = try XCTUnwrap(session.helpers.offline.addedDate(forTrackId: trackId))
+		XCTAssertGreaterThanOrEqual(added.timeIntervalSince(before), -1, "a track with no file must fall back to now")
+		XCTAssertLessThanOrEqual(added.timeIntervalSince(before), 5)
+	}
+
+	/// The backfilled dates are written, so they are still there after a reload
+	/// rather than being recomputed (or lost) every launch.
+	func testBackfilledAddedDatesArePersisted() throws {
+		let trackId = 987_654_404
+		let fileDate = Date(timeIntervalSince1970: 1_600_000_000)
+		try createOfflineFile(forTrackId: trackId, createdAt: fileDate)
+		persistOfflineState(album: makeAlbum(id: trackId), tracks: [makeTrack(id: trackId)])
+
+		let session = offlineLibrary.makeSession()
+		let inMemory = try XCTUnwrap(session.helpers.offline.addedDate(forTrackId: trackId))
+		XCTAssertEqual(inMemory.timeIntervalSince1970, fileDate.timeIntervalSince1970, accuracy: 1)
+
+		let reloaded = OfflineDB()
+		let persisted = try XCTUnwrap(reloaded.trackAddedDates[trackId])
+		XCTAssertEqual(persisted.timeIntervalSince1970, fileDate.timeIntervalSince1970, accuracy: 1,
+					   "the backfilled date must be persisted, not just held in memory")
+	}
+
+	// MARK: - Helpers
+
+	/// Writes the persisted offline state `OfflineDB` reads in `init`, so a test
+	/// can drive the load path — where dates are backfilled — without a Tidal
+	/// account or the real library.
+	private func persistOfflineState(album: Album, tracks: [Track], dates: [Int: Date] = [:]) {
+		let encoder = JSONEncoder()
+		UserDefaults.standard.set(try? encoder.encode([album]), forKey: "OfflineDB:Albums")
+		UserDefaults.standard.set(try? encoder.encode([album: tracks]), forKey: "OfflineDB:AlbumTracks")
+		if !dates.isEmpty {
+			UserDefaults.standard.set(try? encoder.encode(dates), forKey: "OfflineDB:TrackAddedDates")
+		}
+	}
+
+	/// Creates the offline library folder with one track file, dated so a test can
+	/// tell a backfilled date from "now".
+	private func createOfflineFile(forTrackId trackId: Int, createdAt date: Date) throws {
+		let directory = offlineLibrary.root.appendingPathComponent("TidalSwift Offline Library")
+		try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+		let file = directory.appendingPathComponent("\(trackId).lossless.flac")
+		FileManager.default.createFile(atPath: file.path, contents: Data())
+		try FileManager.default.setAttributes([.creationDate: date], ofItemAtPath: file.path)
+	}
+
 	private func makeTrack(id: Int) -> Track {
 		Track(
 			id: id,

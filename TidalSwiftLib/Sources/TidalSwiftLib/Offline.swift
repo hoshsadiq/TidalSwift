@@ -21,35 +21,58 @@ public final class OfflineDB {
 		tracks = newTracks
 	}
 
-	private func updateTracks() {
+	/// Gives every wanted track a date and drops the dates of tracks that left.
+	/// The whole wanted set is checked, not only the ids that are new since the
+	/// last pass, so a date that was lost can come back. Returns whether a date
+	/// changed, so a no-op load can skip the write.
+	@discardableResult
+	private func updateTracks() -> Bool {
 		let albumTracks = albums.flatMap { self.albumTracks[$0] ?? [] }
 		let playlistTracks = playlists.flatMap { self.playlistTracks[$0] ?? [] }
 		let newTracks = Set((favoriteTracks + standaloneOfflineTracks + albumTracks + playlistTracks).filter(\.isPlayable))
+		let newIds = Set(newTracks.map(\.id))
 
+		var datesChanged = false
 		// The dates are only touched once the persisted state is loaded, so a
 		// half-loaded db can't wipe a date for a track it simply hasn't read yet.
 		if isLoaded {
-			let newIds = Set(newTracks.map(\.id))
-			for id in newIds.subtracting(previouslyTrackedIds) {
-				recordAddedDate(for: id)
+			let onDisk = downloadDatesForTracksOnDisk?() ?? [:]
+			for id in newIds where trackAddedDates[id] == nil {
+				// A file on disk knows when the track was really downloaded; a
+				// wanted track without one was only asked for now.
+				recordAddedDate(for: id, at: onDisk[id] ?? Date())
+				datesChanged = true
 			}
-			for id in previouslyTrackedIds.subtracting(newIds) {
+			for id in Set(trackAddedDates.keys).subtracting(newIds) {
 				trackAddedDates[id] = nil
+				datesChanged = true
 			}
 		}
-		previouslyTrackedIds = Set(newTracks.map(\.id))
 		tracks = newTracks
+		return datesChanged
 	}
 
-	private var previouslyTrackedIds: Set<Int> = []
 	private var isLoaded = false
+
+	/// Resolves the download date of every track file on disk, by track id.
+	/// `Offline` sets it right after creating the db, since it owns the
+	/// filesystem. Installing it also triggers a backfill, which is where a lost
+	/// date is rebuilt from the files rather than stamped with "now".
+	var downloadDatesForTracksOnDisk: (() -> [Int: Date])? {
+		didSet {
+			if updateTracks() { save() }
+		}
+	}
 
 	// [TrackId: DateAddedToOffline]
 	// Persisted by the adjacent `tracks` derivation's save(); always changed together with it.
 	private(set) var trackAddedDates: [Int: Date] = [:]
-	func recordAddedDate(for trackId: Int) {
+
+	/// Records when a track joined the offline set. A date that already exists is
+	/// never moved: the map is history, and a re-add must not reorder the library.
+	func recordAddedDate(for trackId: Int, at date: Date = Date()) {
 		guard trackAddedDates[trackId] == nil else { return }
-		trackAddedDates[trackId] = Date()
+		trackAddedDates[trackId] = date
 	}
 
 	private(set) var favoriteTracks: [Track] = [] { // Used for Favorites
@@ -276,6 +299,12 @@ public final class Offline {
 			displayError(title: "Offline: Error while creating Offline management class", content: "Error: \(error)")
 		}
 
+		// Installing the disk lookup lets the db rebuild a lost "added to offline"
+		// date from the files it already has, instead of stamping "now" on them.
+		db.downloadDatesForTracksOnDisk = { [weak self] in
+			self?.downloadDatesByTrackId() ?? [:]
+		}
+
 		Task { asyncSync() }
 	}
 
@@ -466,6 +495,25 @@ public final class Offline {
 
 	private func loadOfflineTrackIds() -> [Int]? {
 		localFilesByTrackId().map { Array($0.keys) }
+	}
+
+	/// The download date of every offline file, by track ID, for rebuilding an
+	/// "added to offline" date that was lost. A file's creation date is when the
+	/// download wrote it, so it stays the same across launches.
+	private func downloadDatesByTrackId() -> [Int: Date] {
+		guard let files = localFilesByTrackId() else { return [:] }
+		var dates: [Int: Date] = [:]
+		for (id, urls) in files {
+			let creationDates = urls.compactMap { url in
+				try? url.resourceValues(forKeys: [.creationDateKey]).creationDate
+			}
+			// A re-download can leave a second file behind; the earliest creation
+			// date is when the track first became offline.
+			if let earliest = creationDates.min() {
+				dates[id] = earliest
+			}
+		}
+		return dates
 	}
 
 	private var offlineTrackIdsCache: [Int]?
