@@ -108,11 +108,11 @@ final class LivePlaybackProbe: XCTestCase {
 
 		let file = try AVAudioFile(forReading: resolved.url)
 		let format = file.fileFormat
-		let bits = format.streamDescription.pointee.mBitsPerChannel
+		let bits = resolved.bitDepth.map(String.init) ?? "unknown"
 		print("[LIVE] Max: \(resolved.url.lastPathComponent) in \(String(format: "%.2f", elapsed))s — \(Int(format.sampleRate)) Hz, \(bits) bit, \(format.channelCount) ch, \(file.length) frames")
 
 		XCTAssertEqual(Int(format.sampleRate), 44_100)
-		XCTAssertEqual(bits, 24)
+		XCTAssertEqual(resolved.bitDepth, 24)
 		XCTAssertEqual(format.channelCount, 2)
 		XCTAssertGreaterThan(file.length, 0)
 	}
@@ -123,11 +123,11 @@ final class LivePlaybackProbe: XCTestCase {
 
 		let playback = await HiResStreaming.playbackFile(for: track, session: session, quality: .high)
 		let resolved = try XCTUnwrap(playback, "Tidal's route produced no file at Lossless")
-		let format = try AVAudioFile(forReading: resolved.url).fileFormat
-		let bits = format.streamDescription.pointee.mBitsPerChannel
-		print("[LIVE] Lossless: \(resolved.url.lastPathComponent) — \(Int(format.sampleRate)) Hz, \(bits) bit")
+		let bits = resolved.bitDepth.map(String.init) ?? "unknown"
+		let rate = resolved.sampleRate.map(String.init) ?? "unknown"
+		print("[LIVE] Lossless: \(resolved.url.lastPathComponent) — \(rate) Hz, \(bits) bit")
 
-		XCTAssertEqual(bits, 16)
+		XCTAssertEqual(resolved.bitDepth, 16)
 	}
 
 	func testADashTierAssemblesPlayableAudio() async throws {

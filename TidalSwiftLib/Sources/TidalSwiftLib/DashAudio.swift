@@ -303,7 +303,7 @@ extension DashAudio {
 	@MainActor
 	public static func playbackFile(for track: Track, session: Session, preferredQuality: AudioQuality) async -> DashPlayback? {
 		guard preferredQuality == .medium || preferredQuality == .low else { return nil }
-		if let cached = HiResStreamCache.cachedDashFile(forTrackId: track.id) {
+		if let cached = HiResStreamCache.cachedDashFile(forTrackId: track.id, quality: preferredQuality) {
 			print("[PLAYBACK] dash: reusing cached file for \(track.title)")
 			return describe(cached)
 		}
@@ -313,7 +313,7 @@ extension DashAudio {
 		let status = session.helpers.downloadStatus
 		status.startTask()
 		defer { status.finishTask() }
-		let destination = HiResStreamCache.dashFileURL(forTrackId: track.id)
+		let destination = HiResStreamCache.dashFileURL(forTrackId: track.id, quality: preferredQuality)
 		do {
 			try await assemble(manifest, to: destination)
 			HiResStreamCache.pruneIfNeeded()

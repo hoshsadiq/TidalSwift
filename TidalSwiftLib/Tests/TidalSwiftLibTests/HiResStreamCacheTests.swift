@@ -3,6 +3,7 @@
 //  TidalSwiftLibTests
 //
 
+import AVFoundation
 import XCTest
 @testable import TidalSwiftLib
 
@@ -70,8 +71,8 @@ final class HiResStreamCacheTests: XCTestCase {
 	/// pointless.
 	func testProtectedTrackIsNeverEvicted() throws {
 		let now = Date()
-		let oldest = try write("100.flac", bytes: 1000, modified: now.addingTimeInterval(-300))
-		let newer = try write("200.flac", bytes: 1000, modified: now.addingTimeInterval(-100))
+		let oldest = try write("100-HI_RES_LOSSLESS.flac", bytes: 1000, modified: now.addingTimeInterval(-300))
+		let newer = try write("200-HI_RES_LOSSLESS.flac", bytes: 1000, modified: now.addingTimeInterval(-100))
 
 		let removed = HiResStreamCache.prune(in: directory, maxBytes: 0, maxAge: .greatestFiniteMagnitude, protecting: [100], now: now)
 
@@ -84,7 +85,7 @@ final class HiResStreamCacheTests: XCTestCase {
 	/// under the player.
 	func testProtectedTrackSurvivesTheAgeCap() throws {
 		let now = Date()
-		let old = try write("300.flac", bytes: 100, modified: now.addingTimeInterval(-8 * 24 * 60 * 60))
+		let old = try write("300-HI_RES_LOSSLESS.flac", bytes: 100, modified: now.addingTimeInterval(-8 * 24 * 60 * 60))
 
 		let removed = HiResStreamCache.prune(in: directory, maxBytes: .max, maxAge: 7 * 24 * 60 * 60, protecting: [300], now: now)
 
@@ -121,8 +122,8 @@ final class HiResStreamCacheTests: XCTestCase {
 	/// exemption a hi-res file gets.
 	func testProtectedDashFileSurvivesTheSizeCap() throws {
 		let now = Date()
-		let oldestDash = try write("800.aac.m4a", bytes: 1000, modified: now.addingTimeInterval(-300))
-		let newerHiRes = try write("801.flac", bytes: 1000, modified: now.addingTimeInterval(-100))
+		let oldestDash = try write("800-HIGH.aac.m4a", bytes: 1000, modified: now.addingTimeInterval(-300))
+		let newerHiRes = try write("801-HI_RES_LOSSLESS.flac", bytes: 1000, modified: now.addingTimeInterval(-100))
 
 		let removed = HiResStreamCache.prune(in: directory, maxBytes: 0, maxAge: .greatestFiniteMagnitude, protecting: [800], now: now)
 
@@ -162,7 +163,7 @@ final class HiResStreamCacheTests: XCTestCase {
 	/// attempt would fail: returning the cached file is the only way this passes.
 	func testCachedFileIsReusedWithoutDownloading() async throws {
 		let trackId = 779_500_001
-		let cached = directory.appendingPathComponent("\(trackId).flac")
+		let cached = directory.appendingPathComponent("\(trackId)-HI_RES_LOSSLESS.flac")
 		try Data("already here".utf8).write(to: cached)
 
 		let offlineLibrary = TemporaryOfflineLibrary(label: "HiResStreamCache")
@@ -182,6 +183,95 @@ final class HiResStreamCacheTests: XCTestCase {
 		)
 
 		XCTAssertEqual(playback?.url, cached)
+	}
+
+	// MARK: - Quality in the cache key
+
+	/// A track's two tiers are two different files: the name carries the quality, and a
+	/// file cached at one tier is never served at another. Without the quality in the
+	/// name, a Max play followed by a Lossless play reuses the 24-bit file (and the
+	/// badge claims the wrong format).
+	func testCacheKeysDifferPerQualityAndDoNotServeTheOtherTier() async throws {
+		let trackId = 779_500_002
+		let maxFile = directory.appendingPathComponent("\(trackId)-HI_RES_LOSSLESS.flac")
+		try Data("24-bit".utf8).write(to: maxFile)
+
+		XCTAssertNotEqual(
+			HiResStreamCache.fileURL(forTrackId: trackId, quality: .max, in: directory),
+			HiResStreamCache.fileURL(forTrackId: trackId, quality: .high, in: directory),
+			"the cached file name must carry the quality"
+		)
+		XCTAssertNotEqual(
+			HiResStreamCache.dashFileURL(forTrackId: trackId, quality: .medium, in: directory),
+			HiResStreamCache.dashFileURL(forTrackId: trackId, quality: .low, in: directory),
+			"the DASH file name must carry the quality too"
+		)
+
+		let offlineLibrary = TemporaryOfflineLibrary(label: "HiResStreamCache")
+		defer { offlineLibrary.remove() }
+		let session = offlineLibrary.makeSession(config: Config(
+			accessToken: Self.tokenWithCukClaim(),
+			refreshToken: "",
+			clientID: AuthInformation.DesktopClientID,
+			offlineAudioQuality: .max
+		))
+
+		let atMax = await HiResStreaming.playbackFile(
+			for: makeTrack(id: trackId), session: session, quality: .max, cacheDirectory: directory
+		)
+		XCTAssertEqual(atMax?.url, maxFile, "the Max file must be served at Max")
+
+		// No network is reachable, so a Lossless file that is not in the cache can only
+		// come back nil — it must not fall back to the Max file on disk.
+		let atLossless = await HiResStreaming.playbackFile(
+			for: makeTrack(id: trackId), session: session, quality: .high, cacheDirectory: directory
+		)
+		XCTAssertNil(atLossless, "a file cached at Max must not be served at Lossless")
+	}
+
+	// MARK: - Bit depth
+
+	/// The persisted manifest values describe the file, so `describe` reports them even
+	/// though the FLAC file itself cannot: `AVAudioFile` reads 0 bits per channel for one.
+	func testBitDepthComesFromPersistedMetadataWhenTheFileCannotReportIt() throws {
+		let url = directory.appendingPathComponent("950-HI_RES_LOSSLESS.flac")
+		try Data("not a real flac".utf8).write(to: url)
+		HiResStreamCache.writeFormatMetadata(bitDepth: 24, sampleRate: 44_100, for: url)
+
+		let playback = HiResStreaming.describe(url)
+
+		XCTAssertEqual(playback.bitDepth, 24)
+		XCTAssertEqual(playback.sampleRate, 44_100)
+	}
+
+	/// With no persisted values the file is the fallback, and a file that carries a
+	/// format reports it.
+	func testBitDepthComesFromTheFileWhenItCarriesOne() throws {
+		let url = directory.appendingPathComponent("951-16bit.wav")
+		let format = try XCTUnwrap(AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 44_100, channels: 2, interleaved: true))
+		let writer = try AVAudioFile(forWriting: url, settings: format.settings)
+		// The buffer must match the file's processing format, which is not necessarily
+		// the on-disk one for a WAV.
+		let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: writer.processingFormat, frameCapacity: 100))
+		buffer.frameLength = 100
+		try writer.write(from: buffer)
+
+		let playback = HiResStreaming.describe(url)
+
+		XCTAssertEqual(playback.bitDepth, 16)
+		XCTAssertEqual(playback.sampleRate, 44_100)
+	}
+
+	/// Neither a persisted value nor a readable file means the depth is unknown, and the
+	/// badge reports none rather than guessing from the requested quality.
+	func testBitDepthIsNilWhenNothingReportsOne() throws {
+		let url = directory.appendingPathComponent("952-HI_RES_LOSSLESS.flac")
+		try Data("garbage that AVAudioFile cannot open".utf8).write(to: url)
+
+		let playback = HiResStreaming.describe(url)
+
+		XCTAssertNil(playback.bitDepth)
+		XCTAssertNil(playback.sampleRate)
 	}
 
 	// MARK: - Prefetch window

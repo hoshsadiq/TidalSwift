@@ -41,10 +41,15 @@ enum PlaybackManifestPolicy {
 }
 
 /// A desktop `playbackinfo` response reduced to what the hi-res route needs: a
-/// direct URL plus the wrapped key that decrypts it.
+/// direct URL, the wrapped key that decrypts it, and the format the host says it
+/// is serving. `bitDepth`/`sampleRate` are the manifest's own description of the
+/// rendition (the file read cannot report them for FLAC), and are optional so a
+/// response that omits them stays unknown rather than guessed.
 struct AcceptedHiResManifest {
 	let url: URL
 	let keyId: String
+	var bitDepth: Int? = nil
+	var sampleRate: Int? = nil
 }
 
 /// Reads a desktop `playbackinfo` response into the hi-res decision, with no
@@ -65,7 +70,7 @@ enum HiResManifestPolicy {
 			  let url = manifest.urls.first?.upgradedToHTTPS else {
 			return nil
 		}
-		return AcceptedHiResManifest(url: url, keyId: keyId)
+		return AcceptedHiResManifest(url: url, keyId: keyId, bitDepth: response.bitDepth, sampleRate: response.sampleRate)
 	}
 }
 

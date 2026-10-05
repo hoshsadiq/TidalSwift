@@ -309,14 +309,14 @@ public enum HiResStreaming {
 		HiResStreamCache.pruneIfNeeded(protecting: trackIds)
 	}
 
-	/// Whether a track already has a prepared file in the cache.
-	public static func isTrackCached(_ trackId: Int) -> Bool {
-		HiResStreamCache.cachedFile(forTrackId: trackId) != nil
+	/// Whether a track already has a prepared file in the cache at `quality`.
+	public static func isTrackCached(_ trackId: Int, quality: AudioQuality) -> Bool {
+		HiResStreamCache.cachedFile(forTrackId: trackId, quality: quality) != nil
 	}
 
-	/// Whether a track already has an assembled DASH file in the cache.
-	public static func isDashTrackCached(_ trackId: Int) -> Bool {
-		HiResStreamCache.cachedDashFile(forTrackId: trackId) != nil
+	/// Whether a track already has an assembled DASH file in the cache at `quality`.
+	public static func isDashTrackCached(_ trackId: Int, quality: AudioQuality) -> Bool {
+		HiResStreamCache.cachedDashFile(forTrackId: trackId, quality: quality) != nil
 	}
 
 	/// How much disk space the prepared-track cache currently uses.
@@ -399,12 +399,12 @@ public enum HiResStreaming {
 		guard firstLocalRoute(for: track, session: session, quality: quality) == .hiResStereo else {
 			return nil
 		}
-		if let cached = HiResStreamCache.cachedFile(forTrackId: track.id, in: cacheDirectory) {
+		if let cached = HiResStreamCache.cachedFile(forTrackId: track.id, quality: quality, in: cacheDirectory) {
 			HiResStreamCache.touch(cached)
 			print("[PLAYBACK] hi-res stereo: reusing cached file for \(track.title)")
 			return cached
 		}
-		return await HiResStreamPreparation.preparedFile(for: track.id, in: cacheDirectory) {
+		return await HiResStreamPreparation.preparedFile(for: track.id, quality: quality, in: cacheDirectory) {
 			await downloadFile(for: track, session: session, quality: quality, cacheDirectory: cacheDirectory)
 		}
 	}
@@ -420,8 +420,9 @@ public enum HiResStreaming {
 		status.startTask()
 		defer { status.finishTask() }
 		do {
-			let destination = HiResStreamCache.fileURL(forTrackId: track.id, in: cacheDirectory)
+			let destination = HiResStreamCache.fileURL(forTrackId: track.id, quality: quality, in: cacheDirectory)
 			try await downloadAndDecrypt(manifest, to: destination)
+			HiResStreamCache.writeFormatMetadata(bitDepth: manifest.bitDepth, sampleRate: manifest.sampleRate, for: destination)
 			print("[PLAYBACK] hi-res stereo: decrypted \(track.title) to cache")
 			return destination
 		} catch {
@@ -441,20 +442,30 @@ public enum HiResStreaming {
 		HiResStreamPrefetcher(
 			depthProvider: { HiResStreamingPreferences.prefetchDepth },
 			shouldPrepare: shouldPrepare,
-			isCached: { isTrackCached($0.id) || isDashTrackCached($0.id) },
+			isCached: { isTrackCached($0.id, quality: qualityProvider()) || isDashTrackCached($0.id, quality: qualityProvider()) },
 			prepare: { track in _ = await prepareFile(for: track, session: session, quality: qualityProvider()) },
 			prune: { protected in pruneCache(protecting: protected) }
 		)
 	}
 
-	/// The format of a local stream, read from the file itself. A file that does not
+	/// The format of a local stream. The manifest's persisted values lead — a FLAC
+	/// file read reports no bit depth, and the manifest knows what Tidal served — with
+	/// the file read as the fallback for anything without them. A file that does not
 	/// open still plays but is described without a bit depth rather than guessed at.
 	static func describe(_ url: URL) -> HiResPlayback {
 		var bitDepth: Int?
 		var sampleRate: Int?
+		if let metadata = HiResStreamCache.readFormatMetadata(for: url) {
+			bitDepth = metadata.bitDepth
+			sampleRate = metadata.sampleRate
+		}
 		if let file = try? AVAudioFile(forReading: url) {
-			sampleRate = Int(file.fileFormat.sampleRate)
-			bitDepth = Int(file.fileFormat.streamDescription.pointee.mBitsPerChannel)
+			sampleRate = sampleRate ?? Int(file.fileFormat.sampleRate)
+			if bitDepth == nil {
+				// `mBitsPerChannel` is 0 for FLAC, so only a positive value is real.
+				let fileBits = Int(file.fileFormat.streamDescription.pointee.mBitsPerChannel)
+				bitDepth = fileBits > 0 ? fileBits : nil
+			}
 		}
 		return HiResPlayback(url: url, bitDepth: bitDepth, sampleRate: sampleRate)
 	}
@@ -481,10 +492,13 @@ enum HiResStreamPreparation {
 
 	static func preparedFile(
 		for trackId: Int,
+		quality: AudioQuality,
 		in directory: URL,
 		operation: @escaping () async -> URL?
 	) async -> URL? {
-		let key = "\(directory.path)#\(trackId)"
+		// The quality is part of the key: two preparations of the same track at
+		// different qualities produce different files and must not share one task.
+		let key = "\(directory.path)#\(trackId)#\(quality.rawValue)"
 		if let existing = inFlight[key] {
 			return await existing.value
 		}
@@ -629,9 +643,14 @@ public final class HiResStreamPrefetcher {
 
 /// The local playback cache, at `~/Library/Caches/TidalSwift/stream/`. Never the
 /// offline library: these files are a playback cache, not the user's music. One file
-/// per track and route, reused on replay: decrypted hi-res stereo (`<id>.flac`) and
-/// the assembled DASH AAC file (`<id>.aac.m4a`) share this directory, so they share
-/// one budget rather than competing with two.
+/// per track, route and quality, reused on replay: decrypted hi-res stereo
+/// (`<id>-<quality>.flac`) and the assembled DASH AAC file (`<id>-<quality>.aac.m4a`)
+/// share this directory, so they share one budget rather than competing with two.
+/// The quality is in the name because the same track at two tiers is two different
+/// files; a Max file must never be served as Lossless or the badge would lie.
+///
+/// A hi-res file also carries a small `<name>.json` sidecar holding the format the
+/// manifest reported, because a FLAC file read cannot report its own bit depth.
 ///
 /// Bounded in two ways, applied on launch and after every write: files not touched
 /// in a week are dropped, then the least recently used — of either kind — are removed
@@ -645,24 +664,53 @@ enum HiResStreamCache {
 		return base.appendingPathComponent("TidalSwift/stream", isDirectory: true)
 	}
 
-	static func fileURL(forTrackId trackId: Int, in directory: URL = HiResStreamCache.directory) -> URL {
-		directory.appendingPathComponent("\(trackId).flac")
+	static func fileURL(forTrackId trackId: Int, quality: AudioQuality, in directory: URL = HiResStreamCache.directory) -> URL {
+		directory.appendingPathComponent("\(trackId)-\(quality.rawValue).flac")
 	}
 
-	static func cachedFile(forTrackId trackId: Int, in directory: URL = HiResStreamCache.directory) -> URL? {
-		let url = fileURL(forTrackId: trackId, in: directory)
+	static func cachedFile(forTrackId trackId: Int, quality: AudioQuality, in directory: URL = HiResStreamCache.directory) -> URL? {
+		let url = fileURL(forTrackId: trackId, quality: quality, in: directory)
 		return FileManager.default.fileExists(atPath: url.path) ? url : nil
 	}
 
-	/// The assembled DASH file's name is distinct from the hi-res one, so a track
-	/// cached at one route does not masquerade as cached at the other.
-	static func dashFileURL(forTrackId trackId: Int, in directory: URL = HiResStreamCache.directory) -> URL {
-		directory.appendingPathComponent("\(trackId).aac.m4a")
+	/// The assembled DASH file's name differs from the hi-res one by extension and by
+	/// quality, so a track cached at one route or tier does not masquerade as another.
+	static func dashFileURL(forTrackId trackId: Int, quality: AudioQuality, in directory: URL = HiResStreamCache.directory) -> URL {
+		directory.appendingPathComponent("\(trackId)-\(quality.rawValue).aac.m4a")
 	}
 
-	static func cachedDashFile(forTrackId trackId: Int, in directory: URL = HiResStreamCache.directory) -> URL? {
-		let url = dashFileURL(forTrackId: trackId, in: directory)
+	static func cachedDashFile(forTrackId trackId: Int, quality: AudioQuality, in directory: URL = HiResStreamCache.directory) -> URL? {
+		let url = dashFileURL(forTrackId: trackId, quality: quality, in: directory)
 		return FileManager.default.fileExists(atPath: url.path) ? url : nil
+	}
+
+	/// The format a manifest reported for a cached file, persisted beside it so a
+	/// relaunch reads it back without the network. `nil` when nothing was recorded.
+	struct FormatMetadata: Codable {
+		let bitDepth: Int?
+		let sampleRate: Int?
+	}
+
+	static func metadataURL(for fileURL: URL) -> URL {
+		fileURL.appendingPathExtension("json")
+	}
+
+	/// Records the manifest's format description next to `fileURL`. Nothing is written
+	/// when there is nothing to record, and a stale sidecar is removed so a re-download
+	/// cannot leave an old claim beside a new file.
+	static func writeFormatMetadata(bitDepth: Int?, sampleRate: Int?, for fileURL: URL) {
+		guard bitDepth != nil || sampleRate != nil else {
+			try? FileManager.default.removeItem(at: metadataURL(for: fileURL))
+			return
+		}
+		let metadata = FormatMetadata(bitDepth: bitDepth, sampleRate: sampleRate)
+		guard let data = try? JSONEncoder().encode(metadata) else { return }
+		try? data.write(to: metadataURL(for: fileURL))
+	}
+
+	static func readFormatMetadata(for fileURL: URL) -> FormatMetadata? {
+		guard let data = try? Data(contentsOf: metadataURL(for: fileURL)) else { return nil }
+		return try? JSONDecoder().decode(FormatMetadata.self, from: data)
 	}
 
 	static func usageBytes(in directory: URL = HiResStreamCache.directory) -> Int {
@@ -691,7 +739,8 @@ enum HiResStreamCache {
 
 	/// Removes stale files first, then the least recently used until the directory is
 	/// under the size cap. A file whose dates cannot be read is treated as old.
-	/// Protected tracks are skipped entirely — both kinds of file, so the prefetch
+	/// Protected tracks are skipped entirely — every file whose name starts with the
+	/// track's `<id>-` prefix, whichever route, quality or sidecar — so the prefetch
 	/// window and the current track survive even when that leaves the directory over
 	/// budget. Returns the removed URLs so a test can pin what went.
 	@discardableResult
@@ -700,9 +749,10 @@ enum HiResStreamCache {
 		guard let contents = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys)) else {
 			return []
 		}
-		let protectedNames = Set(trackIds.flatMap { ["\($0).flac", "\($0).aac.m4a"] })
+		// The trailing dash keeps `<id>-` from matching a longer id's `<id0>-`.
+		let protectedPrefixes = trackIds.map { "\($0)-" }
 		let candidates: [(url: URL, date: Date, size: Int)] = contents.compactMap { url in
-			guard !protectedNames.contains(url.lastPathComponent),
+			guard !protectedPrefixes.contains(where: { url.lastPathComponent.hasPrefix($0) }),
 				  let values = try? url.resourceValues(forKeys: keys) else { return nil }
 			return (url, values.contentModificationDate ?? .distantPast, values.fileSize ?? 0)
 		}
