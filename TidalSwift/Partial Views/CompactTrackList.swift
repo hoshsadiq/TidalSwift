@@ -93,6 +93,13 @@ private struct CompactTrackRow: View {
 						.truncationMode(.tail)
 				}
 			}
+			// The menu opens a context menu, which can't be a named accessibility
+			// action, so it stays its own focusable element (see report). The
+			// informational content is one element with the play action.
+			.accessibilityElement(children: .combine)
+			.accessibilityLabel(accessibilityLabel)
+			.accessibilityAddTraits(.isButton)
+			.accessibilityAction(.default, play)
 			Spacer(minLength: 4)
 			Menu {
 				TrackContextMenu(track: sharedTrack, session: session, player: player)
@@ -113,12 +120,30 @@ private struct CompactTrackRow: View {
 		.foregroundColor(sharedTrack.isUnavailable || playbackInfo.failedTrackIds.contains(sharedTrack.id) ? .secondary : .primary)
 		.help(toolTipString)
 		.onTapGesture(count: 2) {
-			guard !sharedTrack.isUnavailable else { return }
-			player.add(track: sharedTrack, .now)
+			play()
 		}
 		.contextMenu {
 			TrackContextMenu(track: sharedTrack, session: session, player: player)
 		}
+	}
+
+	private func play() {
+		guard !sharedTrack.isUnavailable else { return }
+		player.add(track: sharedTrack, .now)
+	}
+
+	private var accessibilityLabel: String {
+		var parts = [track.title]
+		if let version = track.version {
+			parts.append(version)
+		}
+		if track.upload == true {
+			parts.append("Upload")
+		}
+		if let artists = track.artists, !artists.isEmpty {
+			parts.append(artists.formArtistString())
+		}
+		return parts.joined(separator: ", ")
 	}
 
 	@ViewBuilder
