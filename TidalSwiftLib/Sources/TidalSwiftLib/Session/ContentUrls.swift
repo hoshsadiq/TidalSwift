@@ -8,6 +8,38 @@
 
 import Foundation
 
+/// The `/playbackinfopostpaywall` response reduced to what a caller acts on: a
+/// playable URL and whether that rendition is actually Dolby Atmos.
+struct AcceptedPlaybackManifest {
+	let url: URL
+	let isDolbyAtmos: Bool
+}
+
+/// Reads a `TrackPlaybackInfo` into the decision the manifest fallback needs,
+/// with no request and no session, so the decision can be tested directly.
+enum PlaybackManifestPolicy {
+	/// Accepts only an unencrypted BTS manifest. The Atmos flag is read from the
+	/// response, never assumed from the caller expecting Atmos: a stereo track
+	/// whose `streamUrl` is refused lands here too, and must not be labelled
+	/// Atmos. Matches `dolbyAtmosUrl`'s evidence — the response's `audioMode` plus,
+	/// when the manifest carries one, the `eac3` codec. DASH and encrypted
+	/// manifests are refused so `bestAudioUrl` keeps looking.
+	static func accept(_ response: TrackPlaybackInfo) -> AcceptedPlaybackManifest? {
+		guard response.manifestMimeType == "application/vnd.tidal.bts",
+			  let data = Data(base64Encoded: response.manifest),
+			  let manifest = try? JSONDecoder().decode(BTSManifest.self, from: data) else {
+			return nil
+		}
+		if let encryption = manifest.encryptionType, encryption != "NONE" {
+			return nil
+		}
+		guard let url = manifest.urls.first?.upgradedToHTTPS else { return nil }
+		let isDolbyAtmos = response.audioMode == .dolbyAtmos
+			&& (manifest.codecs == nil || manifest.codecs == "eac3")
+		return AcceptedPlaybackManifest(url: url, isDolbyAtmos: isDolbyAtmos)
+	}
+}
+
 extension Session {
 	func audioUrl(trackId: Int, audioQuality: AudioQuality) async -> URL? {
 		var parameters = sessionParameters
@@ -64,6 +96,8 @@ extension Session {
 	/// reports whether the returned URL is that rendition, so the caller can label
 	/// the stream that actually plays instead of the track's capabilities.
 	public func bestAudioUrl(trackId: Int, preferredQuality: AudioQuality, preferDolbyAtmos: Bool = false) async -> (url: URL, quality: AudioQuality, isDolbyAtmos: Bool)? {
+		// The preference branch: ask for the Atmos rendition explicitly
+		// (`immersiveaudio=true` inside `dolbyAtmosUrl`) before touching the ladder.
 		if preferDolbyAtmos, let atmosUrl = await dolbyAtmosUrl(trackId: trackId) {
 			return (atmosUrl, preferredQuality, true)
 		}
@@ -81,10 +115,14 @@ extension Session {
 				bestResolvedAudioQualities[trackId] = quality
 				return (url, quality, false)
 			}
-			// Atmos tracks are refused by `streamUrl`; the manifest endpoint serves them.
-			if let url = await playbackManifestUrl(trackId: trackId, audioQuality: quality) {
+			// The ladder fallback: Tidal refuses the stereo stream for an Atmos
+			// track, so the manifest endpoint serves it instead. Unlike the preference
+			// branch above, this path does not ask for Atmos — it is where a track
+			// lands whenever `streamUrl` refuses — so the rendition is taken from the
+			// response, not assumed.
+			if let manifest = await playbackManifestUrl(trackId: trackId, audioQuality: quality) {
 				bestResolvedAudioQualities[trackId] = quality
-				return (url, quality, true)
+				return (manifest.url, quality, manifest.isDolbyAtmos)
 			}
 		}
 		return nil
@@ -112,7 +150,9 @@ extension Session {
 	/// for tracks `streamUrl` refuses. Dolby Atmos-only tracks answer
 	/// HTTP 401 subStatus 4005 "Asset is not ready for playback". Returns nil for
 	/// non-BTS manifests: hi-res answers with DASH, which AVPlayer cannot play.
-	func playbackManifestUrl(trackId: Int, audioQuality: AudioQuality) async -> URL? {
+	/// Whether the accepted rendition is Atmos is decided by `PlaybackManifestPolicy`
+	/// from the response, not assumed from the caller.
+	func playbackManifestUrl(trackId: Int, audioQuality: AudioQuality) async -> AcceptedPlaybackManifest? {
 		let url = URL(string: "\(AuthInformation.APILocation)/tracks/\(trackId)/playbackinfopostpaywall")!
 		var parameters = sessionParameters
 		parameters["audioquality"] = audioQuality.rawValue
@@ -120,15 +160,7 @@ extension Session {
 		parameters["assetpresentation"] = "FULL"
 		do {
 			let response: TrackPlaybackInfo = try await get(url: url, parameters: parameters)
-			guard response.manifestMimeType == "application/vnd.tidal.bts",
-				  let data = Data(base64Encoded: response.manifest),
-				  let manifest = try? JSONDecoder().decode(BTSManifest.self, from: data) else {
-				return nil
-			}
-			if let encryption = manifest.encryptionType, encryption != "NONE" {
-				return nil
-			}
-			return manifest.urls.first?.upgradedToHTTPS
+			return PlaybackManifestPolicy.accept(response)
 		} catch {
 			return nil
 		}
