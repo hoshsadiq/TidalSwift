@@ -32,6 +32,7 @@ struct TidalSwiftApp: App {
 				player: appModel.player
 			)
 			.environment(appModel)
+			.environment(appModel.toastCenter)
 			.onAppear {
 				#if canImport(AppKit)
 				appDelegate.appModel = appModel
@@ -101,6 +102,9 @@ final class TidalSwiftAppModel {
 	var sortingState: SortingState
 	var playlistEditingValues = PlaylistEditingValues()
 	let loginInfo = LoginInfo()
+	/// Owns the app's single toast overlay; shared with `ContentView` through the
+	/// environment so library errors routed via `displayErrorHandler` land here.
+	let toastCenter = ToastCenter()
 
 	private var didStart = false
 	private var isTerminating = false
@@ -146,6 +150,10 @@ final class TidalSwiftAppModel {
 		!player.queueInfo.queue.isEmpty
 	}
 
+	/// A toast holds two short lines; anything longer loses its tail on screen, so
+	/// the full text goes to the console and the title is shown alone instead.
+	private static let toastMessageLimit = 120
+
 	init() {
 		session = Session(config: nil)
 
@@ -167,6 +175,25 @@ final class TidalSwiftAppModel {
 
 		viewState = ViewState(session: session, cache: cache)
 		sortingState = SortingState()
+
+		// Installed here, not later, so an error raised as soon as the app calls into
+		// the library (login, token refresh, the offline sync) already reaches the toast.
+		installDisplayErrorHandler()
+	}
+
+	/// Routes library errors (`displayError`) to the app's toast centre. The session
+	/// and the toast centre both exist by the end of `init`.
+	private func installDisplayErrorHandler() {
+		displayErrorHandler = { [toastCenter = self.toastCenter] title, content in
+			let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
+			let message = trimmedContent.isEmpty ? title : "\(title) — \(trimmedContent)"
+			if message.count > Self.toastMessageLimit {
+				print("\(title). \(content)")
+				toastCenter.show(title)
+			} else {
+				toastCenter.show(message)
+			}
+		}
 	}
 
 	func startupIfNeeded() {

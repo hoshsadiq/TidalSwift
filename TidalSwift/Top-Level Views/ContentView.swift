@@ -16,7 +16,7 @@ struct ContentView: View {
 	var viewState: ViewState
 	var sortingState: SortingState
 
-	@State private var toastCenter = ToastCenter()
+	@Environment(ToastCenter.self) private var toastCenter
 
 	let session: Session
 	let player: Player
