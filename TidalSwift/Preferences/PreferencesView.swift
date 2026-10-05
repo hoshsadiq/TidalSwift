@@ -31,7 +31,7 @@ struct PreferencesView: View {
 private struct PlaybackPreferencesTab: View {
 	@Environment(TidalSwiftAppModel.self) private var appModel
 
-	@AppStorage("offlinePreferDolbyAtmos") private var preferDolbyAtmos = false
+	@AppStorage("offlinePreferDolbyAtmos") private var offlinePreferDolbyAtmos = false
 	@AppStorage(TidalSwiftAppModel.ignoreSubscriptionLimitsKey) private var ignoreSubscriptionLimits = false
 	/// The offline rows read `session.config`, which is not observable, so a changed
 	/// value has to be mirrored here or the selection circle would not move.
@@ -57,6 +57,13 @@ private struct PlaybackPreferencesTab: View {
 						isAvailable: { appModel.isAudioQualityAvailable($0) },
 						select: { appModel.setAudioQuality($0) }
 					)
+					DolbyAtmosToggle(
+						isOn: Binding(
+							get: { appModel.player.preferDolbyAtmos },
+							set: { appModel.setPreferDolbyAtmos($0) }
+						),
+						help: "Play the Atmos version when a track has one. Only matters when Tidal also offers stereo."
+					)
 				case .offline:
 					AudioQualityRows(
 						selection: offlineQuality ?? appModel.session.config.offlineAudioQuality,
@@ -65,6 +72,18 @@ private struct PlaybackPreferencesTab: View {
 							offlineQuality = quality
 							appModel.session.helpers.offline.setAudioQuality(to: quality)
 						}
+					)
+					DolbyAtmosToggle(
+						isOn: Binding(
+							get: { offlinePreferDolbyAtmos },
+							set: { newValue in
+								// Offline owns the stored value; set it before the local write so its
+								// change guard still sees the old value and runs the resync.
+								appModel.session.helpers.offline.setPreferDolbyAtmos(to: newValue)
+								offlinePreferDolbyAtmos = newValue
+							}
+						),
+						help: "Store the Atmos version when a track has one. Decides which file is saved offline."
 					)
 				}
 
@@ -88,27 +107,6 @@ private struct PlaybackPreferencesTab: View {
 						}
 					case .offline:
 						Text("Changing this re-checks your offline library and can re-download files.")
-					}
-				}
-			}
-
-			// Dolby Atmos picks a different stream for a track rather than a quality tier,
-			// so it gets its own section instead of riding under Quality.
-			Section("Dolby Atmos") {
-				Toggle(isOn: Binding(
-					get: { preferDolbyAtmos },
-					set: { newValue in
-						// Offline owns the stored value; set it before the local write so its
-						// change guard still sees the old value and runs the resync.
-						appModel.session.helpers.offline.setPreferDolbyAtmos(to: newValue)
-						preferDolbyAtmos = newValue
-					}
-				)) {
-					VStack(alignment: .leading) {
-						Text("Prefer Dolby Atmos")
-						Text("Use the Atmos version when a track has one. Tidal does not always serve a stereo version of an Atmos track, so turning this off will not always change what you hear. Downloads follow this setting.")
-							.font(.caption)
-							.foregroundStyle(.secondary)
 					}
 				}
 			}
@@ -154,6 +152,25 @@ private struct PlaybackPreferencesTab: View {
 private enum QualityTarget: Hashable {
 	case playback
 	case offline
+}
+
+/// The Atmos preference for one target. Playback and offline each carry their own,
+/// so a user can stream stereo while storing Atmos or the reverse. The help line says
+/// what the preference can actually change, which is not the same for both.
+private struct DolbyAtmosToggle: View {
+	@Binding var isOn: Bool
+	let help: String
+
+	var body: some View {
+		Toggle(isOn: $isOn) {
+			VStack(alignment: .leading) {
+				Text("Prefer Dolby Atmos")
+				Text(help)
+					.font(.caption)
+					.foregroundStyle(.secondary)
+			}
+		}
+	}
 }
 
 /// The quality tiers, shared by the streaming and offline pickers so both look and

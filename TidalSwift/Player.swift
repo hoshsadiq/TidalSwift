@@ -27,10 +27,12 @@ class Player {
 
 
 	private(set) var nextAudioQuality: AudioQuality
+	private(set) var preferDolbyAtmos: Bool
 
-	init(session: Session, audioQuality: AudioQuality, autoplayAfterAddNow: Bool = true) {
+	init(session: Session, audioQuality: AudioQuality, preferDolbyAtmos: Bool = false, autoplayAfterAddNow: Bool = true) {
 		self.session = session
 		self.nextAudioQuality = audioQuality
+		self.preferDolbyAtmos = preferDolbyAtmos
 		self.autoplayAfterAddNow = autoplayAfterAddNow
 
 		timeObserverToken = avPlayer.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1, preferredTimescale: 1), queue: nil) { [weak self] _ in
@@ -85,6 +87,10 @@ class Player {
 
 	func setAudioQuality(to audioQuality: AudioQuality) {
 		nextAudioQuality = audioQuality
+	}
+
+	func setPreferDolbyAtmos(to preferDolbyAtmos: Bool) {
+		self.preferDolbyAtmos = preferDolbyAtmos
 	}
 
 	func play() {
@@ -268,7 +274,7 @@ class Player {
 		} else if let resolved = await session.bestAudioUrl(
 			trackId: track.id,
 			preferredQuality: nextAudioQuality,
-			preferDolbyAtmos: track.hasDolbyAtmos && session.helpers.offline.preferDolbyAtmos
+			preferDolbyAtmos: track.hasDolbyAtmos && preferDolbyAtmos
 		) {
 			print("Play \(track.title) from online URL: \(resolved.url)")
 			print("[PLAYBACK] avSetItem(): resolved URL - title: \(track.title), quality: \(resolved.quality), source: online")

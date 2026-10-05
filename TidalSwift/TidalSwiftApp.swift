@@ -161,11 +161,20 @@ final class TidalSwiftAppModel {
 	init() {
 		session = Session(config: nil)
 
+		// The player's own Atmos preference. It was one shared toggle until now, so an
+		// existing value under the offline key seeds the playback side on first launch
+		// rather than resetting it to off.
+		let preferDolbyAtmos: Bool
+		if UserDefaults.standard.object(forKey: "preferDolbyAtmos") != nil {
+			preferDolbyAtmos = UserDefaults.standard.bool(forKey: "preferDolbyAtmos")
+		} else {
+			preferDolbyAtmos = session.helpers.offline.preferDolbyAtmos
+		}
 		if let audioQualityString = UserDefaults.standard.string(forKey: "audioQuality"),
 		   let audioQuality = AudioQuality(rawValue: audioQualityString) {
-			player = Player(session: session, audioQuality: audioQuality)
+			player = Player(session: session, audioQuality: audioQuality, preferDolbyAtmos: preferDolbyAtmos)
 		} else {
-			player = Player(session: session, audioQuality: .high)
+			player = Player(session: session, audioQuality: .high, preferDolbyAtmos: preferDolbyAtmos)
 		}
 		nowPlayingController = NowPlayingController(player: player, session: session)
 		audioQuality = player.nextAudioQuality
@@ -511,6 +520,7 @@ final class TidalSwiftAppModel {
 		let playbackInfoData = try? JSONEncoder().encode(codablePI)
 		UserDefaults.standard.set(playbackInfoData, forKey: "PlaybackInfo")
 		UserDefaults.standard.set(player.nextAudioQuality.rawValue, forKey: "audioQuality")
+		UserDefaults.standard.set(player.preferDolbyAtmos, forKey: "preferDolbyAtmos")
 	}
 
 	func saveViewState() {
@@ -907,6 +917,11 @@ final class TidalSwiftAppModel {
 		player.setAudioQuality(to: audioQuality)
 		player.playbackInfo.hasUnsavedChanges = true
 		self.audioQuality = audioQuality
+	}
+
+	func setPreferDolbyAtmos(_ preferDolbyAtmos: Bool) {
+		player.setPreferDolbyAtmos(to: preferDolbyAtmos)
+		player.playbackInfo.hasUnsavedChanges = true
 	}
 
 	func isAudioQualitySelected(_ audioQuality: AudioQuality) -> Bool {
