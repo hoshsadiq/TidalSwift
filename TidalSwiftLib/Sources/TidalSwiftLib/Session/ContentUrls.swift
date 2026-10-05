@@ -69,6 +69,18 @@ enum HiResManifestPolicy {
 	}
 }
 
+/// Reads a desktop `playbackinfo` response into the DASH decision, with no request
+/// and no session, so the decision can be tested directly. Measured 2026-10-05: at
+/// `HIGH`/`LOW` Tidal refuses `streamUrl` and answers the desktop endpoint with an
+/// `application/dash+xml` manifest whose payload is an unencrypted AAC MPD. Only an
+/// MPD this app can assemble is accepted; anything else returns nil.
+enum DashManifestPolicy {
+	static func accept(_ response: TrackPlaybackInfo) -> DashAudioManifest? {
+		guard response.manifestMimeType == "application/dash+xml" else { return nil }
+		return try? DashAudioManifest(base64Manifest: response.manifest)
+	}
+}
+
 extension Session {
 	/// Why the desktop route did or did not produce a stream. The last two cases are
 	/// the same to the caller (it falls back); they are separate so the log can say
@@ -121,6 +133,22 @@ extension Session {
 			print("[PLAYBACK] hi-res stereo: desktop playbackinfo answered \(info.audioMode?.rawValue ?? "?") \(bitDepth)-bit \(sampleRate) Hz")
 		}
 		return info
+	}
+
+	/// Resolves a High/Low track to a DASH audio manifest through the desktop
+	/// client's `playbackinfo`, the same call the hi-res route uses.
+	///
+	/// At `HIGH`/`LOW` the stereo `streamUrl` is refused and the endpoint answers an
+	/// unencrypted AAC MPD instead, which this app assembles into a local file. The
+	/// other tiers answer BTS, which `DashManifestPolicy` refuses, so the caller only
+	/// asks for the tiers where DASH is expected.
+	func dashAudioManifest(trackId: Int, audioQuality: AudioQuality) async -> DashAudioManifest? {
+		do {
+			let response: TrackPlaybackInfo = try await desktopPlaybackInfo(trackId: trackId, audioQuality: audioQuality)
+			return DashManifestPolicy.accept(response)
+		} catch {
+			return nil
+		}
 	}
 
 	func audioUrl(trackId: Int, audioQuality: AudioQuality) async -> URL? {
