@@ -262,7 +262,7 @@ public final class Offline {
 	private let dolbyAtmosFileMarker = "atmos"
 
 	/// What a file on disk holds. The quality is nil for m4a files stored before it was part of the name.
-	private enum FileVariant: Equatable {
+	private enum FileVariant: Equatable, Hashable {
 		case dolbyAtmos
 		case stereo(AudioQuality?)
 	}
@@ -276,10 +276,11 @@ public final class Offline {
 	/// would otherwise need a live Tidal account.
 	var resolveOfflineStream: ((Track) async -> AudioStream?)?
 
-	/// Test seam: seeds the offline track set so a sync can be driven against a
-	/// known state without a Tidal account. The app never calls this.
+	/// Test seam: seeds the offline track set and starts a sync, so a test can
+	/// drive a pass against a known state. The app never calls this.
 	func setOfflineTracksForTesting(_ tracks: [Track]) {
 		db.replaceTracksForTesting(Set(tracks))
+		asyncSync()
 	}
 
 	public init(session: Session, downloadStatus: DownloadStatus, offlineLibraryRoot: URL? = nil) {
@@ -379,6 +380,23 @@ public final class Offline {
 			return .dolbyAtmos
 		}
 		return .stereo(session.config.offlineAudioQuality)
+	}
+
+	/// Every variant on disk that counts as satisfying the wish for this track.
+	///
+	/// Tidal decides which rendition a track is served in, not us. An Atmos-capable
+	/// track that also declares stereo is refused by `streamUrl` at every tier and
+	/// answered by the manifest instead, which serves the Atmos rendition even with
+	/// the Atmos preference off (see `Track.audioStream`). With the preference off
+	/// such a track is therefore wanted in either rendition: a file matching either
+	/// must be neither re-downloaded nor pruned as a leftover. This is not
+	/// sloppiness — `wantedVariant` above is only the rendition the sync prefers,
+	/// while this set is what it accepts.
+	private func acceptableVariants(of track: Track) -> Set<FileVariant> {
+		if track.hasDolbyAtmos && track.hasStereo && !preferDolbyAtmos {
+			return [.dolbyAtmos, .stereo(session.config.offlineAudioQuality)]
+		}
+		return [wantedVariant(of: track)]
 	}
 
 	private func variant(of url: URL, track: Track) -> FileVariant {
@@ -572,11 +590,12 @@ public final class Offline {
 		var leftoverFiles: [URL] = []
 		for track in dbTracks {
 			if let files = localFiles[track.id] {
-				// Replace the file once the offline quality or Dolby Atmos preference changed
-				let wantedVariant = wantedVariant(of: track)
-				if let wantedFile = files.first(where: { variant(of: $0, track: track) == wantedVariant }) {
-					// Other variants remain when removing them after a download failed
-					leftoverFiles += files.filter { $0 != wantedFile }
+				// Replace the file once the offline quality or Dolby Atmos preference
+				// changed. Any acceptable variant counts as already satisfying the
+				// wish; the rest are leftovers once a replacement is on disk.
+				let acceptable = acceptableVariants(of: track)
+				if let matchingFile = files.first(where: { acceptable.contains(variant(of: $0, track: track)) }) {
+					leftoverFiles += files.filter { $0 != matchingFile }
 				} else {
 					toAdd.append(track)
 				}

@@ -135,10 +135,23 @@ public struct Track: Codable, Equatable, Identifiable, Hashable {
 				return nil
 			}
 		}
-		guard let url = await session.audioUrl(trackId: id, audioQuality: audioQuality) else {
+		if let url = await session.audioUrl(trackId: id, audioQuality: audioQuality) {
+			return AudioStream(url: url, pathExtension: session.pathExtension(for: audioQuality), isDolbyAtmos: false)
+		}
+		// `streamUrl` refuses an Atmos-capable track at every tier (HTTP 401,
+		// subStatus 4005 "Asset is not ready for playback"), and Tidal answers the
+		// same track through the manifest instead. Fall back at this tier only: an
+		// offline file is named after the configured quality, so degrading to a
+		// lower tier would store a file that claims to be lossless and is not.
+		// The rendition is read from the manifest, never assumed from the request.
+		guard let manifest = await session.playbackManifestUrl(trackId: id, audioQuality: audioQuality) else {
 			return nil
 		}
-		return AudioStream(url: url, pathExtension: session.pathExtension(for: audioQuality), isDolbyAtmos: false)
+		return AudioStream(
+			url: manifest.url,
+			pathExtension: session.pathExtension(for: manifest.url, audioQuality: audioQuality),
+			isDolbyAtmos: manifest.isDolbyAtmos
+		)
 	}
 
 	public func isOffline(session: Session) async -> Bool {
