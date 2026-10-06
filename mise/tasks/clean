@@ -1,5 +1,13 @@
 #!/usr/bin/env bash
 #MISE description="Remove build outputs (DerivedData)"
-set -eo pipefail
+# Forces a full rebuild: the next `build` regenerates everything the app needs.
+set -Eeuo pipefail
 
-rm -rf .build/DerivedData
+# shellcheck source=mise/tasks/_lib.sh
+. "$(dirname -- "${BASH_SOURCE[0]}")/_lib.sh"
+
+main() {
+	rm -rf "$(task_derived_data)"
+}
+
+main "$@"

@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 #MISE description="Detect unused code across app and lib targets"
 #MISE depends=["generate"]
-set -eo pipefail
+# Flags dead code before it is removed by hand. Runs Periphery, so it is slow and is
+# meant to be run on demand rather than on every build.
+set -Eeuo pipefail
 
-exec periphery scan --project TidalSwift.xcodeproj --schemes TidalSwift
+# shellcheck source=mise/tasks/_lib.sh
+. "$(dirname -- "${BASH_SOURCE[0]}")/_lib.sh"
+
+main() {
+	cd -- "$(task_repo_root)"
+	exec periphery scan --project TidalSwift.xcodeproj --schemes TidalSwift
+}
+
+main "$@"

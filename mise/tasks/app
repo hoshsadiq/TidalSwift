@@ -7,26 +7,26 @@
 # that no longer exists can swallow it, which looks like a login that opens the wrong
 # app or never returns. This removes the other copies from the registry, then launches
 # the build in this checkout, which claims the scheme for itself at launch.
-#
-# Env overrides: CONFIGURATION (default Debug), TIDY_ONLY (tidy the registry only).
-set -eo pipefail
+set -Eeuo pipefail
+
+# shellcheck source=mise/tasks/_lib.sh
+. "$(dirname -- "${BASH_SOURCE[0]}")/_lib.sh"
 
 readonly LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 readonly BUNDLE_NAME="TidalSwift.app"
-readonly APP_PATH=".build/DerivedData/Build/Products/${CONFIGURATION:-Debug}/${BUNDLE_NAME}"
 
-if [[ ! -x "$LSREGISTER" ]]; then
-	printf 'lsregister not found at %s\n' "$LSREGISTER" >&2
-	exit 1
-fi
-if [[ ! -d "$APP_PATH" ]]; then
-	printf 'No build at %s — run: mise run build\n' "$APP_PATH" >&2
-	exit 1
-fi
+usage() {
+	cat <<'EOF'
+Launch the app from this checkout, removing other registered copies of TidalSwift.app
+from LaunchServices first.
 
-# Absolute path of the copy being launched, so it is never the one removed.
-HERE="$(cd -- "$(dirname -- "$APP_PATH")" && pwd -P)/$BUNDLE_NAME"
-readonly HERE
+Env overrides:
+  CONFIGURATION    Build configuration to launch (default Debug).
+  TIDY_ONLY        Set to tidy the LaunchServices registry and exit without launching.
+  LAUNCH_DETACHED  Set to launch with `open` (no console output) instead of running
+                   the binary in the foreground.
+EOF
+}
 
 # Every registered copy of this app, taken from the LaunchServices dump. Each record
 # pairs a `path:` line with the `bundle`/`bindings` lines that follow it, so the path
@@ -45,44 +45,81 @@ registered_paths() {
 	' | sort -u
 }
 
-removed=0
-kept_other=0
-while IFS= read -r path; do
-	[[ -n "$path" ]] || continue
-	# Only this app's own copies are touched: TIDAL.app and anything else that
-	# claims the scheme keep their registration.
-	[[ "$path" == */"$BUNDLE_NAME" ]] || continue
-	if [[ "$path" == "$HERE" ]]; then
-		continue
+# Unregister every other copy of this app, leaving the one at $1 alone.
+tidy_registry() {
+	local here="$1"
+	local removed=0
+	local kept_other=0
+	while IFS= read -r path; do
+		[[ -n "$path" ]] || continue
+		# Only this app's own copies are touched: TIDAL.app and anything else that
+		# claims the scheme keep their registration.
+		[[ "$path" == */"$BUNDLE_NAME" ]] || continue
+		if [[ "$path" == "$here" ]]; then
+			continue
+		fi
+		if "$LSREGISTER" -u "$path" >/dev/null 2>&1; then
+			printf 'unregistered  %s\n' "$path"
+			removed=$((removed + 1))
+		else
+			kept_other=$((kept_other + 1))
+		fi
+	done < <(registered_paths)
+
+	printf '%s stale registration(s) removed from %s\n' "$removed" "$BUNDLE_NAME"
+	if (( kept_other > 0 )); then
+		printf '%s could not be removed (already gone, or not removable)\n' "$kept_other"
 	fi
-	if "$LSREGISTER" -u "$path" >/dev/null 2>&1; then
-		printf 'unregistered  %s\n' "$path"
-		removed=$((removed + 1))
+}
+
+# The app claims tidal:// for itself on launch, which is what makes the callback come
+# back here rather than to one of the copies just removed. Run the binary rather than
+# `open` so its console output — the `[LOGIN]` and `[PLAYBACK]` lines — arrives in
+# this terminal: a launched app's stdout goes nowhere otherwise, which makes the login
+# flow impossible to read. Ctrl-C quits it; LAUNCH_DETACHED=1 uses `open` instead.
+launch() {
+	local app_path="$1"
+	if [[ -n "${LAUNCH_DETACHED:-}" ]]; then
+		open "$app_path"
+		printf 'launched %s (detached, no console output)\n' "$app_path"
 	else
-		kept_other=$((kept_other + 1))
+		printf 'launching %s — console output follows, Ctrl-C quits\n' "$app_path"
+		exec "$app_path/Contents/MacOS/TidalSwift"
 	fi
-done < <(registered_paths)
+}
 
-printf '%s stale registration(s) removed from %s\n' "$removed" "$BUNDLE_NAME"
-if (( kept_other > 0 )); then
-	printf '%s could not be removed (already gone, or not removable)\n' "$kept_other"
-fi
+main() {
+	if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+		usage
+		return 0
+	fi
 
-if [[ -n "${TIDY_ONLY:-}" ]]; then
-	printf 'TIDY_ONLY set, not launching\n'
-	exit 0
-fi
+	cd -- "$(task_repo_root)"
 
-# The app claims tidal:// for itself on launch, which is what makes the callback
-# come back here rather than to one of the copies just removed. Run the binary
-# rather than `open` so its console output — the `[LOGIN]` and `[PLAYBACK]` lines —
-# arrives in this terminal: a launched app's stdout goes nowhere otherwise, which
-# makes the login flow impossible to read. Ctrl-C quits it; LAUNCH_DETACHED=1 uses
-# `open` instead.
-if [[ -n "${LAUNCH_DETACHED:-}" ]]; then
-	open "$APP_PATH"
-	printf 'launched %s (detached, no console output)\n' "$APP_PATH"
-else
-	printf 'launching %s — console output follows, Ctrl-C quits\n' "$APP_PATH"
-	exec "$APP_PATH/Contents/MacOS/TidalSwift"
-fi
+	local app_path
+	app_path="$(task_app_path "${CONFIGURATION:-Debug}")"
+
+	if [[ ! -x "$LSREGISTER" ]]; then
+		printf 'lsregister not found at %s\n' "$LSREGISTER" >&2
+		exit 1
+	fi
+	if [[ ! -d "$app_path" ]]; then
+		printf 'No build at %s — run: mise run build\n' "$app_path" >&2
+		exit 1
+	fi
+
+	# Absolute path of the copy being launched, so it is never the one removed.
+	local here
+	here="$(cd -- "$(dirname -- "$app_path")" && pwd -P)/$BUNDLE_NAME"
+
+	tidy_registry "$here"
+
+	if [[ -n "${TIDY_ONLY:-}" ]]; then
+		printf 'TIDY_ONLY set, not launching\n'
+		exit 0
+	fi
+
+	launch "$app_path"
+}
+
+main "$@"

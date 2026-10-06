@@ -2,6 +2,16 @@
 #MISE description="Generate the Xcode project from project.yml"
 #MISE sources=["project.yml", "TidalSwift/**/*"]
 #MISE outputs=["TidalSwift.xcodeproj/project.pbxproj"]
-set -eo pipefail
+# The project is generated from project.yml and never committed, so every task that
+# runs xcodebuild needs this to have produced TidalSwift.xcodeproj first.
+set -Eeuo pipefail
 
-exec xcodegen generate --use-cache
+# shellcheck source=mise/tasks/_lib.sh
+. "$(dirname -- "${BASH_SOURCE[0]}")/_lib.sh"
+
+main() {
+	cd -- "$(task_repo_root)"
+	exec xcodegen generate --use-cache
+}
+
+main "$@"
