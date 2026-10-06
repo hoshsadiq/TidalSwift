@@ -84,7 +84,11 @@ launch() {
 		printf 'launched %s (detached, no console output)\n' "$app_path"
 	else
 		printf 'launching %s — console output follows, Ctrl-C quits\n' "$app_path"
-		exec "$app_path/Contents/MacOS/TidalSwift"
+		# Foundation buffers stdout when it is not a terminal, so piping the output to a
+		# file loses every `[LOGIN]` and `[PLAYBACK]` line until the buffer fills or the
+		# app exits on its own. NSUnbufferedIO writes each line as it happens, which is
+		# what makes a captured log worth reading.
+		NSUnbufferedIO=YES exec "$app_path/Contents/MacOS/TidalSwift"
 	fi
 }
 
