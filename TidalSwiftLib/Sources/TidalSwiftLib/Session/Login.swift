@@ -239,6 +239,12 @@ extension Session {
 		activeTokenRefresh = nil
 		activeTokenRefreshID = nil
 		deletePersistentInformation()
+		// The ids go with the tokens: `saveState` calls `saveSession` from the quit
+		// and scene-phase paths, and a stale id left here would be written back —
+		// which is exactly what made the next launch's `loadSession` report a
+		// logged-in session with no token behind it.
+		countryCode = nil
+		userId = nil
 		config = Config(accessToken: "", refreshToken: "", clientID: "", offlineAudioQuality: .high)
 	}
 }
