@@ -88,8 +88,13 @@ final class InAppBrowserLogin: NSObject, ASWebAuthenticationPresentationContextP
 		let pending = PendingDesktopLogin()
 		let session = makeSession(url: url, pending: pending)
 		self.session = session
+		// A session without a presentation context refuses to start, and the API
+		// reports that as a plain `false` rather than an error, so the omission is
+		// asserted here as well as set in `makeSession`.
+		assert(session.presentationContextProvider != nil, "the session needs its presentation context")
 		guard session.start() else {
 			self.session = nil
+			print("[LOGIN] in-app browser session refused to start")
 			throw InAppBrowserLoginEnded(end: .unavailable)
 		}
 		do {
@@ -108,6 +113,10 @@ final class InAppBrowserLogin: NSObject, ASWebAuthenticationPresentationContextP
 
 	/// macOS 14.4 takes the typed callback; 14.0–14.3 use the older initializer
 	/// with the scheme. Both hand the matching redirect to the completion handler.
+	///
+	/// This is the only place a session is built, so the presentation context is
+	/// set here: `start()` returns `false` without it, which looks like a refusal
+	/// to open a window and says nothing about the cause.
 	private func makeSession(url: URL, pending: PendingDesktopLogin) -> ASWebAuthenticationSession {
 		let handler: ASWebAuthenticationSession.CompletionHandler = { callbackURL, error in
 			if let callbackURL {
@@ -116,18 +125,21 @@ final class InAppBrowserLogin: NSObject, ASWebAuthenticationPresentationContextP
 				pending.resume(throwing: error ?? InAppBrowserLoginEnded(end: .failed))
 			}
 		}
+		let session: ASWebAuthenticationSession
 		if #available(macOS 14.4, *) {
-			return ASWebAuthenticationSession(
+			session = ASWebAuthenticationSession(
 				url: url,
 				callback: .customScheme(desktopLoginCallbackScheme),
 				completionHandler: handler
 			)
 		} else {
-			return ASWebAuthenticationSession(
+			session = ASWebAuthenticationSession(
 				url: url,
 				callbackURLScheme: desktopLoginCallbackScheme,
 				completionHandler: handler
 			)
 		}
+		session.presentationContextProvider = self
+		return session
 	}
 }
