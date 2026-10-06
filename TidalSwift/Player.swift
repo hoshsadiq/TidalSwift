@@ -315,7 +315,12 @@ class Player {
 
 		let url: URL
 		isPlayingHiResStereo = false
+		// A rendition fetch can suspend for the whole download, so the stale-load check at
+		// the top has to repeat in each path that publishes a result.
 		if let offlineStream = await session.helpers.offline.stream(for: track) {
+			guard loadID == itemLoadID else {
+				return
+			}
 			print("Play \(track.title) from offline URL: \(offlineStream.url)")
 			print("[PLAYBACK] avSetItem(): resolved URL - title: \(track.title), quality: \(nextAudioQuality), source: offline")
 			url = offlineStream.url
@@ -334,6 +339,9 @@ class Player {
 			let source = stream.isHiResStereo ? "hi-res" : "online"
 			print("Play \(track.title) from \(source) URL: \(stream.url)")
 			print("[PLAYBACK] avSetItem(): resolved URL - title: \(track.title), quality: \(stream.isHiResStereo ? "hi-res stereo" : "\(stream.quality)"), source: \(source)")
+			guard loadID == itemLoadID else {
+				return
+			}
 			url = stream.url
 			isPlayingHiResStereo = stream.isHiResStereo
 			currentHiResBitDepth = stream.hiResBitDepth
@@ -352,10 +360,6 @@ class Player {
 			print("[PLAYBACK] avSetItem(): no URL - title: \(track.title), id: \(track.id), failedItems: \(failedItems), queueCount: \(queueInfo.queue.count)")
 			playbackInfo.failedTrackIds.insert(track.id)
 			skip()
-			return
-		}
-		// Another item was requested while this one was loading
-		guard loadID == itemLoadID else {
 			return
 		}
 		failedItems = 0
