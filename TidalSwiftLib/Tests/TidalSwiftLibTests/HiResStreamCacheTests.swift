@@ -471,6 +471,27 @@ final class HiResStreamCacheTests: XCTestCase {
 
 	// MARK: - Helpers
 
+	/// Compile-time pin for the freeze fix: the heavy stream work must not be
+	/// main-actor isolated. Every call below is in a `nonisolated` context, so if the
+	/// function is annotated `@MainActor` again this file stops compiling — a
+	/// regression guard no comment can match. The download+decrypt step is pinned by
+	/// its conversion to a non-isolated `@Sendable` function value, which a
+	/// main-actor function cannot satisfy.
+	nonisolated func testHeavyStreamWorkIsCallableOffTheMainActor() async throws {
+		let directory = FileManager.default.temporaryDirectory
+		let file = directory.appendingPathComponent("off-main-\(UUID().uuidString).flac")
+
+		_ = HiResStreaming.describe(file)
+		_ = HiResStreamCache.readFormatMetadata(for: file)
+		_ = HiResStreamCache.usageBytes(in: directory)
+		_ = HiResStreamCache.cachedFile(forTrackId: 1, quality: .max, in: directory)
+		HiResStreamCache.touch(file)
+		HiResStreamCache.pruneIfNeeded(in: directory)
+
+		let downloadAndDecrypt: @Sendable (AcceptedHiResManifest, URL) async throws -> Void = HiResStreaming.downloadAndDecrypt
+		_ = downloadAndDecrypt
+	}
+
 	/// Waits for a condition the prefetcher sets on the main actor, without a fixed
 	/// sleep that would make the test flaky.
 	private func waitUntil(timeout: TimeInterval = 0.5, _ condition: () -> Bool) async {

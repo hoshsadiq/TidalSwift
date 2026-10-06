@@ -252,7 +252,7 @@ final class HiResStreamingPolicyTests: XCTestCase {
 		var directStreamAsked = false
 		let resolver = PlaybackRouteResolver(
 			hiResStereo: { nil },
-			dash: { PlayableStream(url: local, quality: .medium, isDolbyAtmos: false, isHiResStereo: false, hiResBitDepth: nil) },
+			dash: { PlayableStream(url: local, quality: .medium, isDolbyAtmos: false, isHiResStereo: false, hiResBitDepth: nil, hiResSampleRate: nil) },
 			directStream: { directStreamAsked = true; return nil }
 		)
 
@@ -270,7 +270,7 @@ final class HiResStreamingPolicyTests: XCTestCase {
 		let resolver = PlaybackRouteResolver(
 			hiResStereo: { nil },
 			dash: { nil },
-			directStream: { PlayableStream(url: direct, quality: .medium, isDolbyAtmos: false, isHiResStereo: false, hiResBitDepth: nil) }
+			directStream: { PlayableStream(url: direct, quality: .medium, isDolbyAtmos: false, isHiResStereo: false, hiResBitDepth: nil, hiResSampleRate: nil) }
 		)
 
 		let resolved = await resolver.resolve(routes: [.dash, .directStream])

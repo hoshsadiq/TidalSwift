@@ -105,7 +105,7 @@ public enum HiResStreamingPolicy {
 ///
 /// Default on: the route is tried first and falls back quietly, so a user who does
 /// not want it opts out rather than in.
-public enum HiResStreamingPreferences {
+public nonisolated enum HiResStreamingPreferences {
 	public static let prefetchDepthKey = "hiResStreamPrefetchDepth"
 	public static let cacheSizeBytesKey = "hiResStreamCacheBytes"
 
@@ -176,7 +176,7 @@ enum HiResStreamingSession {
 
 /// The local hi-res stream that plays, with the format read from the file itself so
 /// the badge describes the audio rather than the request.
-public struct HiResPlayback {
+public nonisolated struct HiResPlayback {
 	public let url: URL
 	public let bitDepth: Int?
 	public let sampleRate: Int?
@@ -450,7 +450,10 @@ public enum HiResStreaming {
 	/// file read reports no bit depth, and the manifest knows what Tidal served — with
 	/// the file read as the fallback for anything without them. A file that does not
 	/// open still plays but is described without a bit depth rather than guessed at.
-	static func describe(_ url: URL) -> HiResPlayback {
+	///
+	/// `nonisolated`: a pure file read, so preparing a track off the main actor can
+	/// describe what it produced without hopping back to the UI thread.
+	nonisolated static func describe(_ url: URL) -> HiResPlayback {
 		var bitDepth: Int?
 		var sampleRate: Int?
 		if let metadata = HiResStreamCache.readFormatMetadata(for: url) {
@@ -470,6 +473,16 @@ public enum HiResStreaming {
 
 	/// Downloads the encrypted rendition and decrypts it into `destination`, so the
 	/// bytes on disk are a playable FLAC and never the encrypted stream.
+	///
+	/// `@concurrent`: the download and the decrypt are the seconds of work that used
+	/// to run on the main actor and freeze the window on every track switch. Nothing
+	/// here touches UI or observable state, so it runs on the concurrent executor
+	/// instead; the caller reports progress around it.
+	///
+	/// `nonisolated` alone is not enough here: with `NonisolatedNonsendingByDefault`
+	/// it would inherit the caller's main actor, so the work still lands on the UI
+	/// thread. `@concurrent` is what moves it off.
+	@concurrent
 	static func downloadAndDecrypt(_ manifest: AcceptedHiResManifest, to destination: URL) async throws {
 		let encrypted = FileManager.default.temporaryDirectory
 			.appendingPathComponent("tidal-hires-\(UUID().uuidString).enc")
@@ -654,7 +667,7 @@ public final class HiResStreamPrefetcher {
 /// in a week are dropped, then the least recently used — of either kind — are removed
 /// until the directory is under the configured size. A file is touched when it is
 /// played, so eviction keeps the tracks that actually get listened to.
-enum HiResStreamCache {
+nonisolated enum HiResStreamCache {
 	static let maxAge: TimeInterval = 7 * 24 * 60 * 60
 
 	static var directory: URL {
