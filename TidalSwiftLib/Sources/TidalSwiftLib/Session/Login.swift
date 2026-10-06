@@ -81,16 +81,16 @@ extension Session {
 
 	/// Runs the device authorization flow. Cancelling the consumer of the stream stops the polling.
 	public func startAuthorization() -> AsyncStream<AuthorizationState> {
-		AsyncStream { continuation in
-			let task = Task {
-				continuation.yield(.waiting)
-				continuation.yield(await authorize(onPending: { continuation.yield($0) }))
-				continuation.finish()
-			}
-			continuation.onTermination = { _ in
-				task.cancel()
-			}
+		let (stream, continuation) = AsyncStream.makeStream(of: AuthorizationState.self)
+		let task = Task {
+			continuation.yield(.waiting)
+			continuation.yield(await authorize(onPending: { continuation.yield($0) }))
+			continuation.finish()
 		}
+		continuation.onTermination = { _ in
+			task.cancel()
+		}
+		return stream
 	}
 
 	private func authorize(onPending: (AuthorizationState) -> Void) async -> AuthorizationState {

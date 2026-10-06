@@ -309,8 +309,8 @@ final class HiResStreamCacheTests: XCTestCase {
 			return produced
 		}
 
-		async let first = HiResStreamPreparation.preparedFile(for: trackId, quality: .medium, in: dir, operation: operation)
-		async let second = HiResStreamPreparation.preparedFile(for: trackId, quality: .medium, in: dir, operation: operation)
+		async let first = HiResStreamPreparation.preparedFile(for: trackId, quality: .medium, route: .dash, in: dir, operation: operation)
+		async let second = HiResStreamPreparation.preparedFile(for: trackId, quality: .medium, route: .dash, in: dir, operation: operation)
 		let (firstURL, secondURL) = await (first, second)
 		let runCount = await runs.value
 
@@ -330,12 +330,84 @@ final class HiResStreamCacheTests: XCTestCase {
 			return dir.appendingPathComponent("quality-\(count).m4a")
 		}
 
-		async let medium = HiResStreamPreparation.preparedFile(for: trackId, quality: .medium, in: dir, operation: operation)
-		async let low = HiResStreamPreparation.preparedFile(for: trackId, quality: .low, in: dir, operation: operation)
+		async let medium = HiResStreamPreparation.preparedFile(for: trackId, quality: .medium, route: .dash, in: dir, operation: operation)
+		async let low = HiResStreamPreparation.preparedFile(for: trackId, quality: .low, route: .dash, in: dir, operation: operation)
 		_ = await (medium, low)
 		let runCount = await runs.value
 
 		XCTAssertEqual(runCount, 2, "the quality must be part of the in-flight key")
+	}
+
+	/// The route is also part of the key: a preparation made for one route must not
+	/// answer a request for another, so a `cuk` capability change cannot hand a hi-res
+	/// file to a DASH caller.
+	func testPreparationKeySeparatesRoutes() async throws {
+		let trackId = 779_600_003
+		let dir = try XCTUnwrap(directory)
+		let runs = RunCounter()
+		let operation: @Sendable () async -> URL? = {
+			let count = await runs.increment()
+			return dir.appendingPathComponent("route-\(count).m4a")
+		}
+
+		async let hiRes = HiResStreamPreparation.preparedFile(for: trackId, quality: .max, route: .hiResStereo, in: dir, operation: operation)
+		async let dash = HiResStreamPreparation.preparedFile(for: trackId, quality: .max, route: .dash, in: dir, operation: operation)
+		_ = await (hiRes, dash)
+		let runCount = await runs.value
+
+		XCTAssertEqual(runCount, 2, "the route must be part of the in-flight key")
+	}
+
+	/// A preparation that runs past its timeout is abandoned and reported as no file, so
+	/// a stuck operation cannot hold the play path or a later prefetch.
+	func testAStuckPreparationTimesOutAndReturnsNothing() async throws {
+		let dir = try XCTUnwrap(directory)
+		let started = Date()
+
+		let result = await HiResStreamPreparation.preparedFile(
+			for: 779_600_004,
+			quality: .max,
+			route: .hiResStereo,
+			in: dir,
+			timeout: .milliseconds(50),
+			operation: {
+				try? await Task.sleep(for: .seconds(30))
+				return dir.appendingPathComponent("too-late.flac")
+			}
+		)
+
+		XCTAssertNil(result)
+		XCTAssertLessThan(Date().timeIntervalSince(started), 5, "a stuck preparation must not hold the caller")
+	}
+
+	/// After a timeout the entry is released, so the next preparation starts fresh instead
+	/// of awaiting the abandoned work.
+	func testPreparationAfterATimeoutStartsFresh() async throws {
+		let dir = try XCTUnwrap(directory)
+		let produced = dir.appendingPathComponent("fresh.flac")
+
+		let timedOut = await HiResStreamPreparation.preparedFile(
+			for: 779_600_005,
+			quality: .max,
+			route: .hiResStereo,
+			in: dir,
+			timeout: .milliseconds(50),
+			operation: {
+				try? await Task.sleep(for: .seconds(30))
+				return produced
+			}
+		)
+		XCTAssertNil(timedOut)
+
+		let fresh = await HiResStreamPreparation.preparedFile(
+			for: 779_600_005,
+			quality: .max,
+			route: .hiResStereo,
+			in: dir,
+			timeout: .seconds(5),
+			operation: { produced }
+		)
+		XCTAssertEqual(fresh, produced, "the timed-out entry must not be reused")
 	}
 
 	private actor RunCounter {
@@ -420,6 +492,17 @@ final class HiResStreamCacheTests: XCTestCase {
 			HiResPrefetchPolicy.upcomingTracks(queue: queue, currentIndex: 0, depth: 15).map(\.id),
 			[20, 30, 40, 50]
 		)
+	}
+
+	/// A negative depth and an out-of-range current index yield no tracks rather than
+	/// trapping, because the policy is asked with whatever the controls and the queue hold.
+	func testNegativeDepthAndOutOfRangeIndexYieldNothing() {
+		let queue = makeTracks(ids: [10, 20, 30])
+
+		XCTAssertTrue(HiResPrefetchPolicy.upcomingTracks(queue: queue, currentIndex: 0, depth: -1).isEmpty)
+		XCTAssertTrue(HiResPrefetchPolicy.upcomingTracks(queue: queue, currentIndex: 3, depth: 3).isEmpty)
+		XCTAssertTrue(HiResPrefetchPolicy.upcomingTracks(queue: queue, currentIndex: -1, depth: 3).isEmpty)
+		XCTAssertTrue(HiResPrefetchPolicy.upcomingTracks(queue: [], currentIndex: 0, depth: 3).isEmpty)
 	}
 
 	/// Tracks already in the cache, and tracks the settings would not play through the

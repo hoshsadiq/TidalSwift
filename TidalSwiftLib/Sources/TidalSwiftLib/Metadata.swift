@@ -52,6 +52,15 @@ class Metadata {
 	}
 
 	private func tags(for track: Track) async -> AudioTags {
+		let album = await session.album(albumId: track.album.id)
+		let cover = await coverData(for: track)
+		return Metadata.tags(for: track, album: album, cover: cover)
+	}
+
+	/// Maps a track — plus the full album record when one could be fetched — to the tags
+	/// the writers consume. Split from the fetch so the mapping itself (album artist,
+	/// explicit flag, cover) can be exercised without a session.
+	static func tags(for track: Track, album: Album?, cover: Data?) -> AudioTags {
 		var title = track.title
 		if let version = track.version {
 			title += " (\(version))"
@@ -70,8 +79,8 @@ class Metadata {
 			isExplicit: track.explicit
 		)
 
-		// The album embedded in a track lacks most details
-		if let album = await session.album(albumId: track.album.id) {
+		// The album embedded in a track lacks most details.
+		if let album {
 			tags.trackTotal = album.numberOfTracks
 			tags.discTotal = album.numberOfVolumes
 			if let artists = album.artists, !artists.isEmpty {
@@ -82,11 +91,13 @@ class Metadata {
 			}
 		}
 
-		if let coverUrl = track.getCoverUrl(session: session, resolution: 1280) {
-			tags.cover = await downloadCover(from: coverUrl)
-		}
-
+		tags.cover = cover
 		return tags
+	}
+
+	private func coverData(for track: Track) async -> Data? {
+		guard let coverUrl = track.getCoverUrl(session: session, resolution: 1280) else { return nil }
+		return await downloadCover(from: coverUrl)
 	}
 
 	private func downloadCover(from url: URL) async -> Data? {

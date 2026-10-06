@@ -7,7 +7,7 @@ import CommonCrypto
 import Foundation
 
 /// Something went wrong while unwrapping or applying Tidal's content encryption.
-public enum AudioDecryptionError: Swift.Error, Equatable {
+enum AudioDecryptionError: Swift.Error, Equatable {
 	/// The base64 `keyId` could not be decoded, or its length does not describe an IV plus a whole number of AES blocks.
 	case malformedKeyId(String)
 	/// The master-key step did not return enough plaintext to hold a content key and nonce.
@@ -44,10 +44,10 @@ public enum AudioDecryptionError: Swift.Error, Equatable {
 ///
 /// This is DRM circumvention: the service encrypted the bytes on purpose and this type
 /// removes that encryption. Whoever ships it should make that call deliberately.
-public nonisolated enum AudioDecryption {
+nonisolated enum AudioDecryption {
 	/// The fixed key (base64) that unwraps the content key — the "master key" of the
 	/// third-party Tidal tools. Public knowledge, not a secret here.
-	public static let unwrapKeyBase64 = "UIlTTEMmmLfGowo/UC60x2H45W6MdGgTRfo/umg4754="
+	static let unwrapKeyBase64 = "UIlTTEMmmLfGowo/UC60x2H45W6MdGgTRfo/umg4754="
 
 	private static let blockLength = 16
 	private static let nonceLength = 8
@@ -68,7 +68,7 @@ public nonisolated enum AudioDecryption {
 	/// too short to hold an IV plus a full unwrapped key, or leaves a partial AES block
 	/// after the IV. Throws ``AudioDecryptionError/keyUnwrapFailed`` when the master-key
 	/// step returns too little plaintext.
-	public static func unwrapKeyId(_ keyId: String) throws -> (key: Data, nonce: Data) {
+	static func unwrapKeyId(_ keyId: String) throws -> (key: Data, nonce: Data) {
 		guard let token = Data(base64Encoded: keyId) else {
 			throw AudioDecryptionError.malformedKeyId("not base64")
 		}
@@ -94,18 +94,18 @@ public nonisolated enum AudioDecryption {
 	}
 
 	/// Decrypts an in-memory buffer with an already-unwrapped key and nonce.
-	public static func decrypt(_ ciphertext: Data, key: Data, nonce: Data) throws -> Data {
+	static func decrypt(_ ciphertext: Data, key: Data, nonce: Data) throws -> Data {
 		try ctrApply(ciphertext, key: key, nonce: nonce, startingBlockIndex: 0)
 	}
 
 	/// Unwraps `keyId` and decrypts an in-memory buffer with it.
-	public static func decrypt(_ ciphertext: Data, keyId: String) throws -> Data {
+	static func decrypt(_ ciphertext: Data, keyId: String) throws -> Data {
 		let (key, nonce) = try unwrapKeyId(keyId)
 		return try decrypt(ciphertext, key: key, nonce: nonce)
 	}
 
 	/// Unwraps `keyId` and decrypts the file at `source` into `destination`.
-	public static func decrypt(fileAt source: URL, to destination: URL, keyId: String) throws {
+	static func decrypt(fileAt source: URL, to destination: URL, keyId: String) throws {
 		let (key, nonce) = try unwrapKeyId(keyId)
 		try decrypt(fileAt: source, to: destination, key: key, nonce: nonce)
 	}
@@ -120,7 +120,7 @@ public nonisolated enum AudioDecryption {
 	/// nothing at `destination`, instead of a truncated file that a later existence-only
 	/// cache hit would serve as a finished stream forever. Cancellation is checked once per
 	/// block, so a cancelled task throws `CancellationError` and the temporary file goes away.
-	public static func decrypt(fileAt source: URL, to destination: URL, key: Data, nonce: Data) throws {
+	static func decrypt(fileAt source: URL, to destination: URL, key: Data, nonce: Data) throws {
 		let temporary = destination
 			.deletingLastPathComponent()
 			.appendingPathComponent(".\(destination.lastPathComponent).tmp-\(UUID().uuidString)")
@@ -258,7 +258,10 @@ public nonisolated enum AudioDecryption {
 				}
 			}
 		}
-		guard status == kCCSuccess, moved == ciphertext.count else {
+		guard status == kCCSuccess else {
+			throw AudioDecryptionError.cryptoFailed(status)
+		}
+		guard moved == ciphertext.count else {
 			throw AudioDecryptionError.keyUnwrapFailed
 		}
 		return output

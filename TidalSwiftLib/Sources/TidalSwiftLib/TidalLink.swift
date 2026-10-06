@@ -10,9 +10,13 @@ import Foundation
 
 /// An item a Tidal web or app link points to.
 public enum TidalLink: Equatable, Sendable {
+	/// A `tidal.com/.../track/<id>` or `tidal://track/<id>` link.
 	case track(id: Int)
+	/// An `album/<id>` link.
 	case album(id: Int)
+	/// An `artist/<id>` link.
 	case artist(id: Int)
+	/// A `playlist/<uuid>` link.
 	case playlist(uuid: String)
 
 	/// Parses links like `https://tidal.com/browse/album/123`, `https://listen.tidal.com/track/123/u`,
@@ -28,7 +32,7 @@ public enum TidalLink: Equatable, Sendable {
 		self.init(url: url)
 	}
 
-	public init?(url: URL) {
+	init?(url: URL) {
 		guard let scheme = url.scheme?.lowercased(), let host = url.host()?.lowercased() else {
 			return nil
 		}
