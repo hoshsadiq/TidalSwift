@@ -19,7 +19,6 @@ final class HiResStreamingPolicyTests: XCTestCase {
 	/// side that the other does not follow fails here.
 	private func expected(
 		capable: Bool,
-		enabled: Bool,
 		preferAtmos: Bool,
 		hasStereo: Bool,
 		hasAtmos: Bool,
@@ -28,7 +27,7 @@ final class HiResStreamingPolicyTests: XCTestCase {
 		if preferAtmos && hasAtmos {
 			return [.directStream]
 		}
-		guard capable, enabled, hasStereo else {
+		guard capable, hasStereo else {
 			return [.directStream]
 		}
 		switch quality {
@@ -43,24 +42,21 @@ final class HiResStreamingPolicyTests: XCTestCase {
 	/// plays first.
 	func testEveryCombinationProducesTheExpectedRouteOrder() {
 		for capable in [true, false] {
-			for enabled in [true, false] {
 				for preferAtmos in [true, false] {
 					for hasStereo in [true, false] {
 						for hasAtmos in [true, false] {
 							for quality in [AudioQuality.low, .medium, .high, .max] {
 								let expectedRoutes = expected(
 									capable: capable,
-									enabled: enabled,
 									preferAtmos: preferAtmos,
 									hasStereo: hasStereo,
 									hasAtmos: hasAtmos,
 									quality: quality
 								)
-								let label = "capable=\(capable) enabled=\(enabled) preferAtmos=\(preferAtmos) stereo=\(hasStereo) atmos=\(hasAtmos) quality=\(quality)"
+								let label = "capable=\(capable) preferAtmos=\(preferAtmos) stereo=\(hasStereo) atmos=\(hasAtmos) quality=\(quality)"
 								XCTAssertEqual(
 									HiResStreamingPolicy.routes(
 										sessionHasHiResStereoAccess: capable,
-										enabled: enabled,
 										preferDolbyAtmos: preferAtmos,
 										trackHasStereo: hasStereo,
 										trackHasDolbyAtmos: hasAtmos,
@@ -72,7 +68,6 @@ final class HiResStreamingPolicyTests: XCTestCase {
 								XCTAssertEqual(
 									HiResStreamingPolicy.usesHiResStereo(
 										sessionHasHiResStereoAccess: capable,
-										enabled: enabled,
 										preferDolbyAtmos: preferAtmos,
 										trackHasStereo: hasStereo,
 										trackHasDolbyAtmos: hasAtmos,
@@ -84,7 +79,6 @@ final class HiResStreamingPolicyTests: XCTestCase {
 								XCTAssertEqual(
 									HiResStreamingPolicy.usesLocalFile(
 										sessionHasHiResStereoAccess: capable,
-										enabled: enabled,
 										preferDolbyAtmos: preferAtmos,
 										trackHasStereo: hasStereo,
 										trackHasDolbyAtmos: hasAtmos,
@@ -99,14 +93,13 @@ final class HiResStreamingPolicyTests: XCTestCase {
 				}
 			}
 		}
-	}
 
 	/// Tidal's route leads at every tier when the session can use it: the decrypted
 	/// FLAC rendition at Max and Lossless, the assembled DASH file at High and Low.
 	func testEveryTierStartsWithTidalsRoute() {
 		for quality in [AudioQuality.low, .medium, .high, .max] {
 			let routes = HiResStreamingPolicy.routes(
-				sessionHasHiResStereoAccess: true, enabled: true, preferDolbyAtmos: false,
+				sessionHasHiResStereoAccess: true, preferDolbyAtmos: false,
 				trackHasStereo: true, trackHasDolbyAtmos: false, quality: quality
 			)
 			XCTAssertEqual(routes.last, .directStream, "the direct stream is always the fallback")
@@ -119,7 +112,7 @@ final class HiResStreamingPolicyTests: XCTestCase {
 	func testMaxStartsWithTheDesktopRoute() {
 		XCTAssertEqual(
 			HiResStreamingPolicy.routes(
-				sessionHasHiResStereoAccess: true, enabled: true, preferDolbyAtmos: false,
+				sessionHasHiResStereoAccess: true, preferDolbyAtmos: false,
 				trackHasStereo: true, trackHasDolbyAtmos: false, quality: .max
 			),
 			[.hiResStereo, .directStream]
@@ -131,7 +124,7 @@ final class HiResStreamingPolicyTests: XCTestCase {
 	/// is only the fallback.
 	func testLosslessStereoStartsWithTheDesktopRoute() {
 		let routes = HiResStreamingPolicy.routes(
-			sessionHasHiResStereoAccess: true, enabled: true, preferDolbyAtmos: false,
+			sessionHasHiResStereoAccess: true, preferDolbyAtmos: false,
 			trackHasStereo: true, trackHasDolbyAtmos: false, quality: .high
 		)
 		XCTAssertEqual(routes.first, .hiResStereo)
@@ -142,7 +135,7 @@ final class HiResStreamingPolicyTests: XCTestCase {
 	/// direct stream falls back.
 	func testLosslessDualFormatTrackStartsWithTheDesktopRoute() {
 		let routes = HiResStreamingPolicy.routes(
-			sessionHasHiResStereoAccess: true, enabled: true, preferDolbyAtmos: false,
+			sessionHasHiResStereoAccess: true, preferDolbyAtmos: false,
 			trackHasStereo: true, trackHasDolbyAtmos: true, quality: .high
 		)
 		XCTAssertEqual(routes.first, .hiResStereo)
@@ -154,7 +147,7 @@ final class HiResStreamingPolicyTests: XCTestCase {
 	func testLosslessDualFormatTrackPrefersAtmosWhenAsked() {
 		XCTAssertEqual(
 			HiResStreamingPolicy.routes(
-				sessionHasHiResStereoAccess: true, enabled: true, preferDolbyAtmos: true,
+				sessionHasHiResStereoAccess: true, preferDolbyAtmos: true,
 				trackHasStereo: true, trackHasDolbyAtmos: true, quality: .high
 			),
 			[.directStream]
@@ -166,7 +159,7 @@ final class HiResStreamingPolicyTests: XCTestCase {
 		for quality in [AudioQuality.low, .medium, .high, .max] {
 			XCTAssertEqual(
 				HiResStreamingPolicy.routes(
-					sessionHasHiResStereoAccess: true, enabled: true, preferDolbyAtmos: true,
+					sessionHasHiResStereoAccess: true, preferDolbyAtmos: true,
 					trackHasStereo: true, trackHasDolbyAtmos: true, quality: quality
 				),
 				[.directStream],
@@ -180,7 +173,7 @@ final class HiResStreamingPolicyTests: XCTestCase {
 		for quality in [AudioQuality.low, .medium] {
 			XCTAssertEqual(
 				HiResStreamingPolicy.routes(
-					sessionHasHiResStereoAccess: true, enabled: true, preferDolbyAtmos: false,
+					sessionHasHiResStereoAccess: true, preferDolbyAtmos: false,
 					trackHasStereo: true, trackHasDolbyAtmos: false, quality: quality
 				),
 				[.dash, .directStream],
@@ -189,14 +182,14 @@ final class HiResStreamingPolicyTests: XCTestCase {
 		}
 	}
 
-	/// Tidal's route needs the capability, the preference and a stereo rendition. Any
-	/// one missing keeps the direct-stream path alone, so a session that cannot play
-	/// Tidal's route never tries it.
-	func testTidalsRouteNeedsCapabilityPreferenceAndStereo() {
+	/// Tidal's route needs the capability and a stereo rendition. Either missing keeps
+	/// the direct-stream path alone, so a session that cannot use Tidal's route never
+	/// tries it.
+	func testTidalsRouteNeedsCapabilityAndStereo() {
 		for quality in [AudioQuality.low, .medium, .high, .max] {
 			XCTAssertEqual(
 				HiResStreamingPolicy.routes(
-					sessionHasHiResStereoAccess: false, enabled: true, preferDolbyAtmos: false,
+					sessionHasHiResStereoAccess: false, preferDolbyAtmos: false,
 					trackHasStereo: true, trackHasDolbyAtmos: false, quality: quality
 				),
 				[.directStream],
@@ -204,15 +197,7 @@ final class HiResStreamingPolicyTests: XCTestCase {
 			)
 			XCTAssertEqual(
 				HiResStreamingPolicy.routes(
-					sessionHasHiResStereoAccess: true, enabled: false, preferDolbyAtmos: false,
-					trackHasStereo: true, trackHasDolbyAtmos: false, quality: quality
-				),
-				[.directStream],
-				"preference off, quality=\(quality)"
-			)
-			XCTAssertEqual(
-				HiResStreamingPolicy.routes(
-					sessionHasHiResStereoAccess: true, enabled: true, preferDolbyAtmos: false,
+					sessionHasHiResStereoAccess: true, preferDolbyAtmos: false,
 					trackHasStereo: false, trackHasDolbyAtmos: true, quality: quality
 				),
 				[.directStream],
@@ -227,26 +212,19 @@ final class HiResStreamingPolicyTests: XCTestCase {
 	func testDashRouteLeadsForADualFormatTrackWithoutTheAtmosPreference() {
 		XCTAssertEqual(
 			HiResStreamingPolicy.routes(
-				sessionHasHiResStereoAccess: true, enabled: true, preferDolbyAtmos: false,
+				sessionHasHiResStereoAccess: true, preferDolbyAtmos: false,
 				trackHasStereo: true, trackHasDolbyAtmos: true, quality: .medium
 			),
 			[.dash, .directStream]
 		)
 	}
 
-	/// A session without the capability, or the preference switched off, keeps the
-	/// direct-stream path only.
-	func testWithoutCapabilityOrPreferenceOnlyTheDirectStreamRoute() {
+	/// A session without the capability keeps the direct-stream path only. The quality
+	/// selection is the only switch left: there is no separate toggle.
+	func testWithoutCapabilityOnlyTheDirectStreamRoute() {
 		XCTAssertEqual(
 			HiResStreamingPolicy.routes(
-				sessionHasHiResStereoAccess: false, enabled: true, preferDolbyAtmos: false,
-				trackHasStereo: true, trackHasDolbyAtmos: false, quality: .max
-			),
-			[.directStream]
-		)
-		XCTAssertEqual(
-			HiResStreamingPolicy.routes(
-				sessionHasHiResStereoAccess: true, enabled: false, preferDolbyAtmos: false,
+				sessionHasHiResStereoAccess: false, preferDolbyAtmos: false,
 				trackHasStereo: true, trackHasDolbyAtmos: false, quality: .max
 			),
 			[.directStream]
@@ -258,7 +236,7 @@ final class HiResStreamingPolicyTests: XCTestCase {
 	func testAtmosOnlyTrackNeverStartsWithTidalsRoute() {
 		XCTAssertEqual(
 			HiResStreamingPolicy.routes(
-				sessionHasHiResStereoAccess: true, enabled: true, preferDolbyAtmos: false,
+				sessionHasHiResStereoAccess: true, preferDolbyAtmos: false,
 				trackHasStereo: false, trackHasDolbyAtmos: true, quality: .max
 			),
 			[.directStream]

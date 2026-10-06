@@ -38,7 +38,6 @@ public enum HiResStreamingRoute: Equatable {
 public enum HiResStreamingPolicy {
 	public static func routes(
 		sessionHasHiResStereoAccess: Bool,
-		enabled: Bool,
 		preferDolbyAtmos: Bool,
 		trackHasStereo: Bool,
 		trackHasDolbyAtmos: Bool,
@@ -47,7 +46,7 @@ public enum HiResStreamingPolicy {
 		if preferDolbyAtmos && trackHasDolbyAtmos {
 			return [.directStream]
 		}
-		guard sessionHasHiResStereoAccess, enabled, trackHasStereo else {
+		guard sessionHasHiResStereoAccess, trackHasStereo else {
 			return [.directStream]
 		}
 		switch quality {
@@ -63,7 +62,6 @@ public enum HiResStreamingPolicy {
 	/// bandwidth. The direct-stream path streams, so there is nothing to prepare.
 	public static func usesLocalFile(
 		sessionHasHiResStereoAccess: Bool,
-		enabled: Bool,
 		preferDolbyAtmos: Bool,
 		trackHasStereo: Bool,
 		trackHasDolbyAtmos: Bool,
@@ -71,7 +69,6 @@ public enum HiResStreamingPolicy {
 	) -> Bool {
 		switch routes(
 			sessionHasHiResStereoAccess: sessionHasHiResStereoAccess,
-			enabled: enabled,
 			preferDolbyAtmos: preferDolbyAtmos,
 			trackHasStereo: trackHasStereo,
 			trackHasDolbyAtmos: trackHasDolbyAtmos,
@@ -87,7 +84,6 @@ public enum HiResStreamingPolicy {
 	/// Whether the first route is the hi-res one, for callers that only need that.
 	public static func usesHiResStereo(
 		sessionHasHiResStereoAccess: Bool,
-		enabled: Bool,
 		preferDolbyAtmos: Bool,
 		trackHasStereo: Bool,
 		trackHasDolbyAtmos: Bool,
@@ -95,7 +91,6 @@ public enum HiResStreamingPolicy {
 	) -> Bool {
 		routes(
 			sessionHasHiResStereoAccess: sessionHasHiResStereoAccess,
-			enabled: enabled,
 			preferDolbyAtmos: preferDolbyAtmos,
 			trackHasStereo: trackHasStereo,
 			trackHasDolbyAtmos: trackHasDolbyAtmos,
@@ -111,20 +106,15 @@ public enum HiResStreamingPolicy {
 /// Default on: the route is tried first and falls back quietly, so a user who does
 /// not want it opts out rather than in.
 public enum HiResStreamingPreferences {
-	public static let enabledKey = "hiResStereoEnabled"
 	public static let prefetchDepthKey = "hiResStreamPrefetchDepth"
 	public static let cacheSizeBytesKey = "hiResStreamCacheBytes"
-
-	public static var isEnabled: Bool {
-		UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? true
-	}
 
 	/// How many tracks after the current one are prepared in advance. 0 turns
 	/// preparing off; the setting is clamped to `prefetchDepthRange`.
 	public static let defaultPrefetchDepth = 3
 	public static let prefetchDepthRange = 0...15
-	/// The choices offered in Preferences: off, then a few sizes that are easy to
-	/// reason about rather than every number in the range.
+	/// The choices offered in Preferences: off, then sizes that are easy to reason
+	/// about rather than every number in the range.
 	public static let prefetchDepthOptions: [Int] = [0, 1, 2, 3, 5, 8, 10, 15]
 
 	public static var prefetchDepth: Int {
@@ -137,7 +127,9 @@ public enum HiResStreamingPreferences {
 	/// How much disk space prepared tracks may use. The prefetch window and the track
 	/// currently playing are exempt, so the cache can exceed this by a track or two.
 	public static let defaultCacheBytes = 2 * 1024 * 1024 * 1024
-	public static let cacheSizeOptions: [Int] = [1, 2, 3, 4, 6, 8].map { $0 * 1024 * 1024 * 1024 }
+	/// The budget is a free number of gigabytes in Preferences, bounded so a typo
+	/// cannot set it to nothing or to the whole disk.
+	public static let cacheSizeRange = 1...64
 
 	public static var cacheSizeBytes: Int {
 		guard UserDefaults.standard.object(forKey: cacheSizeBytesKey) != nil else {
@@ -199,6 +191,9 @@ public struct PlayableStream {
 	/// Whether this is the locally decrypted desktop rendition.
 	public let isHiResStereo: Bool
 	public let hiResBitDepth: Int?
+	/// The sample rate of the decrypted rendition, for the badge. Read from the
+	/// manifest, so it describes what Tidal served rather than what was asked for.
+	public let hiResSampleRate: Int?
 }
 
 extension Session {
@@ -218,7 +213,6 @@ extension Session {
 		let preferAtmosForTrack = track.hasDolbyAtmos && preferDolbyAtmos
 		let routes = HiResStreamingPolicy.routes(
 			sessionHasHiResStereoAccess: hasHiResStereoAccess,
-			enabled: HiResStreamingPreferences.isEnabled,
 			preferDolbyAtmos: preferAtmosForTrack,
 			trackHasStereo: track.hasStereo,
 			trackHasDolbyAtmos: track.hasDolbyAtmos,
@@ -233,7 +227,8 @@ extension Session {
 					quality: quality,
 					isDolbyAtmos: false,
 					isHiResStereo: true,
-					hiResBitDepth: hiRes.bitDepth
+					hiResBitDepth: hiRes.bitDepth,
+					hiResSampleRate: hiRes.sampleRate
 				)
 			},
 			dash: {
@@ -244,7 +239,8 @@ extension Session {
 					quality: quality,
 					isDolbyAtmos: false,
 					isHiResStereo: false,
-					hiResBitDepth: nil
+					hiResBitDepth: nil,
+					hiResSampleRate: nil
 				)
 			},
 			directStream: {
@@ -259,7 +255,8 @@ extension Session {
 					quality: resolved.quality,
 					isDolbyAtmos: resolved.isDolbyAtmos,
 					isHiResStereo: false,
-					hiResBitDepth: nil
+					hiResBitDepth: nil,
+					hiResSampleRate: nil
 				)
 			}
 		)
@@ -333,7 +330,6 @@ public enum HiResStreaming {
 	public static func usesHiResStereo(for track: Track, session: Session) -> Bool {
 		HiResStreamingPolicy.usesHiResStereo(
 			sessionHasHiResStereoAccess: session.hasHiResStereoAccess,
-			enabled: HiResStreamingPreferences.isEnabled,
 			preferDolbyAtmos: false,
 			trackHasStereo: track.hasStereo,
 			trackHasDolbyAtmos: track.hasDolbyAtmos,
@@ -379,7 +375,6 @@ public enum HiResStreaming {
 	static func firstLocalRoute(for track: Track, session: Session, quality: AudioQuality) -> HiResStreamingRoute? {
 		let first = HiResStreamingPolicy.routes(
 			sessionHasHiResStereoAccess: session.hasHiResStereoAccess,
-			enabled: HiResStreamingPreferences.isEnabled,
 			preferDolbyAtmos: false,
 			trackHasStereo: track.hasStereo,
 			trackHasDolbyAtmos: track.hasDolbyAtmos,

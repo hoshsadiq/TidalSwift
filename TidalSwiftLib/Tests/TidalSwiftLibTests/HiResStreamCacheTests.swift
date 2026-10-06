@@ -333,7 +333,6 @@ final class HiResStreamCacheTests: XCTestCase {
 			shouldPrepare: { track in
 				HiResStreamingPolicy.usesLocalFile(
 					sessionHasHiResStereoAccess: true,
-					enabled: true,
 					preferDolbyAtmos: false,
 					trackHasStereo: track.hasStereo,
 					trackHasDolbyAtmos: track.hasDolbyAtmos,
@@ -357,7 +356,6 @@ final class HiResStreamCacheTests: XCTestCase {
 			shouldPrepare: { track in
 				HiResStreamingPolicy.usesLocalFile(
 					sessionHasHiResStereoAccess: true,
-					enabled: true,
 					preferDolbyAtmos: false,
 					trackHasStereo: track.hasStereo,
 					trackHasDolbyAtmos: track.hasDolbyAtmos,
@@ -371,27 +369,6 @@ final class HiResStreamCacheTests: XCTestCase {
 
 	/// With the toggle off nothing is prepared at any tier: the direct-stream path
 	/// streams, so there is no local file to fetch ahead of time.
-	func testToggleOffPreparesNothing() {
-		let queue = makeTracks(ids: [10, 20, 30])
-
-		let window = HiResPrefetchPolicy.upcomingTracks(
-			queue: queue,
-			currentIndex: 0,
-			depth: 3,
-			shouldPrepare: { track in
-				HiResStreamingPolicy.usesLocalFile(
-					sessionHasHiResStereoAccess: true,
-					enabled: false,
-					preferDolbyAtmos: false,
-					trackHasStereo: track.hasStereo,
-					trackHasDolbyAtmos: track.hasDolbyAtmos,
-					quality: .max
-				)
-			}
-		)
-
-		XCTAssertTrue(window.isEmpty)
-	}
 
 	// MARK: - Prefetch behaviour
 
@@ -476,7 +453,6 @@ final class HiResStreamCacheTests: XCTestCase {
 			shouldPrepare: { track in
 				HiResStreamingPolicy.usesLocalFile(
 					sessionHasHiResStereoAccess: true,
-					enabled: true,
 					preferDolbyAtmos: false,
 					trackHasStereo: track.hasStereo,
 					trackHasDolbyAtmos: track.hasDolbyAtmos,

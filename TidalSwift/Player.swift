@@ -74,7 +74,6 @@ class Player {
 	private func shouldPrefetch(_ track: Track) -> Bool {
 		HiResStreamingPolicy.usesLocalFile(
 			sessionHasHiResStereoAccess: session.hasHiResStereoAccess,
-			enabled: HiResStreamingPreferences.isEnabled,
 			preferDolbyAtmos: track.hasDolbyAtmos && preferDolbyAtmos,
 			trackHasStereo: track.hasStereo,
 			trackHasDolbyAtmos: track.hasDolbyAtmos,
@@ -341,7 +340,9 @@ class Player {
 			playbackInfo.resolvedStream = ResolvedStream(
 				trackId: track.id,
 				quality: stream.quality,
-				isDolbyAtmos: stream.isDolbyAtmos
+				isDolbyAtmos: stream.isDolbyAtmos,
+				hiResBitDepth: stream.hiResBitDepth,
+				hiResSampleRate: stream.hiResSampleRate
 			)
 		} else {
 			guard loadID == itemLoadID else {
@@ -660,8 +661,9 @@ class Player {
 			return "Dolby Atmos"
 		}
 		if isPlayingHiResStereo {
-			guard let bitDepth = currentHiResBitDepth else { return "Hi-Res" }
-			return "\(bitDepth)-bit"
+			guard let bitDepth = stream.hiResBitDepth ?? currentHiResBitDepth else { return "Hi-Res" }
+			guard let sampleRate = stream.hiResSampleRate, sampleRate > 0 else { return "\(bitDepth)-bit" }
+			return "\(bitDepth)-bit \(Self.formattedSampleRate(sampleRate))"
 		}
 		guard let quality = track.audioQuality else {
 			return ""
@@ -683,6 +685,16 @@ class Player {
 		}
 
 		return qualityToString(quality: chosenQuality)
+	}
+
+	/// 44100 reads as "44.1kHz", 48000 as "48kHz" — the same shape the other tiers
+	/// use, so the badge reads consistently whichever route played.
+	private static func formattedSampleRate(_ sampleRate: Int) -> String {
+		let kilohertz = Double(sampleRate) / 1000
+		if kilohertz == kilohertz.rounded() {
+			return "\(Int(kilohertz))kHz"
+		}
+		return String(format: "%.1fkHz", kilohertz)
 	}
 
 	private func qualityToString(quality: AudioQuality) -> String {

@@ -33,7 +33,6 @@ private struct PlaybackPreferencesTab: View {
 
 	@AppStorage("offlinePreferDolbyAtmos") private var offlinePreferDolbyAtmos = false
 	/// Read through the library's key so the player sees the same value without new wiring.
-	@AppStorage(HiResStreamingPreferences.enabledKey) private var hiResStereoEnabled = true
 	@AppStorage(HiResStreamingPreferences.prefetchDepthKey) private var prefetchDepth = HiResStreamingPreferences.defaultPrefetchDepth
 	@AppStorage(HiResStreamingPreferences.cacheSizeBytesKey) private var cacheSizeBytes = HiResStreamingPreferences.defaultCacheBytes
 	/// Shown in the cache row; read once when the tab appears.
@@ -93,16 +92,6 @@ private struct PlaybackPreferencesTab: View {
 					)
 				}
 
-				Toggle(isOn: $hiResStereoEnabled) {
-					VStack(alignment: .leading) {
-						Text("Hi-Res Stereo")
-						Text(hiResStereoHelp)
-							.font(.caption)
-							.foregroundStyle(.secondary)
-					}
-				}
-				.disabled(!appModel.session.hasHiResStereoAccess)
-
 				Picker(selection: $prefetchDepth) {
 					ForEach(HiResStreamingPreferences.prefetchDepthOptions, id: \.self) { depth in
 						Text(Self.prefetchDepthLabel(depth)).tag(depth)
@@ -110,23 +99,25 @@ private struct PlaybackPreferencesTab: View {
 				} label: {
 					VStack(alignment: .leading) {
 						Text("Prefetch tracks")
-						Text("Fetches tracks ahead of the one playing, so they start straight away. Uses disk space and bandwidth in the background.")
+						Text("Fetches tracks ahead of the one playing. Uses disk space and bandwidth in the background.")
 							.font(.caption)
 							.foregroundStyle(.secondary)
 					}
 				}
 
-				Picker(selection: $cacheSizeBytes) {
-					ForEach(HiResStreamingPreferences.cacheSizeOptions, id: \.self) { bytes in
-						Text(Self.byteCount(bytes)).tag(bytes)
-					}
-				} label: {
+				HStack(spacing: 8) {
 					VStack(alignment: .leading) {
 						Text("Cache size")
-						Text("How much space prepared tracks may use. Tracks you have not played recently are removed first. Currently using \(Self.byteCount(cacheUsageBytes)).")
+						Text("How much space prepared tracks may use, in GB. Tracks you have not played recently are removed first. Currently using \(Self.gigabyteCount(cacheUsageBytes)).")
 							.font(.caption)
 							.foregroundStyle(.secondary)
 					}
+					Spacer()
+					TextField("", value: cacheSizeGB, format: .number)
+						.frame(width: 56)
+						.multilineTextAlignment(.trailing)
+					Stepper("", value: cacheSizeGB, in: HiResStreamingPreferences.cacheSizeRange)
+						.labelsHidden()
 				}
 
 				Toggle(isOn: $ignoreSubscriptionLimits) {
@@ -202,17 +193,23 @@ private struct PlaybackPreferencesTab: View {
 		}
 	}
 
-	private static func byteCount(_ bytes: Int) -> String {
-		ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+	/// The cache budget as a whole number of gigabytes, so the field reads as a size
+	/// rather than a byte count. The stored value stays in bytes.
+	private var cacheSizeGB: Binding<Int> {
+		Binding(
+			get: { max(1, cacheSizeBytes / (1024 * 1024 * 1024)) },
+			set: { cacheSizeBytes = $0 * 1024 * 1024 * 1024 }
+		)
 	}
 
-	/// Unavailable is a state worth explaining, not a toggle that quietly does nothing.
-	private var hiResStereoHelp: String {
-		if appModel.session.hasHiResStereoAccess {
-			return "Play the 24-bit stereo version when Tidal offers it. It comes from Tidal's desktop service and is decrypted on this Mac. Where no stereo version is served, the app plays Atmos instead."
-		} else {
-			return "Unavailable with this login. Log in with the desktop client to get the 24-bit stereo version; this session is served the Atmos version instead."
+	/// A whole number of gigabytes, so the usage line does not read as spurious
+	/// precision.
+	private static func gigabyteCount(_ bytes: Int) -> String {
+		let gigabytes = Double(bytes) / Double(1024 * 1024 * 1024)
+		if gigabytes >= 1 {
+			return "\(Int(gigabytes.rounded())) GB"
 		}
+		return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
 	}
 }
 
