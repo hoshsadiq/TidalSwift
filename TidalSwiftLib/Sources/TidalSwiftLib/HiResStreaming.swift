@@ -7,7 +7,7 @@ import AVFoundation
 import Foundation
 
 /// Which path a track's playback or download takes, in the order to try.
-public enum HiResStreamingRoute: Equatable {
+enum HiResStreamingRoute: Equatable {
 	/// Tidal's desktop `playbackinfo` rendition: 24-bit stereo FLAC, decrypted locally.
 	case hiResStereo
 	/// Tidal's High/Low `playbackinfo` rendition: an unencrypted AAC MPD whose
@@ -18,6 +18,19 @@ public enum HiResStreamingRoute: Equatable {
 	/// The fallback the other routes fall through to when Tidal's desktop route cannot
 	/// produce something playable.
 	case directStream
+
+	/// A stable name for the in-flight preparation key, so a preparation is keyed by
+	/// the route that produced it as well as by track and quality.
+	var key: String {
+		switch self {
+		case .hiResStereo:
+			return "hiResStereo"
+		case .dash:
+			return "dash"
+		case .directStream:
+			return "directStream"
+		}
+	}
 }
 
 /// Decides the route for a track, with no view, no storage and no session, so the
@@ -36,7 +49,7 @@ public enum HiResStreamingRoute: Equatable {
 /// 3. A session without the `cuk` capability, the preference switched off, or a track
 ///    with no stereo rendition keeps the direct-stream path alone.
 public enum HiResStreamingPolicy {
-	public static func routes(
+	static func routes(
 		sessionHasHiResStereoAccess: Bool,
 		preferDolbyAtmos: Bool,
 		trackHasStereo: Bool,
@@ -82,7 +95,7 @@ public enum HiResStreamingPolicy {
 	}
 
 	/// Whether the first route is the hi-res one, for callers that only need that.
-	public static func usesHiResStereo(
+	static func usesHiResStereo(
 		sessionHasHiResStereoAccess: Bool,
 		preferDolbyAtmos: Bool,
 		trackHasStereo: Bool,
@@ -127,15 +140,26 @@ public nonisolated enum HiResStreamingPreferences {
 	/// How much disk space prepared tracks may use. The prefetch window and the track
 	/// currently playing are exempt, so the cache can exceed this by a track or two.
 	public static let defaultCacheBytes = 2 * 1024 * 1024 * 1024
-	/// The budget is a free number of gigabytes in Preferences, bounded so a typo
-	/// cannot set it to nothing or to the whole disk.
+	/// The budget in gigabytes: the free number Preferences offers, bounded so a typo
+	/// cannot set it to nothing or to the whole disk. The stored value is in bytes.
 	public static let cacheSizeRange = 1...64
 
+	static let bytesPerGigabyte = 1024 * 1024 * 1024
+
 	public static var cacheSizeBytes: Int {
-		guard UserDefaults.standard.object(forKey: cacheSizeBytesKey) != nil else {
+		cacheSizeBytes(in: .standard)
+	}
+
+	/// The stored budget in bytes, clamped to `cacheSizeRange` where it is read, so a
+	/// number outside the band that reached defaults is not used out of band. `defaults`
+	/// is injected so the clamp can be exercised without touching the real store.
+	static func cacheSizeBytes(in defaults: UserDefaults) -> Int {
+		guard defaults.object(forKey: cacheSizeBytesKey) != nil else {
 			return defaultCacheBytes
 		}
-		return max(0, UserDefaults.standard.integer(forKey: cacheSizeBytesKey))
+		let lower = cacheSizeRange.lowerBound * bytesPerGigabyte
+		let upper = cacheSizeRange.upperBound * bytesPerGigabyte
+		return min(max(defaults.integer(forKey: cacheSizeBytesKey), lower), upper)
 	}
 }
 
@@ -148,6 +172,9 @@ extension Session {
 	/// the login code, so the claim is read from the token itself. It is a small
 	/// base64 payload and this is called once per play and once by the preferences
 	/// view, so decoding it on access is cheaper than adding a stored, writable copy.
+	///
+	/// - Complexity: O(*n*) in the length of the access token; the JWT payload is
+	///   base64-decoded and parsed on every access rather than cached.
 	public var hasHiResStereoAccess: Bool {
 		HiResStreamingSession.hasHiResStereoClaim(in: config.accessToken)
 	}
@@ -176,20 +203,24 @@ enum HiResStreamingSession {
 
 /// The local hi-res stream that plays, with the format read from the file itself so
 /// the badge describes the audio rather than the request.
-public nonisolated struct HiResPlayback {
-	public let url: URL
-	public let bitDepth: Int?
-	public let sampleRate: Int?
+nonisolated struct HiResPlayback {
+	let url: URL
+	let bitDepth: Int?
+	let sampleRate: Int?
 }
 
 /// The stream resolved for a track, whichever route produced it. `Player` plays
 /// `url` and needs nothing else; the fields only describe what is playing.
 public struct PlayableStream {
+	/// The URL `Player` plays.
 	public let url: URL
+	/// The tier the stream resolved at.
 	public let quality: AudioQuality
+	/// Whether the resolved stream is the Dolby Atmos rendition.
 	public let isDolbyAtmos: Bool
 	/// Whether this is the locally decrypted desktop rendition.
 	public let isHiResStereo: Bool
+	/// The bit depth of the decrypted rendition, for the badge.
 	public let hiResBitDepth: Int?
 	/// The sample rate of the decrypted rendition, for the badge. Read from the
 	/// manifest, so it describes what Tidal served rather than what was asked for.
@@ -297,25 +328,21 @@ public enum HiResStreaming {
 	/// answers Atmos for these tracks and refuses the stereo `streamUrl` entirely.
 	static let desktopAPILocation = "https://desktop.tidal.com/v1"
 
-	/// Prunes the playback cache. Called on launch, so a cache that grew while the
-	/// app was closed is bounded before it is read.
-	public static func pruneCache() {
-		HiResStreamCache.pruneIfNeeded()
-	}
-
 	/// Prunes the playback cache, exempting the tracks that must not disappear: the
-	/// prefetch window and the track currently playing.
-	public static func pruneCache(protecting trackIds: Set<Int>) {
+	/// prefetch window and the track currently playing. Called on launch with no
+	/// exemptions, so a cache that grew while the app was closed is bounded before
+	/// it is read.
+	public static func pruneCache(protecting trackIds: Set<Int> = []) {
 		HiResStreamCache.pruneIfNeeded(protecting: trackIds)
 	}
 
 	/// Whether a track already has a prepared file in the cache at `quality`.
-	public static func isTrackCached(_ trackId: Int, quality: AudioQuality) -> Bool {
+	static func isTrackCached(_ trackId: Int, quality: AudioQuality) -> Bool {
 		HiResStreamCache.cachedFile(forTrackId: trackId, quality: quality) != nil
 	}
 
 	/// Whether a track already has an assembled DASH file in the cache at `quality`.
-	public static func isDashTrackCached(_ trackId: Int, quality: AudioQuality) -> Bool {
+	static func isDashTrackCached(_ trackId: Int, quality: AudioQuality) -> Bool {
 		HiResStreamCache.cachedDashFile(forTrackId: trackId, quality: quality) != nil
 	}
 
@@ -334,7 +361,7 @@ public enum HiResStreaming {
 	/// Atmos preference must pass it rather than let the hi-res route override it. The
 	/// offline wish and the offline sync pass `config.offlineAudioQuality`; a manual
 	/// download passes the quality the user asked for.
-	public static func usesHiResStereo(for track: Track, session: Session, quality: AudioQuality, preferDolbyAtmos: Bool) -> Bool {
+	static func usesHiResStereo(for track: Track, session: Session, quality: AudioQuality, preferDolbyAtmos: Bool) -> Bool {
 		HiResStreamingPolicy.usesHiResStereo(
 			sessionHasHiResStereoAccess: session.hasHiResStereoAccess,
 			preferDolbyAtmos: preferDolbyAtmos,
@@ -347,7 +374,7 @@ public enum HiResStreaming {
 	/// A playable, decrypted local file for `track` at `quality`, or nil when the route
 	/// does not apply or fails — in which case the caller falls through to the next
 	/// route.
-	public static func playbackFile(for track: Track, session: Session, quality: AudioQuality) async -> HiResPlayback? {
+	static func playbackFile(for track: Track, session: Session, quality: AudioQuality) async -> HiResPlayback? {
 		await playbackFile(for: track, session: session, quality: quality, cacheDirectory: HiResStreamCache.directory)
 	}
 
@@ -364,7 +391,7 @@ public enum HiResStreaming {
 	/// already preparing the same track waits for that work rather than downloading
 	/// twice. The prefetcher uses this so a queue is prepared at any tier; the
 	/// direct-stream route streams, so there is nothing to prepare.
-	public static func prepareFile(for track: Track, session: Session, quality: AudioQuality) async -> URL? {
+	static func prepareFile(for track: Track, session: Session, quality: AudioQuality) async -> URL? {
 		guard let route = firstLocalRoute(for: track, session: session, quality: quality) else { return nil }
 		switch route {
 		case .hiResStereo:
@@ -382,7 +409,7 @@ public enum HiResStreaming {
 	/// the same track waits for that work instead of fetching the manifest and every
 	/// segment a second time.
 	static func dashPlaybackFile(for track: Track, session: Session, quality: AudioQuality) async -> DashPlayback? {
-		guard let url = await HiResStreamPreparation.preparedFile(for: track.id, quality: quality, in: HiResStreamCache.directory, operation: {
+		guard let url = await HiResStreamPreparation.preparedFile(for: track.id, quality: quality, route: .dash, in: HiResStreamCache.directory, operation: {
 			await DashAudio.playbackFile(for: track, session: session, preferredQuality: quality)?.url
 		}) else {
 			return nil
@@ -423,7 +450,7 @@ public enum HiResStreaming {
 			print("[PLAYBACK] hi-res stereo: reusing cached file for \(track.title)")
 			return cached
 		}
-		return await HiResStreamPreparation.preparedFile(for: track.id, quality: quality, in: cacheDirectory) {
+		return await HiResStreamPreparation.preparedFile(for: track.id, quality: quality, route: .hiResStereo, in: cacheDirectory) {
 			await downloadFile(for: track, session: session, quality: quality, cacheDirectory: cacheDirectory)
 		}
 	}
@@ -526,34 +553,81 @@ public enum HiResStreaming {
 /// the prefetcher is already fetching that track awaits the same work instead of
 /// starting a second download.
 enum HiResStreamPreparation {
+	/// How long one preparation may run before it is abandoned. URLSession's request
+	/// timeout bounds a single request but not the whole download-and-decrypt, and a
+	/// preparation that never finishes would otherwise block the play path and every
+	/// later prefetch for that track, quality and route.
+	static let timeout: Duration = .seconds(90)
+
 	private static var inFlight: [String: Task<URL?, Never>] = [:]
 
 	static func preparedFile(
 		for trackId: Int,
 		quality: AudioQuality,
+		route: HiResStreamingRoute,
 		in directory: URL,
+		timeout: Duration = HiResStreamPreparation.timeout,
 		operation: @escaping () async -> URL?
 	) async -> URL? {
-		// The quality is part of the key: two preparations of the same track at
-		// different qualities produce different files and must not share one task.
-		let key = "\(directory.path)#\(trackId)#\(quality.rawValue)"
+		// The quality and the route are part of the key: two preparations of the same
+		// track at different qualities, or through different routes, produce different
+		// files and must not share one task. The route also follows the session's `cuk`
+		// capability, so a change during a login or logout cannot hand a hi-res file to
+		// a DASH caller.
+		let key = "\(directory.path)#\(trackId)#\(quality.rawValue)#\(route.key)"
 		if let existing = inFlight[key] {
-			return await existing.value
+			return await awaitResult(existing, timeout: timeout)
 		}
 		let task = Task { await operation() }
 		inFlight[key] = task
-		let result = await task.value
+		let result = await awaitResult(task, timeout: timeout)
+		// Cleared by the creator even after a timeout, so a caller that gave up releases
+		// the entry and a later preparation starts fresh instead of wedging.
 		inFlight[key] = nil
 		return result
+	}
+
+	/// Waits for `task` for at most `timeout`; on timeout the task is cancelled and `nil`
+	/// is returned, so a stuck preparation falls through to the next route. The wait does
+	/// not block on the task's own completion, so an operation that ignores cancellation
+	/// still cannot wedge the caller.
+	private static func awaitResult(_ task: Task<URL?, Never>, timeout: Duration) async -> URL? {
+		let gate = PreparationResumeGate()
+		return await withCheckedContinuation { (continuation: CheckedContinuation<URL?, Never>) in
+			Task {
+				let result = await task.value
+				if await gate.claim() { continuation.resume(returning: result) }
+			}
+			Task {
+				try? await Task.sleep(for: timeout)
+				if await gate.claim() {
+					task.cancel()
+					continuation.resume(returning: nil)
+				}
+			}
+		}
+	}
+}
+
+/// Lets exactly one of the two racers in `HiResStreamPreparation.awaitResult` resume the
+/// continuation, so completion and timeout cannot both win.
+private actor PreparationResumeGate {
+	private var claimed = false
+
+	func claim() -> Bool {
+		guard !claimed else { return false }
+		claimed = true
+		return true
 	}
 }
 
 /// Which upcoming tracks to prepare. Pure, so the window can be tested directly.
-public enum HiResPrefetchPolicy {
+enum HiResPrefetchPolicy {
 	/// The tracks after `currentIndex`, in queue order, never wrapping, up to `depth`,
 	/// skipping tracks the current settings would not play through the hi-res route and
-	/// tracks that are already cached.
-	public static func upcomingTracks(
+	/// tracks that are already cached. An out-of-range `currentIndex` or a non-positive
+	/// `depth` yields no tracks rather than trapping.
+	static func upcomingTracks(
 		queue: [Track],
 		currentIndex: Int,
 		depth: Int,
@@ -575,6 +649,8 @@ public enum HiResPrefetchPolicy {
 /// downloads are wasted — and resumes once a track has played for `settleInterval`
 /// without a skip.
 public final class HiResStreamPrefetcher {
+	/// The number of skips in a row that mean browsing rather than listening, at which
+	/// point preparing pauses until a track has played for `settleInterval`.
 	public static let browseSkipThreshold = 3
 
 	private let settleInterval: TimeInterval

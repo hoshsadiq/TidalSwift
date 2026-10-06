@@ -171,9 +171,14 @@ public struct Track: Codable, Equatable, Identifiable, Hashable {
 	}
 }
 
+/// A stream URL resolved for a track: which URL plays, what extension it serves, and
+/// whether it is the Dolby Atmos rendition.
 public struct AudioStream {
+	/// The URL to play.
 	public let url: URL
+	/// The extension the URL serves, used when the stream is saved to disk.
 	public let pathExtension: String
+	/// Whether the stream is the Dolby Atmos rendition.
 	public let isDolbyAtmos: Bool
 }
 
