@@ -208,15 +208,18 @@ struct LoginView: View {
 		)
 		print("[LOGIN] starting chain: handleTidalLinks=\(handleTidalLinks), route=\(decision.route), registration=\(decision.registration)")
 		let registrationAccepted = await TidalLinkRegistration.apply(decision.registration)
-		// A registration the system declined, or one that did not actually leave this
-		// app holding the scheme, leaves the callback unable to return here. Re-read
-		// the handler and trust only that, so the sheet says why it cannot use the
-		// browser instead of counting down for five minutes.
+		// The claim's own result is authoritative: `setDefaultApplication` invokes its
+		// completion handler after the user has answered any consent prompt, so an
+		// error-free return means the scheme is ours. The handler is then read back as
+		// a second opinion, not as the decision — reading it immediately after the
+		// change can still describe the previous state, and treating that as "another
+		// app" would send the login to a device code while the browser would have
+		// worked. Using the browser when either signal says so is safe: a callback that
+		// never arrives still falls through to the device code.
 		let handlerAfterRegistration = TidalLinkRegistration.currentHandler()
 		print("[LOGIN] registration accepted: \(registrationAccepted), tidal:// handler now: \(TidalLinkRegistration.logDescription(of: handlerAfterRegistration))")
 		let systemBrowserAvailable = decision.route == .browser
-			&& registrationAccepted
-			&& handlerAfterRegistration == .thisApp
+			&& (registrationAccepted || handlerAfterRegistration == .thisApp)
 
 		var route: LoginRoutePolicy.Route? = LoginRoutePolicy.firstRoute(
 			systemBrowserAvailable: systemBrowserAvailable

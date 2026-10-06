@@ -127,7 +127,11 @@ enum TidalLinkRegistration {
 		guard let handler = currentHandlerApplicationURL() else {
 			return .nobody
 		}
-		let isThisBundle = handler.standardizedFileURL == Bundle.main.bundleURL.standardizedFileURL
+		// Symlinks resolved on both sides: the path macOS reports is whatever was
+		// registered, which may reach the same bundle by another route.
+		let handlerPath = handler.resolvingSymlinksInPath().standardizedFileURL
+		let thisPath = Bundle.main.bundleURL.resolvingSymlinksInPath().standardizedFileURL
+		let isThisBundle = handlerPath == thisPath
 			&& Bundle(url: handler)?.bundleIdentifier == Bundle.main.bundleIdentifier
 		return isThisBundle ? .thisApp : .anotherApp
 	}
