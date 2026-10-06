@@ -2,5 +2,6 @@ root = true
 
 [*.swift]
 indent_style = tab
-# Blank lines inside blocks keep their indentation
-trim_trailing_whitespace = false
+# Blank lines are truly empty. The trailing-whitespace hook strips indentation
+# from them, so asking editors to keep it would fight the hook.
+trim_trailing_whitespace = true

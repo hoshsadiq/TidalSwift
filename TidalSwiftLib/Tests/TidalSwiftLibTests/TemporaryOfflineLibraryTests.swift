@@ -190,6 +190,19 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 		XCTAssertTrue(OfflineDB().tracks.contains(track), "keeping downloads must not clear the database")
 	}
 
+	/// An empty wanted set is not a request to delete the library. If the database is
+	/// lost or never loaded while files are on disk, the sync keeps them.
+	func testEmptyDatabaseDoesNotRemoveDownloadedFiles() async throws {
+		let trackId = 987_654_504
+		try createOfflineFile(forTrackId: trackId, createdAt: Date(timeIntervalSince1970: 1_600_000_000))
+		// No `persistOfflineState`: the database is empty, the disk is not.
+
+		let session = offlineLibrary.makeSession()
+		await session.helpers.offline.awaitOngoingSync()
+
+		XCTAssertTrue(fileExists(forTrackId: trackId), "an empty database must not be read as 'remove everything'")
+	}
+
 	/// Logging out and removing downloads is the destructive path the confirmation
 	/// dialog offers. It must delete the file and clear the database, exactly as
 	/// the old unconditional `removeAll()` did.

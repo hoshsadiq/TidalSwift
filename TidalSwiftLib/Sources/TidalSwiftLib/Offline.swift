@@ -169,6 +169,7 @@ public final class OfflineDB {
 		if let data = UserDefaults.standard.data(forKey: "OfflineDB:Albums") {
 			if let temp = try? JSONDecoder().decode([Album].self, from: data) {
 				self.albums = temp
+				hasStoredState = true
 			} else {
 				self.albums = []
 			}
@@ -222,7 +223,12 @@ public final class OfflineDB {
 		playlistTracks = [:]
 	}
 
+	private(set) var hasStoredState = false
+
 	private func save() {
+		// Once anything is written, the stored state is ours: an empty database after
+		// this point means the wanted set really is empty, not that it was lost.
+		hasStoredState = true
 		let trackAddedDatesData = try? JSONEncoder().encode(trackAddedDates)
 		UserDefaults.standard.set(trackAddedDatesData, forKey: "OfflineDB:TrackAddedDates")
 
@@ -639,6 +645,7 @@ public final class Offline {
 	/// Unpins a single track. It stays offline if a favourite, album or playlist still contains it.
 	public func remove(track: Track) async {
 		db.removeStandaloneOfflineTrack(track)
+		deleteFiles(for: [track.id])
 		asyncSync()
 	}
 
@@ -775,6 +782,19 @@ public final class Offline {
 			}
 		}
 
+		// An empty wanted set next to files on disk is not "nothing is wanted any more":
+		// it is a database that never loaded or was lost. `removeAll()` clears the
+		// database and deletes the files it names itself, so a deliberate removal never
+		// depends on this inference. A single lost logout wipe cost a 22-file library,
+		// so the guard stays.
+		if !db.hasStoredState && !toRemove.isEmpty {
+			displayError(
+				title: "Offline: Nothing marked for offline",
+				content: "Your offline list is empty, so \(toRemove.count) downloaded \(toRemove.count == 1 ? "track was" : "tracks were") kept rather than removed."
+		)
+			toRemove = []
+		}
+
 		// Tracks that genuinely left the offline set are removed in the same sync.
 		if !toRemove.isEmpty {
 			for trackId in toRemove {
@@ -843,10 +863,37 @@ public final class Offline {
 		playlistsToSync = []
 
 		saveFavoritesOffline = false
+		let files = localFilesByTrackId() ?? [:]
 		Task {
 			db.clear()
+			// Delete here rather than leaving it to the sync: an empty database no longer
+			// means "delete what is on disk", so the removal has to be explicit.
+			for (_, trackFiles) in files {
+				for file in trackFiles {
+					try? FileManager.default.removeItem(at: file)
+				}
+			}
 			asyncSync()
 		}
+	}
+
+	/// Deletes every stored file of the given tracks. The deliberate removal paths use
+	/// this so they do not depend on the sync inferring a removal from the database
+	/// diff — an empty database is not treated as "delete everything".
+	private func deleteFiles(for trackIds: [Int]) {
+		guard !trackIds.isEmpty, let localFiles = localFilesByTrackId() else { return }
+		for trackId in trackIds {
+			for file in localFiles[trackId] ?? [] {
+				do {
+					try FileManager.default.removeItem(at: file)
+					print("Offline: Removed \(file.lastPathComponent)")
+				} catch {
+					displayError(title: "Offline: Error while removing offline track", content: "Error: \(error)")
+				}
+			}
+		}
+		invalidateOfflineTrackIdsCache()
+		uiRefreshFunc()
 	}
 
 	// MARK: - Favorite Tracks
@@ -871,8 +918,12 @@ public final class Offline {
 		}
 
 		// Do
-		// Turned off while loading, e.g. by removing everything
+		// Turned off while loading, e.g. by removing everything. The files of the tracks
+		// that leave the set are deleted here, because the sync no longer infers a
+		// removal from a shrinking set.
 		if !saveFavoritesOffline {
+			let leaving = db.favoriteTracks.map(\.id)
+			deleteFiles(for: leaving)
 			tracks = []
 		}
 		db.setFavoriteTracks(to: tracks)
@@ -938,8 +989,12 @@ public final class Offline {
 	}
 
 	public func remove(album: Album) async {
+		// The track ids have to be read before the database forgets them: the sync no
+		// longer treats "not in the database" as "delete", so the removal is explicit.
+		let trackIds = (db.albumTracks[album] ?? []).map(\.id)
 		db.remove(album)
 		db.setTracks(for: album, to: nil)
+		deleteFiles(for: trackIds)
 		asyncSync()
 	}
 
@@ -1018,8 +1073,10 @@ public final class Offline {
 	}
 
 	public func remove(playlist: Playlist) async {
+		let trackIds = (db.playlistTracks[playlist] ?? []).map(\.id)
 		db.remove(playlist)
 		db.setTracks(for: playlist, to: nil)
+		deleteFiles(for: trackIds)
 		asyncSync()
 	}
 

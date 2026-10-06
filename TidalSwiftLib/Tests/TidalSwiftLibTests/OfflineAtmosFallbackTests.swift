@@ -139,8 +139,10 @@ final class OfflineAtmosFallbackTests: XCTestCase {
 		XCTAssertEqual(try libraryFileNames(), ["\(trackId).atmos.m4a"])
 	}
 
-	/// (e) A track that leaves the offline set is removed in full, whichever
-	/// rendition it had. Here it held the Atmos file.
+	/// (e) A track removed from the offline set loses every file it had, whichever
+	/// rendition that was. Here it held the Atmos file. The removal is explicit: the
+	/// sync no longer reads "no longer in the set" as "delete", so that a database
+	/// which failed to load cannot empty the library.
 	func testTrackLeavingTheOfflineSetRemovesTheAtmosFile() async throws {
 		let trackId = 642_000_005
 		let session = makeSession(offlineAudioQuality: .high)
@@ -156,6 +158,7 @@ final class OfflineAtmosFallbackTests: XCTestCase {
 		XCTAssertEqual(try libraryFileNames(), ["\(trackId).atmos.m4a"])
 
 		offline.setOfflineTracksForTesting([])
+		await offline.remove(track: makeDualFormatTrack(id: trackId))
 		await offline.awaitOngoingSync()
 
 		XCTAssertEqual(try libraryFileNames(), [], "a track that left the offline set must lose its file")
