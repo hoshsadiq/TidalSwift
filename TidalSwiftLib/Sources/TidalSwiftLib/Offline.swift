@@ -389,14 +389,14 @@ public final class Offline {
 		asyncSync()
 	}
 
-	/// Same choice as streaming, so offline playback sounds the same. The hi-res
-	/// stereo route upgrades the stereo wish when the session can use it; the Atmos
-	/// preference still wins, so its meaning is unchanged.
+	/// Same choice as streaming, so offline playback sounds the same. At the FLAC tiers
+	/// the hi-res stereo route upgrades the stereo wish when the session can use it; the
+	/// Atmos preference still wins, so its meaning is unchanged.
 	private func wantedVariant(of track: Track) -> FileVariant {
 		if track.hasDolbyAtmos && (preferDolbyAtmos || !track.hasStereo) {
 			return .dolbyAtmos
 		}
-		if HiResStreaming.usesHiResStereo(for: track, session: session) {
+		if HiResStreaming.usesHiResStereo(for: track, session: session, quality: session.config.offlineAudioQuality) {
 			return .hiResStereo
 		}
 		return .stereo(session.config.offlineAudioQuality)
@@ -450,7 +450,7 @@ public final class Offline {
 	private func downloadOfflineTrack(_ track: Track, existingFiles: [URL]) async -> Bool {
 		print("Offline: Downloading \(track.title)")
 		let source: OfflineDownloadSource?
-		if HiResStreaming.usesHiResStereo(for: track, session: session),
+		if HiResStreaming.usesHiResStereo(for: track, session: session, quality: session.config.offlineAudioQuality),
 		   let hiRes = await resolveHiResSource(for: track) {
 			source = .hiRes(hiRes)
 		} else if let resolveOfflineStream {

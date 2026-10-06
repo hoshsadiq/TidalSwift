@@ -231,6 +231,7 @@ final class DashAudioTests: XCTestCase {
 	private nonisolated let offlineLibrary = TemporaryOfflineLibrary(label: "DashAudio")
 
 	private var dashSeamCallCount = 0
+	private var hiResSeamCallCount = 0
 	private let defaultsKeys = [
 		"OfflineDB:Tracks",
 		"OfflineDB:TrackAddedDates",
@@ -250,6 +251,7 @@ final class DashAudioTests: XCTestCase {
 		for key in defaultsKeys { savedDefaults[key] = UserDefaults.standard.object(forKey: key) }
 		for key in defaultsKeys { UserDefaults.standard.removeObject(forKey: key) }
 		dashSeamCallCount = 0
+		hiResSeamCallCount = 0
 	}
 
 	override func tearDown() {
@@ -320,6 +322,36 @@ final class DashAudioTests: XCTestCase {
 		XCTAssertFalse(stream?.isDolbyAtmos ?? true)
 	}
 
+	/// Rule: the offline quality decides the route even on a session that can use the
+	/// hi-res stereo route. At Medium the route is DASH, so the sync must assemble the
+	/// AAC file and never take the FLAC branch — the earlier session had no `cuk`, so it
+	/// could not catch a session that wrongly led with the FLAC route at every tier.
+	func testMediumOfflineWishOnACapableSessionStoresTheAssembledFile() async throws {
+		let trackId = 644_000_003
+		let session = makeCapableSession(offlineAudioQuality: .medium)
+		let offline = session.helpers.offline
+
+		let cdn = try makeCDN(segments: ["AAAA", "BBB"])
+		defer { try? FileManager.default.removeItem(at: cdn.directory) }
+
+		// If the hi-res branch were taken, this seam would supply a FLAC and the stored
+		// file would be the decrypted one rather than the assembled AAC.
+		offline.resolveHiResOfflineStream = { [weak self] _ in
+			self?.hiResSeamCallCount += 1
+			return AcceptedHiResManifest(url: cdn.directory.appendingPathComponent("init.mp4"), keyId: "unused")
+		}
+		offline.resolveOfflineStream = { _ in nil }
+		offline.resolveOfflineDashManifest = { _ in cdn.manifest }
+		offline.setOfflineTracksForTesting([makeStereoTrack(id: trackId)])
+		await offline.awaitOngoingSync()
+
+		XCTAssertEqual(hiResSeamCallCount, 0, "Medium must not take the FLAC route on a capable session")
+		XCTAssertEqual(try libraryFileNames(), ["\(trackId).high.m4a"])
+		let stored = offlineLibrary.root.appendingPathComponent("TidalSwift Offline Library/\(trackId).high.m4a")
+		let expected = Data("INIT".utf8) + Data("AAAA".utf8) + Data("BBB".utf8)
+		XCTAssertEqual(try Data(contentsOf: stored), expected)
+	}
+
 	// MARK: - Helpers
 
 	private func makeSession(offlineAudioQuality: AudioQuality) -> Session {
@@ -329,6 +361,24 @@ final class DashAudioTests: XCTestCase {
 			clientID: "",
 			offlineAudioQuality: offlineAudioQuality
 		))
+	}
+
+	/// A session whose token carries the `cuk` claim, so `hasHiResStereoAccess` is true
+	/// and the hi-res route is genuinely available to the policy.
+	private func makeCapableSession(offlineAudioQuality: AudioQuality) -> Session {
+		offlineLibrary.makeSession(config: Config(
+			accessToken: Self.tokenWithCukClaim(),
+			refreshToken: "",
+			clientID: AuthInformation.DesktopClientID,
+			offlineAudioQuality: offlineAudioQuality
+		))
+	}
+
+	private static func tokenWithCukClaim() -> String {
+		// base64url of `{"uid":1,"cuk":"client-key"}`, the same payload the other
+		// hi-res tests build, written out so nothing has to force-try the encoder.
+		let body = "eyJ1aWQiOjEsImN1ayI6ImNsaWVudC1rZXkifQ"
+		return "Bearer .\(body).signature"
 	}
 
 	private func libraryFileNames() throws -> [String] {

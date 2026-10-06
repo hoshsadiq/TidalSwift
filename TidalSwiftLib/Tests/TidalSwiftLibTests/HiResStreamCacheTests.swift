@@ -35,6 +35,13 @@ final class HiResStreamCacheTests: XCTestCase {
 		return url
 	}
 
+	/// Real FLAC bytes, so a cache file passes the completeness check the cache applies
+	/// before trusting a file. A handful of arbitrary bytes is exactly what the check
+	/// is meant to reject.
+	private func silentFLACBytes() throws -> Data {
+		try Data(contentsOf: XCTUnwrap(Bundle.module.url(forResource: "silent", withExtension: "flac", subdirectory: "Fixtures")))
+	}
+
 	// MARK: - Pruning
 
 	/// Size cap: the least recently used entries go first until the directory is under
@@ -164,7 +171,7 @@ final class HiResStreamCacheTests: XCTestCase {
 	func testCachedFileIsReusedWithoutDownloading() async throws {
 		let trackId = 779_500_001
 		let cached = directory.appendingPathComponent("\(trackId)-HI_RES_LOSSLESS.flac")
-		try Data("already here".utf8).write(to: cached)
+		try silentFLACBytes().write(to: cached)
 
 		let offlineLibrary = TemporaryOfflineLibrary(label: "HiResStreamCache")
 		defer { offlineLibrary.remove() }
@@ -194,7 +201,7 @@ final class HiResStreamCacheTests: XCTestCase {
 	func testCacheKeysDifferPerQualityAndDoNotServeTheOtherTier() async throws {
 		let trackId = 779_500_002
 		let maxFile = directory.appendingPathComponent("\(trackId)-HI_RES_LOSSLESS.flac")
-		try Data("24-bit".utf8).write(to: maxFile)
+		try silentFLACBytes().write(to: maxFile)
 
 		XCTAssertNotEqual(
 			HiResStreamCache.fileURL(forTrackId: trackId, quality: .max, in: directory),
@@ -227,6 +234,113 @@ final class HiResStreamCacheTests: XCTestCase {
 			for: makeTrack(id: trackId), session: session, quality: .high, cacheDirectory: directory
 		)
 		XCTAssertNil(atLossless, "a file cached at Max must not be served at Lossless")
+	}
+
+	// MARK: - Completeness
+
+	/// A cache hit is existence-only no longer: a stub left by an interrupted download
+	/// is deleted and reported as a miss, so the next play re-downloads instead of
+	/// serving a truncated file forever.
+	func testTruncatedCachedFileIsDeletedAndTreatedAsAMiss() throws {
+		let url = directory.appendingPathComponent("779500003-HI_RES_LOSSLESS.flac")
+		// The right signature, but far too short to be a track.
+		try Data("fLaC".utf8).write(to: url)
+
+		XCTAssertNil(HiResStreamCache.cachedFile(forTrackId: 779_500_003, quality: .max, in: directory))
+		XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "the stub must be deleted")
+	}
+
+	/// A file that does not start with the FLAC signature was not written by this app's
+	/// decrypt; it is deleted rather than handed to the player.
+	func testCachedFileWithoutTheFlacSignatureIsDeleted() throws {
+		let url = directory.appendingPathComponent("779500004-HI_RES_LOSSLESS.flac")
+		try Data(repeating: 0x41, count: 4096).write(to: url)
+
+		XCTAssertNil(HiResStreamCache.cachedFile(forTrackId: 779_500_004, quality: .max, in: directory))
+		XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "a file without the signature must be deleted")
+	}
+
+	/// A complete FLAC file is still trusted, so the check does not throw away real
+	/// cache entries.
+	func testCompleteCachedFileIsStillServed() throws {
+		let url = directory.appendingPathComponent("779500005-HI_RES_LOSSLESS.flac")
+		try silentFLACBytes().write(to: url)
+
+		XCTAssertEqual(HiResStreamCache.cachedFile(forTrackId: 779_500_005, quality: .max, in: directory), url)
+	}
+
+	/// The DASH cache applies the same rule with its own format's signature: an
+	/// assembled `.m4a` is trusted, while a stub or a file without the MP4 `ftyp` box is
+	/// deleted and treated as a miss.
+	func testDashCacheValidatesItsOwnSignatureAndLength() throws {
+		let trackId = 779_500_006
+		let complete = HiResStreamCache.dashFileURL(forTrackId: trackId, quality: .medium, in: directory)
+		try (Data([0, 0, 0, 0x20]) + Data("ftyp".utf8) + Data(repeating: 0, count: 4096)).write(to: complete)
+		XCTAssertEqual(HiResStreamCache.cachedDashFile(forTrackId: trackId, quality: .medium, in: directory), complete)
+
+		let stub = HiResStreamCache.dashFileURL(forTrackId: trackId + 1, quality: .medium, in: directory)
+		try Data([0, 0, 0, 0x20]).write(to: stub)
+		XCTAssertNil(HiResStreamCache.cachedDashFile(forTrackId: trackId + 1, quality: .medium, in: directory))
+		XCTAssertFalse(FileManager.default.fileExists(atPath: stub.path), "the stub must be deleted")
+
+		let wrongMagic = HiResStreamCache.dashFileURL(forTrackId: trackId + 2, quality: .medium, in: directory)
+		try Data(repeating: 0x41, count: 4096).write(to: wrongMagic)
+		XCTAssertNil(HiResStreamCache.cachedDashFile(forTrackId: trackId + 2, quality: .medium, in: directory))
+		XCTAssertFalse(FileManager.default.fileExists(atPath: wrongMagic.path), "a file without the signature must be deleted")
+	}
+
+	// MARK: - De-duplication
+
+	/// Concurrent preparation of the same track and quality runs the work once and both
+	/// callers get the result. The prefetcher and a play that arrives meanwhile share this
+	/// table, so the manifest and every segment are fetched once, not twice.
+	func testConcurrentPreparationOfTheSameTrackRunsTheWorkOnce() async throws {
+		let trackId = 779_600_001
+		let dir = try XCTUnwrap(directory)
+		let produced = dir.appendingPathComponent("deduplicated.m4a")
+		let runs = RunCounter()
+		let operation: @Sendable () async -> URL? = {
+			await runs.increment()
+			try? await Task.sleep(for: .milliseconds(50))
+			try? Data("assembled".utf8).write(to: produced)
+			return produced
+		}
+
+		async let first = HiResStreamPreparation.preparedFile(for: trackId, quality: .medium, in: dir, operation: operation)
+		async let second = HiResStreamPreparation.preparedFile(for: trackId, quality: .medium, in: dir, operation: operation)
+		let (firstURL, secondURL) = await (first, second)
+		let runCount = await runs.value
+
+		XCTAssertEqual(runCount, 1, "two concurrent preparations of one track must run the work once")
+		XCTAssertEqual(firstURL, produced)
+		XCTAssertEqual(secondURL, produced)
+	}
+
+	/// A different quality is different work: the key carries the quality, so a Max
+	/// preparation does not borrow the Medium task's result.
+	func testPreparationKeySeparatesQualities() async throws {
+		let trackId = 779_600_002
+		let dir = try XCTUnwrap(directory)
+		let runs = RunCounter()
+		let operation: @Sendable () async -> URL? = {
+			let count = await runs.increment()
+			return dir.appendingPathComponent("quality-\(count).m4a")
+		}
+
+		async let medium = HiResStreamPreparation.preparedFile(for: trackId, quality: .medium, in: dir, operation: operation)
+		async let low = HiResStreamPreparation.preparedFile(for: trackId, quality: .low, in: dir, operation: operation)
+		_ = await (medium, low)
+		let runCount = await runs.value
+
+		XCTAssertEqual(runCount, 2, "the quality must be part of the in-flight key")
+	}
+
+	private actor RunCounter {
+		private(set) var value = 0
+		@discardableResult func increment() -> Int {
+			value += 1
+			return value
+		}
 	}
 
 	// MARK: - Bit depth
