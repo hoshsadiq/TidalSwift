@@ -49,14 +49,7 @@ struct SidebarPlaylistRow: View {
 	@ViewBuilder
 	private var artwork: some View {
 		if let imageUrl = playlist.imageUrl(session: session, resolution: 160) {
-			AsyncImage(url: imageUrl) { image in
-				image.resizable().scaledToFit()
-			} placeholder: {
-				Rectangle()
-			}
-			.frame(width: 30, height: 30)
-			.cornerRadius(CORNERRADIUS)
-			.accessibilityHidden(true)
+			ArtworkImage(url: imageUrl, size: 30, showsShadow: false)
 		} else {
 			Rectangle()
 				.foregroundColor(.black)

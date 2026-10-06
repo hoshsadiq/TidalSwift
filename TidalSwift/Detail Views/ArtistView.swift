@@ -84,14 +84,7 @@ struct ArtistView: View {
 		HStack {
 		if let pictureUrlSmall = artist.pictureUrl(session: session, resolution: 320),
 		   let pictureUrlBig = artist.pictureUrl(session: session, resolution: 750) {
-				let picture = AsyncImage(url: pictureUrlSmall) { image in
-					image.resizable().scaledToFit()
-				} placeholder: {
-					Rectangle()
-				}
-				.frame(width: 100, height: 100)
-				.cornerRadius(CORNERRADIUS)
-				.shadow(radius: SHADOWRADIUS, y: SHADOWY)
+				let picture = ArtworkImage(url: pictureUrlSmall, size: 100)
 				#if canImport(AppKit)
 				Button {
 					let controller = ImageWindowController(
@@ -102,10 +95,10 @@ struct ArtistView: View {
 					controller.showWindow(nil)
 				} label: {
 					picture
-						.accessibilityLabel("Show image in new window")
 						.help("Show image in new window")
 				}
 				.buttonStyle(.plain)
+				.accessibilityLabel("Show image in new window")
 				#else
 				picture
 					.accessibilityHidden(true)

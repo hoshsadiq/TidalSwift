@@ -30,17 +30,7 @@ struct PlaylistView: View {
 		   let imageUrlBig = playlist.imageUrl(session: session, resolution: 750) {
 					ZStack(alignment: .bottomTrailing) {
 						HStack {
-							let image = AsyncImage(url: imageUrlSmall) { image in
-								image.resizable().scaledToFit()
-							} placeholder: {
-								Rectangle()
-							}
-							.aspectRatio(contentMode: .fill)
-							.frame(width: 100, height: 100)
-							.contentShape(Rectangle())
-							.clipped()
-							.cornerRadius(CORNERRADIUS)
-							.shadow(radius: SHADOWRADIUS, y: SHADOWY)
+							let image = ArtworkImage(url: imageUrlSmall, size: 100)
 							#if canImport(AppKit)
 							Button {
 								let controller = ImageWindowController(
@@ -51,10 +41,10 @@ struct PlaylistView: View {
 								controller.showWindow(nil)
 							} label: {
 								image
-									.accessibilityLabel("Show image in new window")
 									.help("Show image in new window")
 							}
 							.buttonStyle(.plain)
+							.accessibilityLabel("Show image in new window")
 							#else
 							image
 								.accessibilityHidden(true)

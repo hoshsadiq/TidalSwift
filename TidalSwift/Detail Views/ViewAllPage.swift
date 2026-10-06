@@ -424,11 +424,7 @@ private struct ViewAllTrackRow: View {
 	private var cover: some View {
 		ZStack {
 			if let coverUrl = track.getCoverUrl(session: session, resolution: 80) {
-				AsyncImage(url: coverUrl) { image in
-					image.resizable().scaledToFit()
-				} placeholder: {
-					Rectangle()
-				}
+				ArtworkImage(url: coverUrl, size: 40, showsShadow: false)
 			} else {
 				Rectangle()
 					.foregroundColor(.black)

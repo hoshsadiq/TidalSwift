@@ -187,13 +187,7 @@ struct TrackInfoView: View {
 				HStack {
 					if let coverUrlSmall = track.getCoverUrl(session: session, resolution: 320),
 					   let coverUrlBig = track.getCoverUrl(session: session, resolution: 1280) {
-						AsyncImage(url: coverUrlSmall) { image in
-							image.resizable().scaledToFit()
-						} placeholder: {
-							Rectangle()
-						}
-						.frame(width: 40, height: 40)
-						.cornerRadius(CORNERRADIUS)
+						ArtworkImage(url: coverUrlSmall, size: 40, showsShadow: false)
 						.help("Show cover in new window")
 						#if canImport(AppKit)
 						.onTapGesture(count: 2) {
@@ -314,6 +308,8 @@ struct PlaybackControls: View {
 						.padding(6)
 						.contentShape(Rectangle())
 				}
+				.accessibilityLabel("Shuffle")
+				.accessibilityAddTraits(playbackInfo.shuffle ? .isSelected : [])
 				.help("Shuffle")
 				.onTapGesture {
 					playbackInfo.shuffle.toggle()
@@ -353,6 +349,8 @@ struct PlaybackControls: View {
 						.padding(6)
 						.contentShape(Rectangle())
 				}
+				.accessibilityLabel("Repeat")
+				.accessibilityValue(repeatStateAccessibilityValue)
 				.help("Repeat")
 				.onTapGesture {
 					player.playbackInfo.repeatState = player.playbackInfo.repeatState.next()
@@ -361,6 +359,14 @@ struct PlaybackControls: View {
 				Spacer()
 			}
 			ProgressBar(player: player)
+		}
+	}
+
+	private var repeatStateAccessibilityValue: LocalizedStringResource {
+		switch playbackInfo.repeatState {
+		case .off: "Off"
+		case .all: "All"
+		case .single: "One"
 		}
 	}
 }
@@ -421,6 +427,8 @@ struct VolumeControl: View {
 		HStack {
 			speakerSymbol
 				.frame(width: 20, alignment: .leading)
+				.accessibilityLabel("Mute")
+				.accessibilityAddTraits(playbackInfo.volume == 0 ? .isSelected : [])
 				.onTapGesture {
 					player.toggleMute()
 				}

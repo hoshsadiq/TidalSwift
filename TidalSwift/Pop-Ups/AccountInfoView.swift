@@ -26,15 +26,7 @@ struct AccountInfoView: View {
 							Text("User")
 								.font(.title)
 							if let pictureUrl = user.pictureUrl(session: session, resolution: 210) {
-								AsyncImage(url: pictureUrl) { image in
-									image.resizable().scaledToFit()
-								} placeholder: {
-									Rectangle()
-								}
-								.frame(width: 100, height: 100)
-								.cornerRadius(CORNERRADIUS)
-								.shadow(radius: SHADOWRADIUS, y: SHADOWY)
-								.accessibilityHidden(true)
+								ArtworkImage(url: pictureUrl, size: 100)
 							}
 							UserInfoView(user: user, session: session)
 							Spacer(minLength: 0)

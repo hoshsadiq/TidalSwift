@@ -167,14 +167,7 @@ struct TrackRow: View {
 						}
 						if showCover {
 							if let coverUrl = track.getCoverUrl(session: session, resolution: 80) {
-								AsyncImage(url: coverUrl) { image in
-									image.resizable().scaledToFit()
-								} placeholder: {
-									Rectangle()
-								}
-								.frame(width: 30, height: 30)
-								.cornerRadius(CORNERRADIUS)
-								.accessibilityHidden(true)
+								ArtworkImage(url: coverUrl, size: 30, showsShadow: false)
 							} else {
 								Rectangle()
 									.foregroundColor(.black)

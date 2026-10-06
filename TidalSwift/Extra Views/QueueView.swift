@@ -123,10 +123,22 @@ struct QueueView: View {
 
 	// MARK: - Header
 
+	/// Summed length of every track in the queue, shown under the header title.
+	private var totalDuration: Int {
+		queueInfo.queue.reduce(0) { $0 + $1.track.duration }
+	}
+
 	private var header: some View {
 		HStack {
-			Text("Play queue")
-				.font(.headline)
+			VStack(alignment: .leading, spacing: 1) {
+				Text("Play queue")
+					.font(.headline)
+				if !isEmpty {
+					Text("\(queueInfo.queue.count) tracks · \(secondsToHoursMinutesSecondsString(seconds: totalDuration))")
+						.font(.caption)
+						.foregroundColor(.secondary)
+				}
+			}
 			Spacer(minLength: 8)
 			Button {
 				appModel.showQueuePanel = false
@@ -288,14 +300,7 @@ private struct QueueRow: View {
 	@ViewBuilder
 	private var artwork: some View {
 		if let coverUrl = item.track.getCoverUrl(session: session, resolution: 80) {
-			AsyncImage(url: coverUrl) { image in
-				image.resizable().scaledToFit()
-			} placeholder: {
-				Rectangle()
-			}
-			.frame(width: 40, height: 40)
-			.cornerRadius(CORNERRADIUS)
-			.accessibilityHidden(true)
+			ArtworkImage(url: coverUrl, size: 40, showsShadow: false)
 		} else {
 			Rectangle()
 				.foregroundColor(.black)

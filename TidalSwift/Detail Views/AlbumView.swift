@@ -28,14 +28,7 @@ struct AlbumView: View {
 				   let coverUrlBig = album.getCoverUrl(session: session, resolution: 1280) {
 					ZStack(alignment: .bottomTrailing) {
 						HStack {
-							let cover = AsyncImage(url: coverUrlSmall) { image in
-								image.resizable().scaledToFit()
-							} placeholder: {
-								Rectangle()
-							}
-							.frame(width: 100, height: 100)
-							.cornerRadius(CORNERRADIUS)
-							.shadow(radius: SHADOWRADIUS, y: SHADOWY)
+							let cover = ArtworkImage(url: coverUrlSmall, size: 100)
 							#if canImport(AppKit)
 							Button {
 								let controller = ImageWindowController(
@@ -46,10 +39,10 @@ struct AlbumView: View {
 								controller.showWindow(nil)
 							} label: {
 								cover
-									.accessibilityLabel("Show cover in new window")
 									.help("Show cover in new window")
 							}
 							.buttonStyle(.plain)
+							.accessibilityLabel("Show cover in new window")
 							#else
 							cover
 								.accessibilityHidden(true)
