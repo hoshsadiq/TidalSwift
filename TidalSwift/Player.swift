@@ -24,6 +24,8 @@ class Player {
 	private var failedItems = 0
 	// Incremented on every item change, so outdated async loads can be discarded
 	private var itemLoadID = 0
+	// KVO on the current item's `status`, invalidated when the next item is installed.
+	private var itemStatusObservation: NSKeyValueObservation?
 
 
 	private(set) var nextAudioQuality: AudioQuality
@@ -83,6 +85,12 @@ class Player {
 
 	private func prefetchUpcoming() {
 		prefetcher.queueChanged(queue: queueInfo.queue.map(\.track), currentIndex: queueInfo.currentIndex)
+	}
+
+	/// Stops preparing upcoming tracks. Called on quit so a teardown does not leave a
+	/// download in flight.
+	func stopPrefetching() {
+		prefetcher.stop()
 	}
 
 	@MainActor
@@ -171,29 +179,30 @@ class Player {
 		if avPlayer.currentTime().seconds < 3 && queueInfo.currentIndex > 0 {
 			prefetcher.trackSkipped()
 		}
-		previousTrack()
+		previousTrack(resumeAfterSet: playbackInfo.playing)
 	}
 
-	private func previousTrack() {
+	private func previousTrack(resumeAfterSet: Bool) {
 		guard !queueInfo.queue.isEmpty else { return }
 		if avPlayer.currentTime().seconds >= 3 || queueInfo.currentIndex == 0 {
 			avPlayer.seek(to: CMTime(seconds: 0, preferredTimescale: 1))
 			if queueInfo.currentIndex == 0 && !queueInfo.queue[queueInfo.currentIndex].track.streamReady {
 				print("Not possible to stream \(queueInfo.queue[queueInfo.currentIndex].track.title)")
 				pause()
-				advance(resumeAfterSet: playbackInfo.playing)
+				advance(resumeAfterSet: resumeAfterSet)
 			}
 			return
 		}
 
 		queueInfo.currentIndex -= 1
-		if queueInfo.queue[queueInfo.currentIndex].track.streamReady {
+		let track = queueInfo.queue[queueInfo.currentIndex].track
+		if track.streamReady {
 //			print("previous(): \(playbackInfo.currentIndex) - \(playbackInfo.queue.count)")
-			avSetItem(from: queueInfo.queue[queueInfo.currentIndex].track)
+			avSetItem(from: track, resumeAfterSet: playbackInfo.pauseAfter ? false : resumeAfterSet)
 //			print("previous() done")
 		} else {
-			print("Not possible to stream \(queueInfo.queue[queueInfo.currentIndex].track.title)")
-			previousTrack()
+			print("Not possible to stream \(track.title)")
+			previousTrack(resumeAfterSet: resumeAfterSet)
 		}
 	}
 
@@ -365,11 +374,8 @@ class Player {
 		failedItems = 0
 		playbackInfo.failedTrackIds.remove(track.id)
 
-		NotificationCenter.default.removeObserver(self, name: NSNotification.Name.AVPlayerItemDidPlayToEndTime, object: avPlayer.currentItem)
-
 		let item = AVPlayerItem(url: url)
-		NotificationCenter.default.addObserver(self, selector: #selector(self.playerDidFinishPlaying(sender:)), name: NSNotification.Name.AVPlayerItemDidPlayToEndTime, object: item)
-		avPlayer.replaceCurrentItem(with: item)
+		installCurrentItem(item)
 		// The periodic observer only refreshes once a second; reset eagerly so a
 		// new track can't briefly highlight a line at the previous track's time.
 		playbackInfo.playbackPosition = 0
@@ -380,9 +386,60 @@ class Player {
 		}
 	}
 
+	/// Installs `item` as the current one and observes its end and failure.
+	///
+	/// A failed or stalled item posts no end notification, so the status is observed
+	/// directly. The identity check in the callback drops a late failure for an item
+	/// the user has since replaced.
+	private func installCurrentItem(_ item: AVPlayerItem) {
+		NotificationCenter.default.removeObserver(self, name: NSNotification.Name.AVPlayerItemDidPlayToEndTime, object: avPlayer.currentItem)
+		NotificationCenter.default.removeObserver(self, name: NSNotification.Name.AVPlayerItemFailedToPlayToEndTime, object: avPlayer.currentItem)
+		NotificationCenter.default.addObserver(self, selector: #selector(self.playerDidFinishPlaying(sender:)), name: NSNotification.Name.AVPlayerItemDidPlayToEndTime, object: item)
+		NotificationCenter.default.addObserver(self, selector: #selector(self.playerItemFailedToPlayToEndTime(sender:)), name: NSNotification.Name.AVPlayerItemFailedToPlayToEndTime, object: item)
+		itemStatusObservation?.invalidate()
+		itemStatusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
+			guard item.status == .failed else { return }
+			let description = item.error.map { String(describing: $0) }
+			let itemID = ObjectIdentifier(item)
+			Task { @MainActor [weak self] in
+				guard let self, let current = self.avPlayer.currentItem, ObjectIdentifier(current) == itemID else { return }
+				self.playerItemFailed(reason: "item status .failed", errorDescription: description)
+			}
+		}
+		avPlayer.replaceCurrentItem(with: item)
+	}
+
 	@objc func playerDidFinishPlaying(sender: Notification) {
 //		print("Song finished playing")
 		advance(resumeAfterSet: playbackInfo.playing)
+	}
+
+	/// The item failed after playback started (the stream dropped, the decoder gave
+	/// up). `AVPlayerItemDidPlayToEndTime` is not posted in that case, so without this
+	/// the queue would sit on an item that will never play.
+	@objc func playerItemFailedToPlayToEndTime(sender: Notification) {
+		guard let item = sender.object as? AVPlayerItem, item === avPlayer.currentItem else { return }
+		let description = (sender.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error)
+			.map { String(describing: $0) }
+		playerItemFailed(reason: "AVPlayerItemFailedToPlayToEndTime", errorDescription: description)
+	}
+
+	/// A loaded item that cannot play. Advances the way a refused stream does, so a
+	/// track that fails at play time does not leave the UI believing it is playing.
+	private func playerItemFailed(reason: String, errorDescription: String?) {
+		let track = queueInfo.currentItem?.track
+		print("[PLAYBACK] item failed - title: \(track?.title ?? "?"), id: \(track.map { String($0.id) } ?? "?"), reason: \(reason), error: \(errorDescription ?? "none"), failedItems: \(failedItems), queueCount: \(queueInfo.queue.count)")
+		if let track {
+			playbackInfo.failedTrackIds.insert(track.id)
+		}
+		failedItems += 1
+		if failedItems >= queueInfo.queue.count {
+			print("[PLAYBACK] all tracks in queue failed to play")
+			pause()
+			seek(to: 0)
+		} else {
+			advance(resumeAfterSet: playbackInfo.playing)
+		}
 	}
 
 	func add(playlists: [Playlist], _ when: When, source: QueueSource? = nil) {

@@ -268,6 +268,7 @@ final class TidalSwiftAppModel {
 			self.mainWindowKeyObserver = nil
 		}
 		nowPlayingController.teardown()
+		player.stopPrefetching()
 		NowPlayingInfoBuilder.clear()
 		cancelCancellables()
 		closeModals()
