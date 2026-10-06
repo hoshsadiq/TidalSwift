@@ -645,7 +645,7 @@ public final class Offline {
 	/// Unpins a single track. It stays offline if a favourite, album or playlist still contains it.
 	public func remove(track: Track) async {
 		db.removeStandaloneOfflineTrack(track)
-		deleteFiles(for: [track.id])
+		deleteFilesNoLongerWanted([track.id])
 		asyncSync()
 	}
 
@@ -877,6 +877,16 @@ public final class Offline {
 		}
 	}
 
+	/// Deletes the stored files of tracks that have left the wanted set for good. A
+	/// track another source still wants keeps its file: removing it from one album does
+	/// not take it out of a playlist that also holds it. Deleting it here would be undone
+	/// by the next sync downloading it again, so the removal would look like it did
+	/// nothing.
+	private func deleteFilesNoLongerWanted(_ trackIds: [Int]) {
+		let wanted = db.tracks
+		deleteFiles(for: trackIds.filter { id in !wanted.contains { $0.id == id } })
+	}
+
 	/// Deletes every stored file of the given tracks. The deliberate removal paths use
 	/// this so they do not depend on the sync inferring a removal from the database
 	/// diff — an empty database is not treated as "delete everything".
@@ -923,7 +933,7 @@ public final class Offline {
 		// removal from a shrinking set.
 		if !saveFavoritesOffline {
 			let leaving = db.favoriteTracks.map(\.id)
-			deleteFiles(for: leaving)
+			deleteFilesNoLongerWanted(leaving)
 			tracks = []
 		}
 		db.setFavoriteTracks(to: tracks)
@@ -994,7 +1004,7 @@ public final class Offline {
 		let trackIds = (db.albumTracks[album] ?? []).map(\.id)
 		db.remove(album)
 		db.setTracks(for: album, to: nil)
-		deleteFiles(for: trackIds)
+		deleteFilesNoLongerWanted(trackIds)
 		asyncSync()
 	}
 
@@ -1076,7 +1086,7 @@ public final class Offline {
 		let trackIds = (db.playlistTracks[playlist] ?? []).map(\.id)
 		db.remove(playlist)
 		db.setTracks(for: playlist, to: nil)
-		deleteFiles(for: trackIds)
+		deleteFilesNoLongerWanted(trackIds)
 		asyncSync()
 	}
 

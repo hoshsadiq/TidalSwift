@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Runs the library test suite. CI calls this from the lib job, so a regression in
+# the package fails the pull request rather than only showing up locally.
+set -euo pipefail
+
+cd TidalSwiftLib
+exec swift test

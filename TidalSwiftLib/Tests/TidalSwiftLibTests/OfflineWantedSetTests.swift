@@ -159,6 +159,37 @@ final class OfflineWantedSetTests: XCTestCase {
 		XCTAssertNotNil(offline.addedDate(forTrackId: track.id), "the date must survive removing one of two sources")
 	}
 
+	/// The same rule, on disk: a track another source still wants keeps its file. The
+	/// removal used to delete by track id alone, which the next sync then downloaded
+	/// again, so "Remove from offline" on a favourite looked like it did nothing. The
+	/// assertion is on the downloads rather than on the file, because the file comes
+	/// back either way: the bug shows up as a second download of the same track.
+	func testRemovingOneSourceDoesNotDownloadTheTrackAgain() async throws {
+		let trackId = 641_000_011
+		let track = makeTrack(id: trackId)
+		persistFavorites([track])
+		persistDates([trackId: Date(timeIntervalSince1970: 1_600_000_000)])
+
+		let session = offlineLibrary.makeSession()
+		let offline = session.helpers.offline
+		let fixture = try silentFlacFixture()
+		let downloads = Counter()
+		offline.resolveOfflineStream = { _ in
+			downloads.value += 1
+			return AudioStream(url: fixture, pathExtension: "flac", isDolbyAtmos: false)
+		}
+
+		await offline.add(track: track)
+		await offline.awaitOngoingSync()
+		XCTAssertEqual(downloads.value, 1, "the favourite's track is downloaded once")
+
+		await offline.remove(track: track)
+		await offline.awaitOngoingSync()
+
+		XCTAssertEqual(downloads.value, 1, "the favourite still wants this track, so removing the pin must not re-download it")
+		XCTAssertEqual(try libraryFileNames().count, 1, "the file stays")
+	}
+
 	// MARK: - File variant
 
 	/// The file name a sync asks for follows the offline quality and the Atmos
@@ -195,6 +226,10 @@ final class OfflineWantedSetTests: XCTestCase {
 	}
 
 	// MARK: - Helpers
+
+	private final class Counter {
+		var value = 0
+	}
 
 	/// Polls a MainActor condition while letting the sync tasks run. Bounded so a
 	/// broken sync fails the test instead of hanging it.

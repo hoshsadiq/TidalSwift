@@ -724,8 +724,11 @@ nonisolated enum HiResStreamCache {
 	/// A cache file is trusted only when it looks complete: long enough to be a track and
 	/// carrying its format's signature. A file that fails either check — a download
 	/// interrupted before its tail, or a stale stub — is deleted and reported as a miss,
-	/// so the next play re-downloads instead of serving a truncated file forever.
+	/// so the next play re-downloads instead of serving a truncated file forever. A file
+	/// that is simply not there is a miss too, and is left alone: deleting it would race
+	/// a task that is installing it right now.
 	private static func validatedCacheFile(at url: URL, magic: Data, magicOffset: Int) -> URL? {
+		guard FileManager.default.fileExists(atPath: url.path) else { return nil }
 		guard fileSize(at: url) >= minimumCachedFileBytes, hasMagic(at: url, magic: magic, offset: magicOffset) else {
 			try? FileManager.default.removeItem(at: url)
 			return nil
