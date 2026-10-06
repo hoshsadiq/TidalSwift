@@ -191,7 +191,7 @@ struct AudioUrl: Decodable {
 }
 
 /// Response of `/tracks/{id}/playbackinfopostpaywall` and of the desktop host's
-/// `/tracks/{id}/playbackinfo`. Hi-res answers with a DASH manifest on the v1 host,
+/// `/tracks/{id}/playbackinfo`. High and Low answer with a DASH manifest on that host,
 /// which AVPlayer cannot play, so only the BTS payload is used. `bitDepth` and
 /// `sampleRate` are the desktop host's description of the rendition it serves.
 struct TrackPlaybackInfo: Decodable {

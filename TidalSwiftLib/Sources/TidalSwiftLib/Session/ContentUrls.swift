@@ -310,7 +310,10 @@ extension Session {
 }
 
 extension URL {
-	fileprivate var upgradedToHTTPS: URL {
+	/// Applied to every TIDAL URL this app fetches, so a plain-http manifest entry
+	/// cannot be read in the clear where ATS refuses it. `nonisolated` because the
+	/// DASH assembler reads it off the main actor.
+	nonisolated var upgradedToHTTPS: URL {
 		guard var components = URLComponents(url: self, resolvingAgainstBaseURL: false) else { return self }
 		guard components.scheme?.lowercased() == "http" else { return self }
 		components.scheme = "https"

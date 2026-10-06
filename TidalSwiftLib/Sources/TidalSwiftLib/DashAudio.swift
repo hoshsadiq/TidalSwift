@@ -349,19 +349,6 @@ public nonisolated enum DashAudio {
 	}
 }
 
-nonisolated extension URL {
-	/// An `http://` segment URL would be read in the clear where ATS allows it — the
-	/// app's exception covers `*.manifest.tidal.com`, the MPD's own host — and refused
-	/// everywhere else. The BTS path upgrades the same way
-	/// (`ContentUrls.upgradedToHTTPS`); no manifest seen so far has used plain HTTP.
-	fileprivate var upgradedToHTTPS: URL {
-		guard var components = URLComponents(url: self, resolvingAgainstBaseURL: false) else { return self }
-		guard components.scheme?.lowercased() == "http" else { return self }
-		components.scheme = "https"
-		return components.url ?? self
-	}
-}
-
 /// A local, assembled DASH stream that plays.
 public nonisolated struct DashPlayback: Equatable, Sendable {
 	public let url: URL
