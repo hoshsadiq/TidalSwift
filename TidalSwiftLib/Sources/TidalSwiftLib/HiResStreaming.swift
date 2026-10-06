@@ -123,6 +123,9 @@ public enum HiResStreamingPreferences {
 	/// preparing off; the setting is clamped to `prefetchDepthRange`.
 	public static let defaultPrefetchDepth = 3
 	public static let prefetchDepthRange = 0...15
+	/// The choices offered in Preferences: off, then a few sizes that are easy to
+	/// reason about rather than every number in the range.
+	public static let prefetchDepthOptions: [Int] = [0, 1, 2, 3, 5, 8, 10, 15]
 
 	public static var prefetchDepth: Int {
 		guard UserDefaults.standard.object(forKey: prefetchDepthKey) != nil else {

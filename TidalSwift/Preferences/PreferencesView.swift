@@ -103,10 +103,14 @@ private struct PlaybackPreferencesTab: View {
 				}
 				.disabled(!appModel.session.hasHiResStereoAccess)
 
-				Stepper(value: $prefetchDepth, in: HiResStreamingPreferences.prefetchDepthRange) {
+				Picker(selection: $prefetchDepth) {
+					ForEach(HiResStreamingPreferences.prefetchDepthOptions, id: \.self) { depth in
+						Text(Self.prefetchDepthLabel(depth)).tag(depth)
+					}
+				} label: {
 					VStack(alignment: .leading) {
-						Text("Prepare upcoming tracks")
-						Text(prefetchDepthHelp)
+						Text("Prefetch tracks")
+						Text("Fetches tracks ahead of the one playing, so they start straight away. Uses disk space and bandwidth in the background.")
 							.font(.caption)
 							.foregroundStyle(.secondary)
 					}
@@ -190,11 +194,12 @@ private struct PlaybackPreferencesTab: View {
 
 	/// What the depth control does, in plain words. 0 is a state worth naming rather
 	/// than leaving the user to infer from a number.
-	private var prefetchDepthHelp: String {
-		if prefetchDepth == 0 {
-			return "Off. Nothing is fetched in advance, so a track may pause before it starts."
+	private static func prefetchDepthLabel(_ depth: Int) -> String {
+		switch depth {
+		case 0: return "Off"
+		case 1: return "Next track"
+		default: return "Next \(depth) tracks"
 		}
-		return "Fetches the next \(prefetchDepth) \(prefetchDepth == 1 ? "track" : "tracks") in your queue before you play them, so they start straight away. Uses disk space and bandwidth in the background."
 	}
 
 	private static func byteCount(_ bytes: Int) -> String {
