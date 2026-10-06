@@ -55,7 +55,7 @@ Use Xcode's MCP if possible.
 - `xcodebuild -project TidalSwift.xcodeproj -scheme TidalSwiftLib -configuration Debug build`
   Build the framework target.
 
-There is no test suite for the app target. `TidalSwiftLib` has one: run `cd TidalSwiftLib && swift test`. If `mise run build` fails due to local cache issues, build directly in Xcode and capture the exact error in the PR.
+There is no test suite for the app target. `TidalSwiftLib` has one: run `mise run test-lib`, which is what the CI library job runs. `mise run scan` runs Periphery across both targets to flag unused code. If `mise run build` fails due to local cache issues, build directly in Xcode and capture the exact error in the PR.
 Tests must stay away from the developer's own data: never let a test read the stored session (`Session(config: nil)` does, through `Config.load()`), and never let one write to the real offline folder — construct a `TemporaryOfflineLibrary` and pass its root to `Session`.
 
 ## Coding Style & Naming Conventions
@@ -64,7 +64,7 @@ Indent with tabs, one per level, never spaces. Xcode and many tools default to f
 Types use `UpperCamelCase`; functions/properties use `lowerCamelCase`; file names match the primary type/feature (`ArtistView.swift`, `SearchResults.swift`).
 Prefer `async/await` over callback-style APIs for new async work (the codebase was recently migrated from callbacks).
 Never mess with indentation or whitespace on unrelated lines, but make sure that new or edited blocks have correct indentation.
-Blank lines are truly empty, with no trailing whitespace — the pinned `trailing-whitespace` hook strips any that appears, and CI runs it with `--all-files`. Editors often leave indentation on a blank line, so check the diff of new or edited code for whitespace-only lines (`git diff | grep -n '^+[[:space:]]*$'`).
+Blank lines are truly empty, with no trailing whitespace — the pinned `trailing-whitespace` hook strips any that appears, and CI runs it with `--all-files`. Editors often leave indentation on a blank line, so check the diff of new or edited code for whitespace-only lines (`git diff | grep -nE '^\+[[:space:]]+$'`).
 Default Actor Isolation is set to `MainActor` and Approachable Concurrency is enabled for both `TidalSwift` and `TidalSwiftLib`.
 
 ## Commit & Pull Request Guidelines

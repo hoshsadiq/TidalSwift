@@ -38,8 +38,8 @@ final class AudioQualityTests: XCTestCase {
 		XCTAssertEqual(envelope.audioQuality, .max)
 	}
 
-	/// EXPECTED TO FAIL until task 1.6 lands the tolerant decoder. A future
-	/// quality string must not fail the whole surrounding payload.
+	/// A future quality string must not fail the whole surrounding payload: the
+	/// tolerant decoder maps it to `.high` instead of throwing.
 	@MainActor
 	func testUnknownQualityStringDoesNotThrow() {
 		let json = #""SUPER_HI_RES_LOSSLESS""#
