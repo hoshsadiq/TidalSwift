@@ -250,48 +250,57 @@ extension Session {
 			quality: quality
 		)
 		let resolver = PlaybackRouteResolver(
-			hiResStereo: {
-				guard let hiRes = await HiResStreaming.playbackFile(for: track, session: self, quality: quality) else { return nil }
-				print("[PLAYBACK] resolved \(track.title): hi-res stereo, \(quality.rawValue)")
-				return PlayableStream(
-					url: hiRes.url,
-					quality: quality,
-					isDolbyAtmos: false,
-					isHiResStereo: true,
-					hiResBitDepth: hiRes.bitDepth,
-					hiResSampleRate: hiRes.sampleRate
-				)
-			},
-			dash: {
-				guard let dash = await HiResStreaming.dashPlaybackFile(for: track, session: self, quality: quality) else { return nil }
-				print("[PLAYBACK] resolved \(track.title): dash, \(quality.rawValue)")
-				return PlayableStream(
-					url: dash.url,
-					quality: quality,
-					isDolbyAtmos: false,
-					isHiResStereo: false,
-					hiResBitDepth: nil,
-					hiResSampleRate: nil
-				)
-			},
-			directStream: {
-				guard let resolved = await self.bestAudioUrl(
-					trackId: track.id,
-					preferredQuality: quality,
-					preferDolbyAtmos: preferAtmosForTrack
-				) else { return nil }
-				print("[PLAYBACK] resolved \(track.title): direct stream, \(resolved.isDolbyAtmos ? "Dolby Atmos" : resolved.quality.rawValue)")
-				return PlayableStream(
-					url: resolved.url,
-					quality: resolved.quality,
-					isDolbyAtmos: resolved.isDolbyAtmos,
-					isHiResStereo: false,
-					hiResBitDepth: nil,
-					hiResSampleRate: nil
-				)
-			}
+			hiResStereo: { await self.hiResStereoPlayableStream(for: track, quality: quality) },
+			dash: { await self.dashPlayableStream(for: track, quality: quality) },
+			directStream: { await self.directPlayableStream(for: track, quality: quality, preferAtmos: preferAtmosForTrack) }
 		)
 		return await resolver.resolve(routes: routes)
+	}
+
+	/// The decrypted desktop rendition, prepared on demand if necessary.
+	private func hiResStereoPlayableStream(for track: Track, quality: AudioQuality) async -> PlayableStream? {
+		guard let hiRes = await HiResStreaming.playbackFile(for: track, session: self, quality: quality) else { return nil }
+		print("[PLAYBACK] resolved \(track.title): hi-res stereo, \(quality.rawValue)")
+		return PlayableStream(
+			url: hiRes.url,
+			quality: quality,
+			isDolbyAtmos: false,
+			isHiResStereo: true,
+			hiResBitDepth: hiRes.bitDepth,
+			hiResSampleRate: hiRes.sampleRate
+		)
+	}
+
+	/// The AAC file assembled from Tidal's High/Low DASH segments.
+	private func dashPlayableStream(for track: Track, quality: AudioQuality) async -> PlayableStream? {
+		guard let dash = await HiResStreaming.dashPlaybackFile(for: track, session: self, quality: quality) else { return nil }
+		print("[PLAYBACK] resolved \(track.title): dash, \(quality.rawValue)")
+		return PlayableStream(
+			url: dash.url,
+			quality: quality,
+			isDolbyAtmos: false,
+			isHiResStereo: false,
+			hiResBitDepth: nil,
+			hiResSampleRate: nil
+		)
+	}
+
+	/// Today's `streamUrl` ladder, with the Atmos manifest fallback.
+	private func directPlayableStream(for track: Track, quality: AudioQuality, preferAtmos: Bool) async -> PlayableStream? {
+		guard let resolved = await bestAudioUrl(
+			trackId: track.id,
+			preferredQuality: quality,
+			preferDolbyAtmos: preferAtmos
+		) else { return nil }
+		print("[PLAYBACK] resolved \(track.title): direct stream, \(resolved.isDolbyAtmos ? "Dolby Atmos" : resolved.quality.rawValue)")
+		return PlayableStream(
+			url: resolved.url,
+			quality: resolved.quality,
+			isDolbyAtmos: resolved.isDolbyAtmos,
+			isHiResStereo: false,
+			hiResBitDepth: nil,
+			hiResSampleRate: nil
+		)
 	}
 }
 
