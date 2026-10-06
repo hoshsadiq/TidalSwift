@@ -28,20 +28,19 @@ fi
 HERE="$(cd -- "$(dirname -- "$APP_PATH")" && pwd -P)/$BUNDLE_NAME"
 readonly HERE
 
-# Every registered copy of this app, taken from the LaunchServices dump. The dump
-# pairs a `path:` line with the `bindings:` line that follows it, so the path is
-# held until a binding for this scheme appears.
+# Every registered copy of this app, taken from the LaunchServices dump. Each record
+# pairs a `path:` line with the `bundle`/`bindings` lines that follow it, so the path
+# is held until the next record starts. Matching on the path alone, not on a binding:
+# a copy registered under this app's bundle id can be chosen by the system even when
+# the dump does not list it as a claimant of this scheme, and one in Xcode's
+# DerivedData did exactly that.
 registered_paths() {
 	"$LSREGISTER" -dump 2>/dev/null | awk '
 		/^[[:space:]]*path:/ {
 			p = $0
 			sub(/^[[:space:]]*path:[[:space:]]*/, "", p)
 			sub(/[[:space:]]*\(0x[0-9a-fA-F]+\)[[:space:]]*$/, "", p)
-			next
-		}
-		/^[[:space:]]*bindings:/ && /tidal:/ {
-			if (p != "") print p
-			p = ""
+			if (p ~ /\/TidalSwift\.app$/) print p
 		}
 	' | sort -u
 }

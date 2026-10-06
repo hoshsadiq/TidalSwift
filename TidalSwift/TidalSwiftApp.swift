@@ -344,7 +344,7 @@ final class TidalSwiftAppModel {
 		}
 
 		let loggedIn = session.loadSession()
-		print("Login Succesful: \(loggedIn)")
+		print("Login Successful: \(loggedIn)")
 		loginInfo.showModal = !loggedIn
 
 		if loggedIn {
@@ -923,7 +923,13 @@ final class TidalSwiftAppModel {
 					alert.runModal()
 				}
 			} catch {
-				print("Checking for updates failed: \(error)")
+				// No release yet, or no network: GitHub answers "Not Found" rather than JSON,
+				// which the update check reports as a decoding failure. Nothing to act on.
+				if error is DecodingError {
+					print("Update check: no usable release feed yet")
+				} else {
+					print("Checking for updates failed: \(error)")
+				}
 			}
 		}
 	}
