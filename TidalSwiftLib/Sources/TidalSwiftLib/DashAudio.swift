@@ -22,9 +22,9 @@ public nonisolated enum DashAudioError: Error, Equatable, Sendable {
 	case unsupportedSegmentTemplate
 	/// The manifest has no `<SegmentTimeline>` to count segments from.
 	case missingSegmentTimeline
-	/// A segment or the initialization could not be fetched after retrying. Only the
-	/// host is kept: a segment URL carries its own token, and an error value travels
-	/// into whatever prints it.
+	/// A segment or the initialization could not be fetched within its timeout or
+	/// after retrying. Only the host is kept: a segment URL carries its own token,
+	/// and an error value travels into whatever prints it.
 	case fetchFailed(host: String)
 	/// The destination could not be written.
 	case writeFailed(underlying: Error)
@@ -102,7 +102,7 @@ public nonisolated struct DashAudioManifest: Equatable, Sendable {
 		guard !template.repeats.isEmpty else { throw DashAudioError.missingSegmentTimeline }
 
 		// `r` is a repeat count: each `<S>` covers 1 + r segments.
-		self.initializationURL = initializationURL
+		self.initializationURL = initializationURL.upgradedToHTTPS
 		self.mediaTemplate = media
 		self.startNumber = Int(template.attributes["startNumber"] ?? "1") ?? 1
 		self.segmentCount = template.repeats.reduce(0) { $0 + 1 + $1 }
@@ -111,7 +111,7 @@ public nonisolated struct DashAudioManifest: Equatable, Sendable {
 
 	/// The URL of media segment `number` (starting at `startNumber`).
 	public func mediaURL(forNumber number: Int) -> URL? {
-		URL(string: mediaTemplate.replacingOccurrences(of: "$Number$", with: String(number)))
+		URL(string: mediaTemplate.replacingOccurrences(of: "$Number$", with: String(number)))?.upgradedToHTTPS
 	}
 }
 
@@ -177,11 +177,18 @@ public nonisolated enum DashAudio {
 	/// than consumed as a shorter file.
 	static let maxFetchAttempts = 3
 	static let retryBackoff: [Duration] = [.milliseconds(200), .milliseconds(400)]
+	/// The longest one segment may take, retries and backoff included. URLSession
+	/// bounds a single attempt; this bounds the sequence, so a stalled CDN cannot
+	/// hold an assembly — and the prefetch behind a skipped track — for minutes.
+	static let segmentFetchTimeout: Duration = .seconds(30)
 
 	/// Downloads the initialization segment plus every media segment and writes
 	/// them to `destination` in order, using the default fetcher.
 	public static func assemble(_ manifest: DashAudioManifest, to destination: URL) async throws {
-		try await assemble(manifest, to: destination, fetch: defaultFetch)
+		// The desktop identity lives on the main actor and a track has around 30
+		// segments, so it is read once here rather than once per segment.
+		let userAgent = await MainActor.run { AuthInformation.tidalClientUserAgent }
+		try await assemble(manifest, to: destination, fetch: defaultFetch(userAgent: userAgent))
 	}
 
 	/// Downloads the initialization segment plus every media segment and writes
@@ -198,9 +205,21 @@ public nonisolated enum DashAudio {
 		to destination: URL,
 		fetch: @escaping SegmentFetcher
 	) async throws {
-		let initialization = try await fetchWithRetry(manifest.initializationURL, fetch: fetch)
+		try await assemble(manifest, to: destination, fetch: fetch, timeout: segmentFetchTimeout)
+	}
+
+	/// As above, with the fetch bound exposed so a test can shrink it rather than
+	/// wait it out.
+	@concurrent
+	static func assemble(
+		_ manifest: DashAudioManifest,
+		to destination: URL,
+		fetch: @escaping SegmentFetcher,
+		timeout: Duration
+	) async throws {
+		let initialization = try await fetchWithRetry(manifest.initializationURL, fetch: fetch, timeout: timeout)
 		let numbers = (manifest.startNumber ..< manifest.startNumber + manifest.segmentCount).map { $0 }
-		let segments = try await fetchSegments(numbers: numbers, manifest: manifest, fetch: fetch)
+		let segments = try await fetchSegments(numbers: numbers, manifest: manifest, fetch: fetch, timeout: timeout)
 
 		var file = Data()
 		file.reserveCapacity(initialization.count + segments.reduce(0) { $0 + $1.count })
@@ -222,22 +241,23 @@ public nonisolated enum DashAudio {
 		DashAudioError.fetchFailed(host: url.host ?? "unknown")
 	}
 
-	/// The default fetcher: a local read for `file://`, a plain GET otherwise.
-	/// The CDN segment URLs carry their own token and need no auth header.
-	public static func defaultFetch(_ url: URL) async throws -> Data {
-		if url.isFileURL {
-			return try Data(contentsOf: url)
+	/// The default fetcher: a local read for `file://`, a plain GET presenting
+	/// `userAgent` otherwise. The desktop UA keeps the request from presenting as
+	/// this app, the same identity rule the rest of the client follows. The CDN
+	/// segment URLs carry their own token and need no auth header.
+	static func defaultFetch(userAgent: String) -> SegmentFetcher {
+		{ url in
+			if url.isFileURL {
+				return try Data(contentsOf: url)
+			}
+			var request = URLRequest(url: url)
+			request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+			let (data, response) = try await URLSession.shared.data(for: request)
+			if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+				throw DashAudio.fetchFailure(for: url)
+			}
+			return data
 		}
-		// `AuthInformation` is actor-isolated; the desktop UA keeps the request from
-		// presenting as this app, the same identity rule the rest of the client follows.
-		let userAgent = await MainActor.run { AuthInformation.tidalClientUserAgent }
-		var request = URLRequest(url: url)
-		request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-		let (data, response) = try await URLSession.shared.data(for: request)
-		if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-			throw DashAudio.fetchFailure(for: url)
-		}
-		return data
 	}
 
 	/// Fetches the segments in bounded batches, preserving order. A single failed
@@ -245,7 +265,8 @@ public nonisolated enum DashAudio {
 	private static func fetchSegments(
 		numbers: [Int],
 		manifest: DashAudioManifest,
-		fetch: @escaping SegmentFetcher
+		fetch: @escaping SegmentFetcher,
+		timeout: Duration
 	) async throws -> [Data] {
 		guard let first = numbers.first, let last = numbers.last,
 			  (manifest.startNumber ... manifest.startNumber + manifest.segmentCount).contains(first),
@@ -255,6 +276,9 @@ public nonisolated enum DashAudio {
 		var results = [Data?](repeating: nil, count: numbers.count)
 		var batchStart = 0
 		while batchStart < numbers.count {
+			// A cancelled assembly stops between batches rather than starting the
+			// next one with children that fail on their first check.
+			try Task.checkCancellation()
 			let batchEnd = min(batchStart + maxConcurrentFetches, numbers.count)
 			let batch = batchStart ..< batchEnd
 			try await withThrowingTaskGroup(of: (Int, Data).self) { group in
@@ -262,7 +286,7 @@ public nonisolated enum DashAudio {
 					guard let url = manifest.mediaURL(forNumber: numbers[index]) else {
 						throw DashAudioError.unsupportedSegmentTemplate
 					}
-					group.addTask { (index, try await fetchWithRetry(url, fetch: fetch)) }
+					group.addTask { (index, try await fetchWithRetry(url, fetch: fetch, timeout: timeout)) }
 				}
 				// Collected by index, so the group's completion order never reorders
 				// the segments.
@@ -278,19 +302,63 @@ public nonisolated enum DashAudio {
 		}
 	}
 
-	private static func fetchWithRetry(_ url: URL, fetch: SegmentFetcher) async throws -> Data {
+	/// Fetches `url`, retrying a transient failure while `timeout` has not passed.
+	/// Cancellation is propagated, not retried: the backoff sleep returns instantly
+	/// when cancelled, so a retry here would spin through every remaining attempt
+	/// instead of letting a cancelled assembly stop.
+	private static func fetchWithRetry(_ url: URL, fetch: @escaping SegmentFetcher, timeout: Duration) async throws -> Data {
+		let deadline = ContinuousClock.now.advanced(by: timeout)
 		var lastError: Error = DashAudio.fetchFailure(for: url)
 		for attempt in 0 ..< maxFetchAttempts {
+			try Task.checkCancellation()
+			guard ContinuousClock.now < deadline else { throw lastError }
 			do {
-				return try await fetch(url)
+				return try await fetchBefore(deadline, url: url, fetch: fetch)
+			} catch let error as CancellationError {
+				throw error
+			} catch let error as URLError where error.code == .cancelled {
+				throw error
 			} catch {
 				lastError = error
 				if attempt < retryBackoff.count {
-					try? await Task.sleep(for: retryBackoff[attempt])
+					try await Task.sleep(for: retryBackoff[attempt])
 				}
 			}
 		}
 		throw lastError
+	}
+
+	/// Fetches one segment and fails it when `deadline` passes first. The loser of the
+	/// race is cancelled, which also ends an in-flight request; without this a stalled
+	/// CDN rides URLSession's own per-attempt timeout on every attempt.
+	private static func fetchBefore(
+		_ deadline: ContinuousClock.Instant,
+		url: URL,
+		fetch: @escaping SegmentFetcher
+	) async throws -> Data {
+		try await withThrowingTaskGroup(of: Data.self) { group in
+			group.addTask { try await fetch(url) }
+			group.addTask {
+				try await Task.sleep(until: deadline, clock: .continuous)
+				throw DashAudio.fetchFailure(for: url)
+			}
+			defer { group.cancelAll() }
+			guard let data = try await group.next() else { throw DashAudio.fetchFailure(for: url) }
+			return data
+		}
+	}
+}
+
+nonisolated extension URL {
+	/// An `http://` segment URL would be read in the clear where ATS allows it — the
+	/// app's exception covers `*.manifest.tidal.com`, the MPD's own host — and refused
+	/// everywhere else. The BTS path upgrades the same way
+	/// (`ContentUrls.upgradedToHTTPS`); no manifest seen so far has used plain HTTP.
+	fileprivate var upgradedToHTTPS: URL {
+		guard var components = URLComponents(url: self, resolvingAgainstBaseURL: false) else { return self }
+		guard components.scheme?.lowercased() == "http" else { return self }
+		components.scheme = "https"
+		return components.url ?? self
 	}
 }
 

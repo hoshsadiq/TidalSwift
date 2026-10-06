@@ -77,6 +77,20 @@ final class DashAudioTests: XCTestCase {
 		XCTAssertEqual(manifest.mediaURL(forNumber: 11)?.absoluteString, "https://x/11.mp4")
 	}
 
+	/// Rule: a plain-HTTP segment URL is upgraded to HTTPS before it can be fetched,
+	/// the same way the BTS path upgrades its URLs. The MPD is the only place an
+	/// insecure URL could enter, and a segment URL carries no credential to lose.
+	func testHTTPManifestURLsAreUpgradedToHTTPS() throws {
+		let manifest = try parse("""
+		<MPD><Period><AdaptationSet contentType="audio"><Representation>
+		<SegmentTemplate initialization="http://x/init.mp4" media="http://x/$Number$.mp4" startNumber="1">
+		<SegmentTimeline><S d="1"/></SegmentTimeline>
+		</SegmentTemplate></Representation></AdaptationSet></Period></MPD>
+		""")
+		XCTAssertEqual(manifest.initializationURL.absoluteString, "https://x/init.mp4")
+		XCTAssertEqual(manifest.mediaURL(forNumber: 1)?.absoluteString, "https://x/1.mp4")
+	}
+
 	/// Rule: a malformed document is refused with a typed error rather than a
 	/// wrong count. The parser must not return a zero-segment manifest.
 	func testMalformedManifestIsRefused() {
@@ -192,6 +206,64 @@ final class DashAudioTests: XCTestCase {
 		XCTAssertEqual(try Data(contentsOf: destination), expected)
 	}
 
+	/// Rule: cancellation is not a transient failure. A cancelled assembly must stop
+	/// rather than spend its retries — the backoff sleep returns instantly when
+	/// cancelled, so a retry would fire at once — and it must leave no file.
+	///
+	/// The fetcher is held open until the test cancels, so every recorded URL is a
+	/// fetch that genuinely started: a retry shows up as the same URL twice.
+	func testCancelledAssemblyDoesNotRetryAndWritesNothing() async throws {
+		let cdn = try makeCDN(segments: ["AAAA", "BBBB", "CCCC", "DDDD", "EEEE", "FFFF"])
+		defer { try? FileManager.default.removeItem(at: cdn.directory) }
+
+		let attempts = AttemptLog()
+		let destination = cdn.directory.appendingPathComponent("cancelled.m4a")
+		let assembly = Task {
+			try await DashAudio.assemble(cdn.manifest, to: destination) { url in
+				if url.lastPathComponent == "init.mp4" {
+					return try Data(contentsOf: url)
+				}
+				await attempts.record(url)
+				try await Task.sleep(for: .seconds(30))
+				return Data()
+			}
+		}
+		await attempts.awaitFirstAttempt()
+		assembly.cancel()
+
+		do {
+			try await assembly.value
+			XCTFail("a cancelled assembly must fail rather than write a file")
+		} catch is CancellationError {
+			// Expected: the cancellation travels out of the assembly.
+		}
+
+		let attempted = await attempts.attempted
+		XCTAssertEqual(attempted.count, Set(attempted).count, "a cancelled fetch must not be retried")
+		XCTAssertLessThanOrEqual(attempted.count, DashAudio.maxConcurrentFetches, "cancellation must stop before the next batch starts")
+		XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path), "a cancelled assembly must leave no file")
+	}
+
+	/// Rule: the retry path as a whole is bounded. A segment that never answers must
+	/// fail the assembly on the timeout rather than ride URLSession's per-attempt
+	/// timeout through every retry, and it must leave no file.
+	func testStalledSegmentTimesOutWithoutWritingAFile() async throws {
+		let cdn = try makeCDN(segments: ["AAAA", "BBBB"])
+		defer { try? FileManager.default.removeItem(at: cdn.directory) }
+		let destination = cdn.directory.appendingPathComponent("stalled.m4a")
+
+		do {
+			try await DashAudio.assemble(cdn.manifest, to: destination, fetch: { _ in
+				try await Task.sleep(for: .seconds(5))
+				return Data()
+			}, timeout: .milliseconds(50))
+			XCTFail("a stalled segment must fail the assembly")
+		} catch {
+			XCTAssertEqual(error as? DashAudioError, .fetchFailed(host: "unknown"), "got \(error)")
+		}
+		XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path), "a timed-out assembly must leave no file")
+	}
+
 	/// Rule: a failed fetch names the host, never the URL. A segment URL carries its
 	/// own token, and the error value is printed wherever it travels.
 	func testFetchFailureNamesOnlyTheHost() throws {
@@ -202,7 +274,7 @@ final class DashAudioTests: XCTestCase {
 		XCTAssertFalse(String(describing: error).contains("secret"))
 	}
 
-	private struct CDN {
+	private struct CDN: Sendable {
 		let directory: URL
 		let manifest: DashAudioManifest
 	}
@@ -233,6 +305,24 @@ final class DashAudioTests: XCTestCase {
 			let key = url.absoluteString
 			counts[key, default: 0] += 1
 			return counts[key]!
+		}
+	}
+
+	/// Records the segment URLs an assembly asked for, and lets the test wait until one
+	/// is genuinely in flight. One continuation is enough: only the test waits.
+	private actor AttemptLog {
+		private(set) var attempted: [String] = []
+		private var waiter: CheckedContinuation<Void, Never>?
+
+		func record(_ url: URL) {
+			attempted.append(url.lastPathComponent)
+			waiter?.resume()
+			waiter = nil
+		}
+
+		func awaitFirstAttempt() async {
+			guard attempted.isEmpty else { return }
+			await withCheckedContinuation { waiter = $0 }
 		}
 	}
 
