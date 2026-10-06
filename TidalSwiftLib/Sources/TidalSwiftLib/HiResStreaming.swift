@@ -232,7 +232,7 @@ extension Session {
 				)
 			},
 			dash: {
-				guard let dash = await DashAudio.playbackFile(for: track, session: self, preferredQuality: quality) else { return nil }
+				guard let dash = await HiResStreaming.dashPlaybackFile(for: track, session: self, quality: quality) else { return nil }
 				print("[PLAYBACK] resolved \(track.title): dash, \(quality.rawValue)")
 				return PlayableStream(
 					url: dash.url,
@@ -324,16 +324,19 @@ public enum HiResStreaming {
 		HiResStreamCache.usageBytes()
 	}
 
-	/// Whether `track`'s playback or download should take the hi-res stereo route for
-	/// this session, when the quality does not enter into it (the download paths ask
-	/// only whether the session can use the route at all).
-	public static func usesHiResStereo(for track: Track, session: Session) -> Bool {
+	/// Whether `track` should take the hi-res stereo route for this session and quality.
+	/// The quality decides the route: `High`/`Max` lead with the decrypted FLAC rendition,
+	/// `Medium`/`Low` with the DASH assembly, so a caller that passes the quality it is
+	/// actually downloading at gets the route that quality plays. The offline wish and
+	/// the offline sync pass `config.offlineAudioQuality`; a manual download passes the
+	/// quality the user asked for.
+	public static func usesHiResStereo(for track: Track, session: Session, quality: AudioQuality) -> Bool {
 		HiResStreamingPolicy.usesHiResStereo(
 			sessionHasHiResStereoAccess: session.hasHiResStereoAccess,
 			preferDolbyAtmos: false,
 			trackHasStereo: track.hasStereo,
 			trackHasDolbyAtmos: track.hasDolbyAtmos,
-			quality: .max
+			quality: quality
 		)
 	}
 
@@ -363,10 +366,24 @@ public enum HiResStreaming {
 		case .hiResStereo:
 			return await prepareFile(for: track, session: session, quality: quality, cacheDirectory: HiResStreamCache.directory)
 		case .dash:
-			return await DashAudio.playbackFile(for: track, session: session, preferredQuality: quality)?.url
+			return await dashPlaybackFile(for: track, session: session, quality: quality)?.url
 		case .directStream:
 			return nil
 		}
+	}
+
+	/// The assembled DASH file for `track`, de-duplicated per track and quality through
+	/// the same in-flight table the hi-res route uses. The play path and the prefetcher
+	/// both come through here, so a play that arrives while the prefetcher is assembling
+	/// the same track waits for that work instead of fetching the manifest and every
+	/// segment a second time.
+	static func dashPlaybackFile(for track: Track, session: Session, quality: AudioQuality) async -> DashPlayback? {
+		guard let url = await HiResStreamPreparation.preparedFile(for: track.id, quality: quality, in: HiResStreamCache.directory, operation: {
+			await DashAudio.playbackFile(for: track, session: session, preferredQuality: quality)?.url
+		}) else {
+			return nil
+		}
+		return DashAudio.describe(url)
 	}
 
 	/// The first route when it is a local-file route (hi-res stereo or DASH), or nil
@@ -681,7 +698,7 @@ nonisolated enum HiResStreamCache {
 
 	static func cachedFile(forTrackId trackId: Int, quality: AudioQuality, in directory: URL = HiResStreamCache.directory) -> URL? {
 		let url = fileURL(forTrackId: trackId, quality: quality, in: directory)
-		return FileManager.default.fileExists(atPath: url.path) ? url : nil
+		return validatedCacheFile(at: url, magic: flacMagic, magicOffset: 0)
 	}
 
 	/// The assembled DASH file's name differs from the hi-res one by extension and by
@@ -692,7 +709,40 @@ nonisolated enum HiResStreamCache {
 
 	static func cachedDashFile(forTrackId trackId: Int, quality: AudioQuality, in directory: URL = HiResStreamCache.directory) -> URL? {
 		let url = dashFileURL(forTrackId: trackId, quality: quality, in: directory)
-		return FileManager.default.fileExists(atPath: url.path) ? url : nil
+		return validatedCacheFile(at: url, magic: mp4Magic, magicOffset: 4)
+	}
+
+	/// A decrypted FLAC starts with `fLaC`; an assembled AAC file carries the MP4
+	/// `ftyp` box four bytes in. A file whose signature is missing was not written by
+	/// this app.
+	private static let flacMagic = Data("fLaC".utf8)
+	private static let mp4Magic = Data("ftyp".utf8)
+	/// A file shorter than this is a stub left by an interrupted download, whatever its
+	/// header claims; no real track is this small.
+	private static let minimumCachedFileBytes = 512
+
+	/// A cache file is trusted only when it looks complete: long enough to be a track and
+	/// carrying its format's signature. A file that fails either check — a download
+	/// interrupted before its tail, or a stale stub — is deleted and reported as a miss,
+	/// so the next play re-downloads instead of serving a truncated file forever.
+	private static func validatedCacheFile(at url: URL, magic: Data, magicOffset: Int) -> URL? {
+		guard fileSize(at: url) >= minimumCachedFileBytes, hasMagic(at: url, magic: magic, offset: magicOffset) else {
+			try? FileManager.default.removeItem(at: url)
+			return nil
+		}
+		return url
+	}
+
+	private static func fileSize(at url: URL) -> Int {
+		let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+		return (attributes?[.size] as? NSNumber)?.intValue ?? 0
+	}
+
+	private static func hasMagic(at url: URL, magic: Data, offset: Int) -> Bool {
+		guard let handle = try? FileHandle(forReadingFrom: url),
+		      let header = try? handle.read(upToCount: offset + magic.count) else { return false }
+		try? handle.close()
+		return header.count == offset + magic.count && header.subdata(in: offset..<(offset + magic.count)) == magic
 	}
 
 	/// The format a manifest reported for a cached file, persisted beside it so a
