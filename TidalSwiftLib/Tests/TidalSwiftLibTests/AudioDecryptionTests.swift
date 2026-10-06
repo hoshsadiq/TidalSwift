@@ -45,6 +45,19 @@ final class AudioDecryptionTests: XCTestCase {
 		return url
 	}
 
+	/// A real FLAC fixture padded to `count` bytes. Padding keeps the `fLaC` marker and the
+	/// STREAMINFO block intact, which the file decrypt now verifies before installing.
+	private func flacPlaintext(_ count: Int) throws -> Data {
+		var data = try Data(contentsOf: try fixtureURL("silent", "flac"))
+		if data.count < count { data.append(randomBytes(count - data.count)) }
+		return data
+	}
+
+	/// The names of any temporary decrypt files left in `directory`.
+	private func temporaryDecryptFiles(in directory: URL) throws -> [String] {
+		try FileManager.default.contentsOfDirectory(atPath: directory.path).filter { $0.contains(".tmp-") }
+	}
+
 	// MARK: - Independent AES
 
 	private func randomBytes(_ count: Int) -> Data {
@@ -203,7 +216,7 @@ final class AudioDecryptionTests: XCTestCase {
 	func testDecryptHandlesALengthThatIsNotABlockMultiple() throws {
 		// 12345 bytes: 771 whole blocks plus 9 trailing bytes. A stream cipher must still
 		// produce all 12345 bytes; a block-cipher-style implementation would pad or truncate.
-		let plaintext = randomBytes(12345)
+		let plaintext = try flacPlaintext(12345)
 		XCTAssertEqual(plaintext.count % 16, 9, "fixture should end mid-block")
 		let key = randomBytes(16)
 		let nonce = randomBytes(8)
@@ -221,7 +234,7 @@ final class AudioDecryptionTests: XCTestCase {
 
 	func testDecryptHandlesAFileSpanningManyChunks() throws {
 		// 512 KiB spans eight 64 KiB reads, so the counter has to keep counting across them.
-		let plaintext = randomBytes(512 * 1024)
+		let plaintext = try flacPlaintext(512 * 1024)
 		let key = randomBytes(16)
 		let nonce = randomBytes(8)
 		let keyId = try wrapKeyId(key: key, nonce: nonce)
@@ -253,6 +266,117 @@ final class AudioDecryptionTests: XCTestCase {
 			guard case AudioDecryptionError.invalidNonceLength = error else {
 				return XCTFail("expected invalidNonceLength, got \(error)")
 			}
+		}
+	}
+
+	// MARK: - File decrypt
+
+	func testDecryptWritesAFLACFileThatCanBeReadBack() throws {
+		let plaintext = try flacPlaintext(12_288)
+		let key = randomBytes(16)
+		let nonce = randomBytes(8)
+		let keyId = try wrapKeyId(key: key, nonce: nonce)
+		let ciphertext = try ctrEncrypt(plaintext, key: key, nonce: nonce)
+
+		try withTemporaryDirectory { directory in
+			let source = try write(ciphertext, to: directory, named: "roundtrip.enc")
+			let destination = directory.appendingPathComponent("roundtrip.flac")
+			try AudioDecryption.decrypt(fileAt: source, to: destination, keyId: keyId)
+
+			let decrypted = try Data(contentsOf: destination)
+			XCTAssertEqual(decrypted.prefix(4), Data("fLaC".utf8))
+			XCTAssertEqual(decrypted, plaintext)
+			XCTAssertGreaterThan(try AVAudioFile(forReading: destination).length, 0)
+		}
+	}
+
+	func testDecryptReplacesAnExistingFileAtTheDestination() throws {
+		let plaintext = try flacPlaintext(12_288)
+		let key = randomBytes(16)
+		let nonce = randomBytes(8)
+		let keyId = try wrapKeyId(key: key, nonce: nonce)
+		let ciphertext = try ctrEncrypt(plaintext, key: key, nonce: nonce)
+
+		try withTemporaryDirectory { directory in
+			let source = try write(ciphertext, to: directory, named: "replace.enc")
+			// Longer than the decrypted output so an append would leave a visible tail.
+			let destination = try write(Data(repeating: 0xAB, count: plaintext.count + 4096), to: directory, named: "replace.flac")
+
+			try AudioDecryption.decrypt(fileAt: source, to: destination, keyId: keyId)
+
+			XCTAssertEqual(try Data(contentsOf: destination), plaintext)
+		}
+	}
+
+	/// Random plaintext decrypts cleanly but is not a FLAC stream: the bogus output must be
+	/// discarded, leaving neither a file at the destination nor a temporary behind.
+	func testDecryptDiscardsAnOutputThatIsNotAFLAC() throws {
+		let plaintext = randomBytes(4096)
+		let key = randomBytes(16)
+		let nonce = randomBytes(8)
+		let keyId = try wrapKeyId(key: key, nonce: nonce)
+		let ciphertext = try ctrEncrypt(plaintext, key: key, nonce: nonce)
+
+		try withTemporaryDirectory { directory in
+			let source = try write(ciphertext, to: directory, named: "bogus.enc")
+			let destination = directory.appendingPathComponent("bogus.flac")
+
+			XCTAssertThrowsError(try AudioDecryption.decrypt(fileAt: source, to: destination, keyId: keyId)) { error in
+				guard case AudioDecryptionError.notFLAC = error else {
+					return XCTFail("expected notFLAC, got \(error)")
+				}
+			}
+			XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+			XCTAssertEqual(try temporaryDecryptFiles(in: directory), [], "a temporary file was left behind")
+		}
+	}
+
+	/// A cancelled task aborts the decrypt and leaves neither a destination nor a temporary
+	/// behind. The task is cancelled before its body can run, so the first block check
+	/// observes it deterministically.
+	func testDecryptAbortsWhenTheTaskIsCancelled() async throws {
+		let plaintext = try flacPlaintext(12_288)
+		let key = randomBytes(16)
+		let nonce = randomBytes(8)
+		let keyId = try wrapKeyId(key: key, nonce: nonce)
+		let ciphertext = try ctrEncrypt(plaintext, key: key, nonce: nonce)
+
+		let directory = FileManager.default.temporaryDirectory
+			.appendingPathComponent("AudioDecryptionTests-\(UUID().uuidString)", isDirectory: true)
+		try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+		defer { try? FileManager.default.removeItem(at: directory) }
+
+		let source = try write(ciphertext, to: directory, named: "cancelled.enc")
+		let destination = directory.appendingPathComponent("cancelled.flac")
+		let task = Task { try AudioDecryption.decrypt(fileAt: source, to: destination, keyId: keyId) }
+		task.cancel()
+
+		do {
+			try await task.value
+			XCTFail("expected the decrypt to be cancelled")
+		} catch is CancellationError {
+			// Expected.
+		}
+		XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+		XCTAssertEqual(try temporaryDecryptFiles(in: directory), [], "a temporary file was left behind")
+	}
+
+	/// A destination that cannot be created must fail without leaving anything behind.
+	func testDecryptLeavesNothingBehindWhenTheDestinationCannotBeWritten() throws {
+		let plaintext = try flacPlaintext(12_288)
+		let key = randomBytes(16)
+		let nonce = randomBytes(8)
+		let keyId = try wrapKeyId(key: key, nonce: nonce)
+		let ciphertext = try ctrEncrypt(plaintext, key: key, nonce: nonce)
+
+		try withTemporaryDirectory { directory in
+			let source = try write(ciphertext, to: directory, named: "unwritable.enc")
+			// The parent directory does not exist, so the destination cannot be created.
+			let destination = directory.appendingPathComponent("missing/subdir/out.flac")
+
+			XCTAssertThrowsError(try AudioDecryption.decrypt(fileAt: source, to: destination, keyId: keyId))
+			XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+			XCTAssertEqual(try temporaryDecryptFiles(in: directory), [], "a temporary file was left behind")
 		}
 	}
 }
