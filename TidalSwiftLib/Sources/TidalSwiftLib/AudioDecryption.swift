@@ -18,6 +18,10 @@ public enum AudioDecryptionError: Swift.Error, Equatable {
 	case invalidNonceLength(Int)
 	/// CommonCrypto refused the operation.
 	case cryptoFailed(Int32)
+	/// The decrypted bytes were empty, too short, or did not begin with the FLAC marker, so
+	/// they were discarded instead of left where a later existence-only cache hit would
+	/// serve the truncated file as a finished stream.
+	case notFLAC
 }
 
 /// Removes Tidal's legacy content encryption (`OLD_AES`) so a downloaded file becomes
@@ -52,6 +56,11 @@ public nonisolated enum AudioDecryption {
 	private static let unwrappedLength = contentKeyLength + nonceLength
 	/// 64 KiB, a multiple of the AES block size so chunked CTR stays block-aligned.
 	private static let chunkLength = 1 << 16
+	/// The four bytes that begin every FLAC stream.
+	private static let flacMagic = Data("fLaC".utf8)
+	/// The shortest FLAC prefix: the marker, the STREAMINFO metadata block header (4 bytes)
+	/// and its fixed 34-byte body. Anything shorter cannot be a FLAC stream.
+	private static let minimumFLACLength = 42
 
 	/// Unwraps a base64 `keyId` into the content key and its nonce.
 	///
@@ -105,15 +114,27 @@ public nonisolated enum AudioDecryption {
 	///
 	/// Reads and writes in blocks so a 30 MB file never has to sit in memory whole. The
 	/// counter keeps running across reads, so chunk boundaries are invisible to the output.
+	///
+	/// The bytes land in a temporary sibling of `destination` and are moved onto it only
+	/// after they verify as FLAC. A kill, a cancel or a full disk midway therefore leaves
+	/// nothing at `destination`, instead of a truncated file that a later existence-only
+	/// cache hit would serve as a finished stream forever. Cancellation is checked once per
+	/// block, so a cancelled task throws `CancellationError` and the temporary file goes away.
 	public static func decrypt(fileAt source: URL, to destination: URL, key: Data, nonce: Data) throws {
+		let temporary = destination
+			.deletingLastPathComponent()
+			.appendingPathComponent(".\(destination.lastPathComponent).tmp-\(UUID().uuidString)")
+		defer { try? FileManager.default.removeItem(at: temporary) }
+
 		let input = try FileHandle(forReadingFrom: source)
 		defer { try? input.close() }
-		FileManager.default.createFile(atPath: destination.path, contents: nil)
-		let output = try FileHandle(forWritingTo: destination)
+		FileManager.default.createFile(atPath: temporary.path, contents: nil)
+		let output = try FileHandle(forWritingTo: temporary)
 		defer { try? output.close() }
 
 		var blockIndex: UInt64 = 0
 		while true {
+			try Task.checkCancellation()
 			var chunk = Data()
 			while chunk.count < chunkLength {
 				guard let part = try input.read(upToCount: chunkLength - chunk.count), !part.isEmpty else { break }
@@ -122,6 +143,31 @@ public nonisolated enum AudioDecryption {
 			if chunk.isEmpty { break }
 			try output.write(contentsOf: ctrApply(chunk, key: key, nonce: nonce, startingBlockIndex: blockIndex))
 			blockIndex += UInt64((chunk.count + blockLength - 1) / blockLength)
+		}
+		try output.close()
+
+		try verifyFLAC(at: temporary)
+		try install(temporary, at: destination)
+	}
+
+	/// Rejects an empty, truncated or non-FLAC decrypt so it can never become a cache entry.
+	private static func verifyFLAC(at url: URL) throws {
+		let size = (try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
+		guard size >= minimumFLACLength else { throw AudioDecryptionError.notFLAC }
+		let handle = try FileHandle(forReadingFrom: url)
+		defer { try? handle.close() }
+		guard try handle.read(upToCount: flacMagic.count) == flacMagic else {
+			throw AudioDecryptionError.notFLAC
+		}
+	}
+
+	/// Moves the verified temporary file onto `destination` in one step, replacing any file
+	/// already there rather than appending to it.
+	private static func install(_ temporary: URL, at destination: URL) throws {
+		if FileManager.default.fileExists(atPath: destination.path) {
+			_ = try FileManager.default.replaceItemAt(destination, withItemAt: temporary)
+		} else {
+			try FileManager.default.moveItem(at: temporary, to: destination)
 		}
 	}
 
