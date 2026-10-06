@@ -96,6 +96,83 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 		}
 	}
 }
+
+/// The app's side of the `tidal://` route: it reads who currently handles the scheme
+/// from LaunchServices and carries out the registration half of
+/// `TidalLinkHandlingPolicy`. The rule itself lives in the library; this only makes
+/// the LaunchServices calls.
+enum TidalLinkRegistration {
+	/// The official TIDAL desktop app registers the same `tidal` scheme. Handing the
+	/// scheme back targets it by bundle id, with the standard install location as a
+	/// last resort.
+	static let officialTidalBundleID = "com.tidal.desktop"
+	static let officialTidalApplicationPath = "/Applications/TIDAL.app"
+
+	/// Who macOS would hand a `tidal://` link to right now.
+	static func currentHandler() -> TidalLinkHandlingPolicy.SchemeHandler {
+		guard let handler = NSWorkspace.shared.urlForApplication(toOpen: tidalLinkProbeURL) else {
+			return .nobody
+		}
+		return Bundle(url: handler)?.bundleIdentifier == Bundle.main.bundleIdentifier ? .thisApp : .anotherApp
+	}
+
+	/// What the current preference asks for, given who holds the scheme.
+	static func currentRegistration() -> TidalLinkHandlingPolicy.Registration {
+		TidalLinkHandlingPolicy.registration(
+			enabled: TidalLinkHandlingPreferences.isEnabled,
+			handler: currentHandler()
+		)
+	}
+
+	/// Carries a registration out and reports whether the system accepted it.
+	///
+	/// The system may ask the user for consent before changing a handler, and calls
+	/// the completion handler only afterwards, so a claim is a request that can be
+	/// declined rather than a guaranteed change; a failure is printed, not swallowed.
+	/// A release is skipped when the official app is not installed, because there is
+	/// nothing to hand the scheme to.
+	@discardableResult
+	static func apply(_ registration: TidalLinkHandlingPolicy.Registration) async -> Bool {
+		switch registration {
+		case .none:
+			return true
+		case .claim:
+			return await setDefaultHandler(to: Bundle.main.bundleURL)
+		case .release:
+			guard let officialApp = officialTidalApplicationURL() else { return false }
+			return await setDefaultHandler(to: officialApp)
+		}
+	}
+
+	/// Applies whatever the current preference asks for. Used at launch and when the
+	/// Preferences toggle changes.
+	static func applyCurrentRegistration() async {
+		await apply(currentRegistration())
+	}
+
+	/// The scheme alone decides who the handler is, so the specific link does not matter.
+	private static var tidalLinkProbeURL: URL {
+		URL(string: "tidal://login/auth")!
+	}
+
+	private static func officialTidalApplicationURL() -> URL? {
+		if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: officialTidalBundleID) {
+			return url
+		}
+		let path = URL(fileURLWithPath: officialTidalApplicationPath)
+		return FileManager.default.fileExists(atPath: path.path) ? path : nil
+	}
+
+	private static func setDefaultHandler(to applicationURL: URL) async -> Bool {
+		do {
+			try await NSWorkspace.shared.setDefaultApplication(at: applicationURL, toOpenURLsWithScheme: "tidal")
+			return true
+		} catch {
+			print("Changing the tidal:// handler failed: \(error)")
+			return false
+		}
+	}
+}
 #endif
 
 @Observable
@@ -246,6 +323,10 @@ final class TidalSwiftAppModel {
 		initSecondaryWindows()
 		registerCloseLastWindowBehavior()
 		registerSpaceKeyMonitor()
+
+		// Claim tidal:// at launch when the preference asks for it, so the browser
+		// login's callback reaches this app without the user registering it by hand.
+		Task { await TidalLinkRegistration.applyCurrentRegistration() }
 
 		updateCheck(showNoUpdatesAlert: false)
 		#endif

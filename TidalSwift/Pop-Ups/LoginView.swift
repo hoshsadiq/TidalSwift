@@ -89,10 +89,10 @@ struct LoginView: View {
 	@State var authState: Session.AuthorizationState = .waiting
 	@State var counter = 300
 
-	@State var refreshToken: String = ""
-	@State var clientID: String = ""
-	@State var loginErrorMessage: String?
 	@State var desktopError: String?
+
+	/// Mirrors the Preferences toggle so the sheet and its wording follow it live.
+	@AppStorage(TidalLinkHandlingPreferences.enabledKey) private var handleTidalLinks = TidalLinkHandlingPreferences.defaultEnabled
 
 	var body: some View {
 		ScrollView {
@@ -101,16 +101,9 @@ struct LoginView: View {
 				Text("TidalSwift")
 					.font(.largeTitle)
 
-				TabView {
-					deviceLogin
-						.tabItem { Text("Device Login") }
-
-					authLogin
-						.tabItem { Text("Authorization") }
-				}
-				.frame(minWidth: 300)
+				browserLogin
+					.frame(minWidth: 300)
 			}
-			.textFieldStyle(RoundedBorderTextFieldStyle())
 			.padding()
 		}
 		.onDisappear {
@@ -118,7 +111,7 @@ struct LoginView: View {
 		}
 	}
 
-	var deviceLogin: some View {
+	var browserLogin: some View {
 		VStack {
 			switch authState {
 			case .waiting:
@@ -167,25 +160,13 @@ struct LoginView: View {
 				}
 			}
 
+			if !handleTidalLinks {
+				Text("Browser login is off in Settings, so the app uses a device code to log you in instead.")
+					.foregroundStyle(.secondary)
+					.multilineTextAlignment(.center)
+			}
+
 			Button(action: startDesktopAuthorization) {
-				Text("Login")
-			}
-		}
-		.padding()
-	}
-
-	var authLogin: some View {
-		VStack {
-			SecureField("Refresh Token", text: $refreshToken)
-
-			TextField("Client ID", text: $clientID)
-
-			if let loginErrorMessage {
-				Text(loginErrorMessage)
-					.foregroundColor(.red)
-			}
-
-			Button(action: setAuthorization) {
 				Text("Login")
 			}
 		}
@@ -212,23 +193,7 @@ struct LoginView: View {
 		}
 	}
 
-	func setAuthorization() {
-		Task {
-			do {
-				try await session.login(refreshToken: refreshToken, clientID: clientID)
-				successfulLogin()
-			} catch SessionError.invalidCredentials {
-				loginErrorMessage = "Wrong Login Credentials"
-			} catch SessionError.network {
-				loginErrorMessage = "Couldn't reach Tidal. Check your internet connection."
-			} catch {
-				loginErrorMessage = "Login failed"
-			}
-		}
-	}
-
 	func successfulLogin() {
-		loginErrorMessage = nil
 		desktopError = nil
 		loginInfo.showModal = false
 		session.saveConfig()
@@ -236,22 +201,37 @@ struct LoginView: View {
 		viewState.push(view: TidalSwiftView(viewType: .collectionTracks))
 	}
 
-	/// Starts the official desktop client's PKCE login, the preferred path.
-	/// Opens the browser, then waits for the `tidal://login/auth` callback that
-	/// `LoginInfo.receive` delivers. A timeout or any failure falls through to
-	/// the `deviceLogin` failure state, which offers the device-code flow.
+	/// Starts the official desktop client's PKCE login. The `handleTidalLinks`
+	/// preference decides the route: when it is on, the app claims `tidal://` (so the
+	/// browser callback can return here) and opens the browser; when it is off, the
+	/// device-code flow runs straight away with no browser and no wait. A declined
+	/// claim, a timeout or any failure falls through to the device-code flow, which
+	/// the sheet offers.
 	func startDesktopAuthorization() {
-		guard callbackSchemeReachesThisApp else {
-			desktopError = "Another app handles tidal:// links, so the browser login could not return here. Using device login instead."
-			startAuthorization()
-			return
-		}
 		authorizationTask?.cancel()
 		desktopError = nil
 		authState = .waiting
 		let pending = PendingDesktopLogin()
 		loginInfo.pendingDesktopLogin = pending
 		authorizationTask = Task {
+			let decision = TidalLinkHandlingPolicy.decide(
+				enabled: handleTidalLinks,
+				handler: TidalLinkRegistration.currentHandler()
+			)
+			let registrationAccepted = await TidalLinkRegistration.apply(decision.registration)
+
+			guard decision.route == .browser else {
+				desktopError = "Browser login is off in Settings, so the app uses a device code to log you in instead."
+				startAuthorization()
+				return
+			}
+			// A claim the system declined leaves the scheme with another app, so the
+			// callback cannot return here; fall back at once instead of waiting it out.
+			guard decision.registration != .claim || registrationAccepted else {
+				desktopError = "Another app handles tidal:// links, so the browser login could not return here. Using device login instead."
+				startAuthorization()
+				return
+			}
 			do {
 				let verifier = DesktopLogin.generateCodeVerifier()
 				let url = DesktopLogin.authorizeURL(codeChallenge: DesktopLogin.codeChallenge(for: verifier))
@@ -271,25 +251,11 @@ struct LoginView: View {
 		}
 	}
 
-	/// Whether macOS will hand `tidal://` callbacks to this app. The official TIDAL
-	/// desktop app registers the same scheme, and LaunchServices silently picks one
-	/// winner, so the browser login can be routed to TIDAL and the callback never
-	/// arrives. Asking before opening the browser turns the full 300 s wait into the
-	/// device login the user is offered after the timeout anyway. A nil answer means
-	/// no app claims the scheme and so the check cannot tell: the desktop login still
-	/// starts, and its timeout stays the fallback.
-	private var callbackSchemeReachesThisApp: Bool {
-		guard let handler = NSWorkspace.shared.urlForApplication(toOpen: URL(string: "tidal://")!) else {
-			return true
-		}
-		return Bundle(url: handler)?.bundleIdentifier == Bundle.main.bundleIdentifier
-	}
-
 	/// Waits for `pending`'s callback, or fails with a timeout so the screen can
 	/// offer the device-code fallback instead of spinning forever.
 	///
-	/// The desktop login's timeout is the final fallback for when
-	/// `callbackSchemeReachesThisApp` cannot tell who owns the scheme.
+	/// The desktop login's timeout is the final fallback for when the `tidal://`
+	/// callback cannot reach this app.
 	private func waitForDesktopCallback(_ pending: PendingDesktopLogin) async throws -> URL {
 		do {
 			return try await withThrowingTaskGroup(of: URL.self) { group in

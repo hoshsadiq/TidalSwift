@@ -12,13 +12,6 @@ extension Session {
 	/// Margin before actual expiration to trigger a refresh (5 minutes)
 	private static let tokenRefreshMargin: TimeInterval = 5 * 60
 
-	public func login(refreshToken: String, clientID: String) async throws {
-		config.refreshToken = refreshToken
-		config.clientID = clientID
-		try await refreshAccessToken()
-		try await populateVariablesForAccessToken()
-	}
-
 	/// Finishes the desktop-client PKCE login from the callback URL: parses the
 	/// code, exchanges it (no client secret), stores the token and loads the
 	/// user. The stored `clientID` is the desktop client's, which is what makes
