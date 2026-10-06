@@ -28,38 +28,12 @@ final class OfflineAtmosFallbackTests: XCTestCase {
 	/// that re-resolves the track is distinguishable from one that leaves it alone.
 	private var seamCallCount = 0
 
-	/// The keys `OfflineDB` touches plus the Atmos preference, snapshotted so the
-	/// test runner's defaults are restored afterwards.
-	private let defaultsKeys = [
-		"OfflineDB:Tracks",
-		"OfflineDB:TrackAddedDates",
-		"OfflineDB:FavoriteTracks",
-		"OfflineDB:Albums",
-		"OfflineDB:AlbumTracks",
-		"OfflineDB:Playlists",
-		"OfflineDB:PlaylistTracks",
-		"OfflineDB:StandaloneOfflineTracks",
-		"SaveFavoritesOffline",
-		"offlinePreferDolbyAtmos"
-	]
-	private var savedDefaults: [String: Any] = [:]
-
 	override func setUp() {
 		super.setUp()
-		for key in defaultsKeys { savedDefaults[key] = UserDefaults.standard.object(forKey: key) }
-		for key in defaultsKeys { UserDefaults.standard.removeObject(forKey: key) }
 		seamCallCount = 0
 	}
 
 	override func tearDown() {
-		for key in defaultsKeys {
-			if let value = savedDefaults[key] {
-				UserDefaults.standard.set(value, forKey: key)
-			} else {
-				UserDefaults.standard.removeObject(forKey: key)
-			}
-		}
-		savedDefaults = [:]
 		offlineLibrary.remove()
 		super.tearDown()
 	}

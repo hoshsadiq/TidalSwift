@@ -20,38 +20,11 @@ final class LogoutPersistenceTests: XCTestCase {
 	private nonisolated let offlineLibrary = TemporaryOfflineLibrary(label: "LogoutPersistence")
 
 	/// The keys a logout owns. On a developer machine these are real values, so each
-	/// test snapshots and restores them.
+	/// test snapshots and restores them. The offline database a test session's sync
+	/// writes lives in the session's throwaway suite, not here.
 	private let sessionKeys = ["Config Information", "Session Information"]
 
-	/// The keys `OfflineDB` reads and writes: the session a test builds starts the
-	/// offline sync, which persists the whole database.
-	private let offlineDBKeys = [
-		"OfflineDB:Tracks",
-		"OfflineDB:TrackAddedDates",
-		"OfflineDB:FavoriteTracks",
-		"OfflineDB:Albums",
-		"OfflineDB:AlbumTracks",
-		"OfflineDB:Playlists",
-		"OfflineDB:PlaylistTracks",
-		"OfflineDB:StandaloneOfflineTracks"
-	]
-	private var savedDefaults: [String: Any] = [:]
-
-	override func setUp() {
-		super.setUp()
-		for key in offlineDBKeys { savedDefaults[key] = UserDefaults.standard.object(forKey: key) }
-		for key in offlineDBKeys { UserDefaults.standard.removeObject(forKey: key) }
-	}
-
 	override func tearDown() {
-		for key in offlineDBKeys {
-			if let value = savedDefaults[key] {
-				UserDefaults.standard.set(value, forKey: key)
-			} else {
-				UserDefaults.standard.removeObject(forKey: key)
-			}
-		}
-		savedDefaults = [:]
 		offlineLibrary.remove()
 		super.tearDown()
 	}

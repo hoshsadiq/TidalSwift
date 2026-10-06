@@ -15,35 +15,7 @@ import XCTest
 final class OfflineHiResTests: XCTestCase {
 	private nonisolated let offlineLibrary = TemporaryOfflineLibrary(label: "OfflineHiRes")
 
-	private let defaultsKeys = [
-		"OfflineDB:Tracks",
-		"OfflineDB:TrackAddedDates",
-		"OfflineDB:FavoriteTracks",
-		"OfflineDB:Albums",
-		"OfflineDB:AlbumTracks",
-		"OfflineDB:Playlists",
-		"OfflineDB:PlaylistTracks",
-		"OfflineDB:StandaloneOfflineTracks",
-		"offlinePreferDolbyAtmos",
-		"hiResStereoEnabled"
-	]
-	private var savedDefaults: [String: Any] = [:]
-
-	override func setUp() {
-		super.setUp()
-		for key in defaultsKeys { savedDefaults[key] = UserDefaults.standard.object(forKey: key) }
-		for key in defaultsKeys { UserDefaults.standard.removeObject(forKey: key) }
-	}
-
 	override func tearDown() {
-		for key in defaultsKeys {
-			if let value = savedDefaults[key] {
-				UserDefaults.standard.set(value, forKey: key)
-			} else {
-				UserDefaults.standard.removeObject(forKey: key)
-			}
-		}
-		savedDefaults = [:]
 		offlineLibrary.remove()
 		super.tearDown()
 	}
@@ -88,7 +60,7 @@ final class OfflineHiResTests: XCTestCase {
 	/// not accept and made every later sync resolve the track over the network again.
 	func testDualFormatTrackWithAtmosPreferenceStoresTheAtmosFileOnACapableSession() async throws {
 		let trackId = 779_000_002
-		UserDefaults.standard.set(true, forKey: "offlinePreferDolbyAtmos")
+		offlineLibrary.defaults.set(true, forKey: "offlinePreferDolbyAtmos")
 		_ = try makeLibraryDirectory()
 		let encrypted = try EncryptedFLACFixture.make(in: offlineLibrary.root)
 

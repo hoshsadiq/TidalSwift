@@ -11,15 +11,14 @@ import SwiftUI
 // MARK: DB
 
 public final class OfflineDB {
+	/// Where the database is read and written. The app keeps the standard defaults;
+	/// a test points `Offline.defaults` at its own suite, so parallel test classes
+	/// do not share one store.
+	private let defaults: UserDefaults
+
 	/// All tracks needed offline. Derived from the favorites, albums and playlists instead of stored,
 	/// so a track is kept exactly as long as one of them still contains it.
 	private(set) var tracks: Set<Track> = []
-
-	/// Test seam: see `Offline.setOfflineTracksForTesting`. The app derives the set
-	/// from favourites, albums and playlists instead.
-	func replaceTracksForTesting(_ newTracks: Set<Track>) {
-		tracks = newTracks
-	}
 
 	/// Gives every wanted track a date and drops the dates of tracks that left.
 	/// The whole wanted set is checked, not only the ids that are new since the
@@ -148,9 +147,11 @@ public final class OfflineDB {
 		standaloneOfflineTracks.removeAll(where: { $0 == track })
 	}
 
-	init() {
+	init(defaults: UserDefaults = .standard) {
+		self.defaults = defaults
+
 		// Counters used before tracks were derived, which could drift and keep files forever
-		UserDefaults.standard.removeObject(forKey: "OfflineDB:Tracks")
+		defaults.removeObject(forKey: "OfflineDB:Tracks")
 
 		// A payload that is present but cannot be decoded is not a missing one: its
 		// section reads as empty while its tracks are still on disk. Both facts are
@@ -159,7 +160,7 @@ public final class OfflineDB {
 		var storedPayloadPresent = false
 		var storedPayloadUnreadable = false
 		func stored<T: Decodable>(_ type: T.Type, forKey key: String) -> T? {
-			guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+			guard let data = defaults.data(forKey: key) else { return nil }
 			storedPayloadPresent = true
 			guard let value = try? JSONDecoder().decode(type, from: data) else {
 				storedPayloadUnreadable = true
@@ -214,25 +215,25 @@ public final class OfflineDB {
 		// this point means the wanted set really is empty, not that it was lost.
 		hasStoredState = true
 		let trackAddedDatesData = try? JSONEncoder().encode(trackAddedDates)
-		UserDefaults.standard.set(trackAddedDatesData, forKey: "OfflineDB:TrackAddedDates")
+		defaults.set(trackAddedDatesData, forKey: "OfflineDB:TrackAddedDates")
 
 		let favoriteTracksData = try? JSONEncoder().encode(favoriteTracks)
-		UserDefaults.standard.set(favoriteTracksData, forKey: "OfflineDB:FavoriteTracks")
+		defaults.set(favoriteTracksData, forKey: "OfflineDB:FavoriteTracks")
 
 		let albumsData = try? JSONEncoder().encode(albums)
-		UserDefaults.standard.set(albumsData, forKey: "OfflineDB:Albums")
+		defaults.set(albumsData, forKey: "OfflineDB:Albums")
 
 		let albumTracksData = try? JSONEncoder().encode(albumTracks)
-		UserDefaults.standard.set(albumTracksData, forKey: "OfflineDB:AlbumTracks")
+		defaults.set(albumTracksData, forKey: "OfflineDB:AlbumTracks")
 
 		let playlistsData = try? JSONEncoder().encode(playlists)
-		UserDefaults.standard.set(playlistsData, forKey: "OfflineDB:Playlists")
+		defaults.set(playlistsData, forKey: "OfflineDB:Playlists")
 
 		let playlistTracksData = try? JSONEncoder().encode(playlistTracks)
-		UserDefaults.standard.set(playlistTracksData, forKey: "OfflineDB:PlaylistTracks")
+		defaults.set(playlistTracksData, forKey: "OfflineDB:PlaylistTracks")
 
 		let standaloneOfflineTracksData = try? JSONEncoder().encode(standaloneOfflineTracks)
-		UserDefaults.standard.set(standaloneOfflineTracksData, forKey: "OfflineDB:StandaloneOfflineTracks")
+		defaults.set(standaloneOfflineTracksData, forKey: "OfflineDB:StandaloneOfflineTracks")
 	}
 }
 
@@ -245,8 +246,22 @@ public final class Offline {
 	@MainActor
 	public var uiRefreshFunc: () -> Void = {}
 
-	@AppStorage("SaveFavoritesOffline") public var saveFavoritesOffline = false
-	@AppStorage("offlinePreferDolbyAtmos") public private(set) var preferDolbyAtmos = false
+	/// Where the offline database and the two offline preferences are read and
+	/// written. The app keeps the standard defaults; a test points it at its own
+	/// suite so parallel test classes do not share one store. It is read when the
+	/// database is first touched rather than here, so redirecting it right after
+	/// the session is built takes effect.
+	var defaults: UserDefaults = .standard
+
+	public var saveFavoritesOffline: Bool {
+		get { defaults.bool(forKey: "SaveFavoritesOffline") }
+		set { defaults.set(newValue, forKey: "SaveFavoritesOffline") }
+	}
+
+	public private(set) var preferDolbyAtmos: Bool {
+		get { defaults.bool(forKey: "offlinePreferDolbyAtmos") }
+		set { defaults.set(newValue, forKey: "offlinePreferDolbyAtmos") }
+	}
 
 	/// The file markers, all middle path components: Dolby Atmos files are named
 	/// "<track ID>.atmos.m4a", decrypted hi-res stereo files "<track ID>.hires.flac",
@@ -261,7 +276,13 @@ public final class Offline {
 		case stereo(AudioQuality?)
 	}
 
-	private let db = OfflineDB()
+	/// Built on first use rather than in `init`, so the launch work below can run in
+	/// a task and a test can redirect `defaults` before the database reads it.
+	private lazy var db = OfflineDB(defaults: defaults)
+	private var hasStarted = false
+	/// The disk lookup's first answer, resolved off the main actor at launch. Cleared
+	/// once the files change, so a later lookup re-reads them.
+	private var launchDiskDates: [Int: Date]?
 	private var hydrationAttemptedAlbumIds: Set<Int> = []
 	private let offlineLibraryRoot: URL?
 
@@ -281,10 +302,12 @@ public final class Offline {
 	/// The app leaves it nil and asks the session.
 	var resolveOfflineDashManifest: ((Track) async -> DashAudioManifest?)?
 
-	/// Test seam: seeds the offline track set and starts a sync, so a test can
-	/// drive a pass against a known state. The app never calls this.
+	/// Test seam: seeds the wanted set through the favourite source the app derives
+	/// it from, so a later `updateTracks()` (triggered by any database change during
+	/// a sync) re-derives the same set instead of clearing a set seeded directly.
+	/// The app never calls this.
 	func setOfflineTracksForTesting(_ tracks: [Track]) {
-		db.replaceTracksForTesting(Set(tracks))
+		db.setFavoriteTracks(to: tracks)
 		asyncSync()
 	}
 
@@ -307,11 +330,37 @@ public final class Offline {
 
 		// Installing the disk lookup lets the db rebuild a lost "added to offline"
 		// date from the files it already has, instead of stamping "now" on them.
-		db.downloadDatesForTracksOnDisk = { [weak self] in
-			self?.downloadDatesByTrackId() ?? [:]
-		}
+		// Deferred out of `init`: the lookup is a directory listing plus a stat per
+		// file, which must not run on the main actor before the first frame.
+		Task { await self.start() }
+	}
 
-		Task { asyncSync() }
+	/// One-time launch work, run in a task so neither `App.init` nor the first frame
+	/// pays for the database build or its disk lookup. Deferring it also lets a test
+	/// point `defaults` at its own store first.
+	private func start() async {
+		guard !hasStarted else { return }
+		hasStarted = true
+		guard let directory = offlinePath(parentFolder: nil, name: mainPath, pathExtension: nil) else {
+			asyncSync()
+			return
+		}
+		// Resolved off the main actor and kept as the lookup's first answer: the
+		// listing exists to rebuild a date the database lost at launch.
+		launchDiskDates = await Self.downloadDates(in: directory)
+		db.downloadDatesForTracksOnDisk = { [weak self] in
+			guard let self else { return [:] }
+			if let snapshot = self.launchDiskDates {
+				return snapshot
+			}
+			// The files changed since launch, so re-read them.
+			return self.downloadDatesByTrackId()
+		}
+		// A sync the caller already asked for (a test seeding the wanted set) covers
+		// the launch too; scheduling a second one would double the launch work.
+		if syncTask == nil {
+			asyncSync()
+		}
 	}
 
 	/// The folder that contains the offline library. `nil` root (the app) is the
@@ -675,7 +724,9 @@ public final class Offline {
 
 	/// The download date of every offline file, by track ID, for rebuilding an
 	/// "added to offline" date that was lost. A file's creation date is when the
-	/// download wrote it, so it stays the same across launches.
+	/// download wrote it, so it stays the same across launches; a re-download can
+	/// leave a second file behind, so the earliest date per track is when it first
+	/// became offline.
 	private func downloadDatesByTrackId() -> [Int: Date] {
 		guard let files = localFilesByTrackId() else { return [:] }
 		var dates: [Int: Date] = [:]
@@ -683,11 +734,26 @@ public final class Offline {
 			let creationDates = urls.compactMap { url in
 				try? url.resourceValues(forKeys: [.creationDateKey]).creationDate
 			}
-			// A re-download can leave a second file behind; the earliest creation
-			// date is when the track first became offline.
 			if let earliest = creationDates.min() {
 				dates[id] = earliest
 			}
+		}
+		return dates
+	}
+
+	/// The same lookup, off the main actor, for the launch path: the directory
+	/// listing and per-file stat must not run before the first frame.
+	@concurrent
+	private nonisolated static func downloadDates(in directory: URL) async -> [Int: Date] {
+		let urls = (try? FileManager.default.contentsOfDirectory(
+			at: directory, includingPropertiesForKeys: [.creationDateKey], options: []
+		)) ?? []
+		var dates: [Int: Date] = [:]
+		for url in urls {
+			guard let idString = url.lastPathComponent.split(separator: ".").first,
+				  let id = Int(idString),
+				  let creation = try? url.resourceValues(forKeys: [.creationDateKey]).creationDate else { continue }
+			dates[id] = min(dates[id] ?? creation, creation)
 		}
 		return dates
 	}
@@ -696,6 +762,8 @@ public final class Offline {
 	private var offlineTrackIdsCacheIntact = false
 	private func invalidateOfflineTrackIdsCache() {
 		offlineTrackIdsCacheIntact = false
+		// The files changed, so the launch snapshot of their dates is stale.
+		launchDiskDates = nil
 	}
 
 	public func offlineTrackIds() -> [Int]? {
@@ -844,12 +912,18 @@ public final class Offline {
 
 	/// Test seam: waits for the sync `init` starts in a Task to finish, so a test
 	/// can assert on the resulting files instead of racing the background sync.
-	func awaitOngoingSync() async {
-		// `syncTask` is only set once `asyncSync` runs; yield until that Task has.
+	/// Bounded, and returns whether a sync started: a launch path that never reaches
+	/// `asyncSync` must fail the test rather than hang it on the main actor.
+	@discardableResult
+	func awaitOngoingSync(timeout: TimeInterval = 5) async -> Bool {
+		// `syncTask` is only set once the launch task reaches `asyncSync`.
+		let deadline = Date().addingTimeInterval(timeout)
 		while syncTask == nil {
+			if Date() >= deadline { return false }
 			await Task.yield()
 		}
 		await syncTask?.value
+		return true
 	}
 
 	// MARK: - All
@@ -875,6 +949,7 @@ public final class Offline {
 					try? FileManager.default.removeItem(at: file)
 				}
 			}
+			invalidateOfflineTrackIdsCache()
 			asyncSync()
 		}
 	}

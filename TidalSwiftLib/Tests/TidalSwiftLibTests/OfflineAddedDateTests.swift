@@ -13,8 +13,15 @@ import XCTest
 /// not move its "added to offline" date, or a re-add would reorder the library.
 @MainActor
 final class OfflineAddedDateTests: XCTestCase {
+	private nonisolated let offlineLibrary = TemporaryOfflineLibrary(label: "OfflineAddedDate")
+
+	override func tearDown() {
+		offlineLibrary.remove()
+		super.tearDown()
+	}
+
 	func testRecordAddedDateIsIdempotent() {
-		let db = OfflineDB()
+		let db = OfflineDB(defaults: offlineLibrary.defaults)
 		let trackId = Int.random(in: 900_000_000...999_999_999)
 
 		db.recordAddedDate(for: trackId)
