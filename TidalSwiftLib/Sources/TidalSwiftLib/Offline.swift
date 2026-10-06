@@ -152,56 +152,32 @@ public final class OfflineDB {
 		// Counters used before tracks were derived, which could drift and keep files forever
 		UserDefaults.standard.removeObject(forKey: "OfflineDB:Tracks")
 
-		if let data = UserDefaults.standard.data(forKey: "OfflineDB:TrackAddedDates") {
-			if let temp = try? JSONDecoder().decode([Int: Date].self, from: data) {
-				self.trackAddedDates = temp
-			} else {
-				self.trackAddedDates = [:]
+		// A payload that is present but cannot be decoded is not a missing one: its
+		// section reads as empty while its tracks are still on disk. Both facts are
+		// recorded, because they decide whether the sync may treat the files of the
+		// unread sections as unwanted.
+		var storedPayloadPresent = false
+		var storedPayloadUnreadable = false
+		func stored<T: Decodable>(_ type: T.Type, forKey key: String) -> T? {
+			guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+			storedPayloadPresent = true
+			guard let value = try? JSONDecoder().decode(type, from: data) else {
+				storedPayloadUnreadable = true
+				return nil
 			}
+			return value
 		}
-		if let data = UserDefaults.standard.data(forKey: "OfflineDB:FavoriteTracks") {
-			if let temp = try? JSONDecoder().decode([Track].self, from: data) {
-				self.favoriteTracks = temp
-			} else {
-				self.favoriteTracks = []
-			}
-		}
-		if let data = UserDefaults.standard.data(forKey: "OfflineDB:Albums") {
-			if let temp = try? JSONDecoder().decode([Album].self, from: data) {
-				self.albums = temp
-				hasStoredState = true
-			} else {
-				self.albums = []
-			}
-		}
-		if let data = UserDefaults.standard.data(forKey: "OfflineDB:AlbumTracks") {
-			if let temp = try? JSONDecoder().decode([Album: [Track]].self, from: data) {
-				self.albumTracks = temp
-			} else {
-				self.albumTracks = [:]
-			}
-		}
-		if let data = UserDefaults.standard.data(forKey: "OfflineDB:Playlists") {
-			if let temp = try? JSONDecoder().decode([Playlist].self, from: data) {
-				self.playlists = temp
-			} else {
-				self.playlists = []
-			}
-		}
-		if let data = UserDefaults.standard.data(forKey: "OfflineDB:PlaylistTracks") {
-			if let temp = try? JSONDecoder().decode([Playlist: [Track]].self, from: data) {
-				self.playlistTracks = temp
-			} else {
-				self.playlistTracks = [:]
-			}
-		}
-		if let data = UserDefaults.standard.data(forKey: "OfflineDB:StandaloneOfflineTracks") {
-			if let temp = try? JSONDecoder().decode([Track].self, from: data) {
-				self.standaloneOfflineTracks = temp
-			} else {
-				self.standaloneOfflineTracks = []
-			}
-		}
+
+		trackAddedDates = stored([Int: Date].self, forKey: "OfflineDB:TrackAddedDates") ?? [:]
+		favoriteTracks = stored([Track].self, forKey: "OfflineDB:FavoriteTracks") ?? []
+		albums = stored([Album].self, forKey: "OfflineDB:Albums") ?? []
+		albumTracks = stored([Album: [Track]].self, forKey: "OfflineDB:AlbumTracks") ?? [:]
+		playlists = stored([Playlist].self, forKey: "OfflineDB:Playlists") ?? []
+		playlistTracks = stored([Playlist: [Track]].self, forKey: "OfflineDB:PlaylistTracks") ?? [:]
+		standaloneOfflineTracks = stored([Track].self, forKey: "OfflineDB:StandaloneOfflineTracks") ?? []
+
+		hasStoredState = storedPayloadPresent
+		self.storedPayloadUnreadable = storedPayloadUnreadable
 
 		// Removals used to leave these behind
 		let albums = self.albums
@@ -223,7 +199,15 @@ public final class OfflineDB {
 		playlistTracks = [:]
 	}
 
+	/// Whether any offline payload was stored, readable or not. Set when the database is
+	/// read or written, so an empty wanted set after a save is genuinely empty rather
+	/// than lost.
 	private(set) var hasStoredState = false
+
+	/// Whether a stored payload could not be decoded. Such a section reads as empty
+	/// while its tracks are still on disk, so the wanted set is unknown rather than
+	/// empty and the sync keeps the files it cannot account for.
+	private(set) var storedPayloadUnreadable = false
 
 	private func save() {
 		// Once anything is written, the stored state is ours: an empty database after
@@ -402,7 +386,7 @@ public final class Offline {
 		if track.hasDolbyAtmos && (preferDolbyAtmos || !track.hasStereo) {
 			return .dolbyAtmos
 		}
-		if HiResStreaming.usesHiResStereo(for: track, session: session, quality: session.config.offlineAudioQuality) {
+		if HiResStreaming.usesHiResStereo(for: track, session: session, quality: session.config.offlineAudioQuality, preferDolbyAtmos: preferDolbyAtmos) {
 			return .hiResStereo
 		}
 		return .stereo(session.config.offlineAudioQuality)
@@ -456,7 +440,7 @@ public final class Offline {
 	private func downloadOfflineTrack(_ track: Track, existingFiles: [URL]) async -> Bool {
 		print("Offline: Downloading \(track.title)")
 		let source: OfflineDownloadSource?
-		if HiResStreaming.usesHiResStereo(for: track, session: session, quality: session.config.offlineAudioQuality),
+		if HiResStreaming.usesHiResStereo(for: track, session: session, quality: session.config.offlineAudioQuality, preferDolbyAtmos: preferDolbyAtmos),
 		   let hiRes = await resolveHiResSource(for: track) {
 			source = .hiRes(hiRes)
 		} else if let resolveOfflineStream {
@@ -471,6 +455,9 @@ public final class Offline {
 			resolvedSource = await resolveDashSource(for: track).map(OfflineDownloadSource.dash)
 		}
 		guard let source = resolvedSource else {
+			// A cancelled sync gives up quietly: reporting each remaining track as a failed
+			// download would toast on a deliberate "remove all offline content".
+			if Task.isCancelled { return false }
 			if !existingFiles.isEmpty {
 				// The old file stays, so a refused quality never shrinks the library
 				displayError(title: "Offline: Error while loading offline track", content: "Couldn't get Audio URL for \(track.title). Keeping the existing file.")
@@ -502,6 +489,7 @@ public final class Offline {
 				try await Network.download(stream.url, path: path, overwrite: true)
 			}
 		} catch {
+			if Task.isCancelled { return false }
 			displayError(title: "Offline: Error while loading offline track", content: "Network error: \(error)")
 			return false
 		}
@@ -526,25 +514,34 @@ public final class Offline {
 
 	private func variant(of source: OfflineDownloadSource) -> FileVariant {
 		switch source {
-		case .hiRes: .hiResStereo
-		case .dash: .stereo(session.config.offlineAudioQuality)
-		case .stream(let stream): variant(of: stream)
+		case .hiRes:
+			.hiResStereo
+		case .dash:
+			.stereo(session.config.offlineAudioQuality)
+		case .stream(let stream):
+			variant(of: stream)
 		}
 	}
 
 	private func pathExtension(of source: OfflineDownloadSource) -> String {
 		switch source {
-		case .hiRes: "flac"
-		case .dash: "m4a"
-		case .stream(let stream): stream.pathExtension
+		case .hiRes:
+			"flac"
+		case .dash:
+			"m4a"
+		case .stream(let stream):
+			stream.pathExtension
 		}
 	}
 
 	private func fileMarker(of source: OfflineDownloadSource) -> String {
 		switch source {
-		case .hiRes: hiResStereoFileMarker
-		case .dash: session.config.offlineAudioQuality.rawValue.lowercased()
-		case .stream(let stream): stream.isDolbyAtmos ? dolbyAtmosFileMarker : session.config.offlineAudioQuality.rawValue.lowercased()
+		case .hiRes:
+			hiResStereoFileMarker
+		case .dash:
+			session.config.offlineAudioQuality.rawValue.lowercased()
+		case .stream(let stream):
+			stream.isDolbyAtmos ? dolbyAtmosFileMarker : session.config.offlineAudioQuality.rawValue.lowercased()
 		}
 	}
 
@@ -768,12 +765,16 @@ public final class Offline {
 		// Download first, so nothing is deleted before its replacement is on disk.
 		// A track whose download fails keeps the file it already has.
 		for track in toAdd {
+			// `removeAll()` cancels this sync. The rest of the pass would resolve every
+			// remaining track only to report each cancellation as a failed download.
+			if Task.isCancelled { break }
 			await downloadOfflineTrack(track, existingFiles: localFiles[track.id] ?? [])
 		}
 
 		// Prune the variants a successful re-download made stale, so one file
 		// per track remains once its replacement is safely on disk.
 		for file in leftoverFiles {
+			if Task.isCancelled { break }
 			print("Offline: Removing leftover file \(file.lastPathComponent)")
 			do {
 				try FileManager.default.removeItem(at: file)
@@ -782,15 +783,15 @@ public final class Offline {
 			}
 		}
 
-		// An empty wanted set next to files on disk is not "nothing is wanted any more":
-		// it is a database that never loaded or was lost. `removeAll()` clears the
-		// database and deletes the files it names itself, so a deliberate removal never
-		// depends on this inference. A single lost logout wipe cost a 22-file library,
-		// so the guard stays.
-		if !db.hasStoredState && !toRemove.isEmpty {
+		// A wanted set that could not be read in full next to files on disk is not
+		// "nothing is wanted any more": it is a database that never loaded or was lost.
+		// `removeAll()` clears the database and deletes the files it names itself, so a
+		// deliberate removal never depends on this inference. A single lost logout wipe
+		// cost a 22-file library, so the guard stays.
+		if (!db.hasStoredState || db.storedPayloadUnreadable) && !toRemove.isEmpty {
 			displayError(
 				title: "Offline: Nothing marked for offline",
-				content: "Your offline list is empty, so \(toRemove.count) downloaded \(toRemove.count == 1 ? "track was" : "tracks were") kept rather than removed."
+				content: "Your offline list is empty or unreadable, so \(toRemove.count) downloaded \(toRemove.count == 1 ? "track was" : "tracks were") kept."
 		)
 			toRemove = []
 		}
@@ -798,6 +799,7 @@ public final class Offline {
 		// Tracks that genuinely left the offline set are removed in the same sync.
 		if !toRemove.isEmpty {
 			for trackId in toRemove {
+				if Task.isCancelled { break }
 				print("Offline: Removing \(trackId)")
 				do {
 					guard let files = localFiles[trackId], !files.isEmpty else {
@@ -914,15 +916,26 @@ public final class Offline {
 	private func syncFavoriteTracks() async {
 		// Preparations (e.g. setting favTracksSyncRunning) happen in asyncSyncFavoriteTracks func beforehand
 
+		// A cancelled sync stops cleanly and leaves the stored set alone: `removeAll()`
+		// owns the removal and the files, so continuing would only report failures.
+		if Task.isCancelled {
+			favTracksSyncAgain = false
+			favTracksSyncRunning = false
+			return
+		}
+
 		// Prepare
 		var tracks: [Track] = []
 		if saveFavoritesOffline {
 			if let favTracks = await session.favorites?.tracks() {
 				tracks = favTracks.map { $0.item }
 			} else {
-				displayError(title: "Offline: Error while synchronizing Favorite Tracks", content: "")
 				favTracksSyncAgain = false
 				favTracksSyncRunning = false
+				// A cancelled request is not a failure: the sync was asked to stop.
+				if !Task.isCancelled {
+					displayError(title: "Offline: Error while synchronizing Favorite Tracks", content: "")
+				}
 				return
 			}
 		}
@@ -1026,6 +1039,14 @@ public final class Offline {
 
 		print("Offline: --- Sync Playlist ---")
 
+		// A cancelled sync stops cleanly rather than fetching every playlist it still
+		// has queued; `removeAll()` empties the queue itself.
+		if Task.isCancelled {
+			playlistSyncRunning = false
+			print("Offline: --- Sync Playlists cancelled ---")
+			return
+		}
+
 		// Prepare
 		if playlistsToSync.isEmpty {
 			print("Offline: No more Playlists to sync.")
@@ -1047,7 +1068,10 @@ public final class Offline {
 				}
 			} else {
 				// Keep the stored tracks and carry on with the other playlists
-				displayError(title: "Offline: Error while synchronizing Playlist Tracks", content: "Couldn't load playlist tracks from Tidal API.")
+				// A cancelled request is not a failure: the sync was asked to stop.
+				if !Task.isCancelled {
+					displayError(title: "Offline: Error while synchronizing Playlist Tracks", content: "Couldn't load playlist tracks from Tidal API.")
+				}
 			}
 		} else {
 			print("Offline: Playlist isn't marked to be offline, so deleting offline tracks, if there are any")

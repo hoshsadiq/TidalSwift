@@ -203,6 +203,38 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 		XCTAssertTrue(fileExists(forTrackId: trackId), "an empty database must not be read as 'remove everything'")
 	}
 
+	/// A stored payload that cannot be read is not a missing one: its tracks are still
+	/// on disk, so an empty wanted set next to files means "the database did not load",
+	/// not "nothing is wanted any more". The guard was written for this case but only
+	/// ever exercised with no stored payload at all.
+	func testUndecodableStoredStateDoesNotRemoveDownloadedFiles() async throws {
+		let trackId = 987_654_505
+		try createOfflineFile(forTrackId: trackId, createdAt: Date(timeIntervalSince1970: 1_600_000_000))
+		UserDefaults.standard.set(Data("not a stored album list".utf8), forKey: "OfflineDB:Albums")
+
+		let session = offlineLibrary.makeSession()
+		await session.helpers.offline.awaitOngoingSync()
+
+		XCTAssertTrue(fileExists(forTrackId: trackId), "a payload that failed to decode must not read as an empty offline list")
+	}
+
+	/// The half-read case: one section decodes while another does not. The sections
+	/// that failed read as empty, so the tracks they hold look unwanted although their
+	/// files are on disk and their payload was still there. The decoded section used to
+	/// be enough to mark the whole database as ours, so the sync deleted those files.
+	func testPartiallyReadableStoredStateKeepsTheFilesOfTheUnreadSection() async throws {
+		let trackId = 987_654_506
+		try createOfflineFile(forTrackId: trackId, createdAt: Date(timeIntervalSince1970: 1_600_000_000))
+		// A readable album section, and the favourite section the file belongs to, unreadable.
+		UserDefaults.standard.set(try? JSONEncoder().encode([makeAlbum(id: 111)]), forKey: "OfflineDB:Albums")
+		UserDefaults.standard.set(Data("not a stored favourite list".utf8), forKey: "OfflineDB:FavoriteTracks")
+
+		let session = offlineLibrary.makeSession()
+		await session.helpers.offline.awaitOngoingSync()
+
+		XCTAssertTrue(fileExists(forTrackId: trackId), "a section that failed to decode must not be read as an empty one")
+	}
+
 	/// Logging out and removing downloads is the destructive path the confirmation
 	/// dialog offers. It must delete the file and clear the database, exactly as
 	/// the old unconditional `removeAll()` did.

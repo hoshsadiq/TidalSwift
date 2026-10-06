@@ -324,16 +324,20 @@ public enum HiResStreaming {
 		HiResStreamCache.usageBytes()
 	}
 
-	/// Whether `track` should take the hi-res stereo route for this session and quality.
+	/// Whether `track` should take the hi-res stereo route for this session, at this
+	/// quality and with this Atmos preference.
 	/// The quality decides the route: `High`/`Max` lead with the decrypted FLAC rendition,
 	/// `Medium`/`Low` with the DASH assembly, so a caller that passes the quality it is
-	/// actually downloading at gets the route that quality plays. The offline wish and
-	/// the offline sync pass `config.offlineAudioQuality`; a manual download passes the
-	/// quality the user asked for.
-	public static func usesHiResStereo(for track: Track, session: Session, quality: AudioQuality) -> Bool {
+	/// actually downloading at gets the route that quality plays. `preferDolbyAtmos` is
+	/// the caller's Atmos preference, which the same rule as playback honours first: a
+	/// track with an Atmos rendition takes that route instead, so a caller that has an
+	/// Atmos preference must pass it rather than let the hi-res route override it. The
+	/// offline wish and the offline sync pass `config.offlineAudioQuality`; a manual
+	/// download passes the quality the user asked for.
+	public static func usesHiResStereo(for track: Track, session: Session, quality: AudioQuality, preferDolbyAtmos: Bool) -> Bool {
 		HiResStreamingPolicy.usesHiResStereo(
 			sessionHasHiResStereoAccess: session.hasHiResStereoAccess,
-			preferDolbyAtmos: false,
+			preferDolbyAtmos: preferDolbyAtmos,
 			trackHasStereo: track.hasStereo,
 			trackHasDolbyAtmos: track.hasDolbyAtmos,
 			quality: quality
@@ -425,8 +429,14 @@ public enum HiResStreaming {
 	}
 
 	private static func downloadFile(for track: Track, session: Session, quality: AudioQuality, cacheDirectory: URL) async -> URL? {
-		guard case .resolved(let manifest) = await session.hiResStereoStream(trackId: track.id, audioQuality: quality) else {
-			print("[PLAYBACK] hi-res stereo: no stereo rendition for \(track.title), falling back")
+		let resolution = await session.hiResStereoStream(trackId: track.id, audioQuality: quality)
+		guard case .resolved(let manifest) = resolution else {
+			// `HiResStereoResolution` separates the two so this log says which one happened.
+			if case .failed = resolution {
+				print("[PLAYBACK] hi-res stereo: request failed for \(track.title), falling back")
+			} else {
+				print("[PLAYBACK] hi-res stereo: no stereo rendition for \(track.title), falling back")
+			}
 			return nil
 		}
 		// The download indicator already exists; reusing it keeps the play button

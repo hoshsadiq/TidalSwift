@@ -71,11 +71,17 @@ public class Download {
 		let filename = formFileName(track)
 		print("Downloading: \(filename)")
 
-		// The hi-res stereo route when the session can use it and the requested quality
-		// is a FLAC tier: the encrypted rendition is downloaded and decrypted, so the file
-		// on disk is a playable FLAC and never the encrypted stream. At Medium/Low the
-		// route is DASH instead, which the branch below assembles.
-		if HiResStreaming.usesHiResStereo(for: track, session: session, quality: audioQuality),
+		// The hi-res stereo route when the session can use it, the requested quality is a
+		// FLAC tier and the Atmos preference does not ask for the other rendition: the
+		// encrypted rendition is downloaded and decrypted, so the file on disk is a
+		// playable FLAC and never the encrypted stream. At Medium/Low the route is DASH
+		// instead, which the branch below assembles.
+		if HiResStreaming.usesHiResStereo(
+			for: track,
+			session: session,
+			quality: audioQuality,
+			preferDolbyAtmos: session.helpers.offline.preferDolbyAtmos
+		),
 		   case .resolved(let manifest) = await session.hiResStereoStream(trackId: track.id) {
 			guard let path = buildPath(baseLocation: .downloads, parentFolder: parentFolder, name: filename, pathExtension: "flac") else {
 				displayError(title: "Error while downloading track", content: "Couldn't build path for track: \(track.title) -  \(track.artists.formArtistString())")
