@@ -8,6 +8,14 @@
 
 import Foundation
 
+/// Decodes the base64 BTS manifest body a `TrackPlaybackInfo` response carries,
+/// whether the caller wants the stereo, hi-res or Atmos rendition. A body that is
+/// not base64 JSON, or not a BTS manifest, returns nil so the caller keeps looking.
+private func decodedBTSManifest(_ response: TrackPlaybackInfo) -> BTSManifest? {
+	guard let data = Data(base64Encoded: response.manifest) else { return nil }
+	return try? JSONDecoder().decode(BTSManifest.self, from: data)
+}
+
 /// The `/playbackinfopostpaywall` response reduced to what a caller acts on: a
 /// playable URL and whether that rendition is actually Dolby Atmos.
 struct AcceptedPlaybackManifest {
@@ -26,8 +34,7 @@ enum PlaybackManifestPolicy {
 	/// manifests are refused so `bestAudioUrl` keeps looking.
 	static func accept(_ response: TrackPlaybackInfo) -> AcceptedPlaybackManifest? {
 		guard response.manifestMimeType == "application/vnd.tidal.bts",
-			  let data = Data(base64Encoded: response.manifest),
-			  let manifest = try? JSONDecoder().decode(BTSManifest.self, from: data) else {
+			  let manifest = decodedBTSManifest(response) else {
 			return nil
 		}
 		if let encryption = manifest.encryptionType, encryption != "NONE" {
@@ -62,8 +69,7 @@ enum HiResManifestPolicy {
 	static func accept(_ response: TrackPlaybackInfo) -> AcceptedHiResManifest? {
 		guard response.audioMode == .stereo,
 			  response.manifestMimeType == "application/vnd.tidal.bts",
-			  let data = Data(base64Encoded: response.manifest),
-			  let manifest = try? JSONDecoder().decode(BTSManifest.self, from: data),
+			  let manifest = decodedBTSManifest(response),
 			  manifest.codecs == "flac",
 			  manifest.encryptionType == "OLD_AES",
 			  let keyId = manifest.keyId,
@@ -201,8 +207,7 @@ extension Session {
 			let response: TrackPlaybackInfo = try await get(url: url, parameters: parameters)
 			guard response.audioMode == .dolbyAtmos,
 				  response.manifestMimeType == "application/vnd.tidal.bts",
-				  let decodedManifestData = Data(base64Encoded: response.manifest),
-				  let manifest = try? JSONDecoder().decode(BTSManifest.self, from: decodedManifestData),
+				  let manifest = decodedBTSManifest(response),
 				  manifest.codecs == "eac3",
 				  manifest.encryptionType == "NONE" else {
 				return nil

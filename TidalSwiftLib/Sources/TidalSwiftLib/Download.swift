@@ -83,19 +83,9 @@ public class Download {
 			preferDolbyAtmos: session.helpers.offline.preferDolbyAtmos
 		),
 		   case .resolved(let manifest) = await session.hiResStereoStream(trackId: track.id) {
-			guard let path = buildPath(baseLocation: .downloads, parentFolder: parentFolder, name: filename, pathExtension: "flac") else {
-				displayError(title: "Error while downloading track", content: "Couldn't build path for track: \(track.title) -  \(track.artists.formArtistString())")
-				return false
-			}
-			do {
+			return await save(track, named: filename, parentFolder: parentFolder, pathExtension: "flac") { path in
 				try await HiResStreaming.downloadAndDecrypt(manifest, to: path)
-			} catch {
-				displayError(title: "Error while downloading track", content: "Download failed for track \(track.title). Error: \(error)")
-				return false
 			}
-			await metadata.setMetadata(for: track, at: path)
-			print("Download Finished: \(filename)")
-			return true
 		}
 
 		// At High/Low `streamUrl` is refused and the desktop endpoint answers an
@@ -104,37 +94,39 @@ public class Download {
 		let wantsAtmos = track.hasDolbyAtmos && (session.helpers.offline.preferDolbyAtmos || !track.hasStereo)
 		if audioQuality == .medium || audioQuality == .low, track.hasStereo, !wantsAtmos,
 		   let manifest = await session.dashAudioManifest(trackId: track.id, audioQuality: audioQuality) {
-			guard let path = buildPath(baseLocation: .downloads, parentFolder: parentFolder, name: filename, pathExtension: "m4a") else {
-				displayError(title: "Error while downloading track", content: "Couldn't build path for track: \(track.title) -  \(track.artists.formArtistString())")
-				return false
-			}
-			do {
+			return await save(track, named: filename, parentFolder: parentFolder, pathExtension: "m4a") { path in
 				try await DashAudio.assemble(manifest, to: path)
-			} catch {
-				displayError(title: "Error while downloading track", content: "Download failed for track \(track.title). Error: \(error)")
-				return false
 			}
-			await metadata.setMetadata(for: track, at: path)
-			print("Download Finished: \(filename)")
-			return true
 		}
 
 		guard let stream = await track.audioStream(session: session, audioQuality: audioQuality, preferDolbyAtmos: session.helpers.offline.preferDolbyAtmos) else {
 			return false
 		}
-		let optionalPath = buildPath(baseLocation: .downloads, parentFolder: parentFolder, name: filename, pathExtension: stream.pathExtension)
-		guard let path = optionalPath else {
+		return await save(track, named: filename, parentFolder: parentFolder, pathExtension: stream.pathExtension) { path in
+			try await Network.download(stream.url, path: path, overwrite: true)
+		}
+	}
+
+	/// Builds the path under the downloads folder, writes the track's audio there and
+	/// tags it. Every route ends here, so the path failure, the download failure and
+	/// the finished line are written once instead of three times.
+	private func save(
+		_ track: Track,
+		named filename: String,
+		parentFolder: String,
+		pathExtension: String,
+		write: (URL) async throws -> Void
+	) async -> Bool {
+		guard let path = buildPath(baseLocation: .downloads, parentFolder: parentFolder, name: filename, pathExtension: pathExtension) else {
 			displayError(title: "Error while downloading track", content: "Couldn't build path for track: \(track.title) -  \(track.artists.formArtistString())")
 			return false
 		}
-
 		do {
-			try await Network.download(stream.url, path: path, overwrite: true)
+			try await write(path)
 		} catch {
 			displayError(title: "Error while downloading track", content: "Download failed for track \(track.title). Error: \(error)")
 			return false
 		}
-
 		await metadata.setMetadata(for: track, at: path)
 		print("Download Finished: \(filename)")
 		return true
