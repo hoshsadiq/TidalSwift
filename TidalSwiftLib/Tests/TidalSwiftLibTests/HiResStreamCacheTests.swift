@@ -166,8 +166,9 @@ final class HiResStreamCacheTests: XCTestCase {
 	}
 
 	/// A file already in the cache is handed back as the stream, so a replay does not
-	/// download and decrypt again. The session has no reachable network, so a download
-	/// attempt would fail: returning the cached file is the only way this passes.
+	/// download and decrypt again. Hermetic: the cache check runs before any Tidal
+	/// request, so a hit never opens a connection, and a regression that skipped the
+	/// check would fail its fetch (or be refused with 401) instead of serving this file.
 	func testCachedFileIsReusedWithoutDownloading() async throws {
 		let trackId = 779_500_001
 		let cached = directory.appendingPathComponent("\(trackId)-HI_RES_LOSSLESS.flac")
@@ -228,12 +229,14 @@ final class HiResStreamCacheTests: XCTestCase {
 		)
 		XCTAssertEqual(atMax?.url, maxFile, "the Max file must be served at Max")
 
-		// No network is reachable, so a Lossless file that is not in the cache can only
-		// come back nil — it must not fall back to the Max file on disk.
-		let atLossless = await HiResStreaming.playbackFile(
-			for: makeTrack(id: trackId), session: session, quality: .high, cacheDirectory: directory
+		// A lookup at Lossless is the whole rule "a file cached at Max is not served
+		// at another tier", so it is asserted on the cache directly. Going through
+		// resolution here would fall through to a Tidal request on the miss, which
+		// makes the test need the network — and pass on a 401.
+		XCTAssertNil(
+			HiResStreamCache.cachedFile(forTrackId: trackId, quality: .high, in: directory),
+			"a file cached at Max must not be served at Lossless"
 		)
-		XCTAssertNil(atLossless, "a file cached at Max must not be served at Lossless")
 	}
 
 	// MARK: - Completeness

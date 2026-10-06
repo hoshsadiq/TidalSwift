@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import AppKit
 import TidalSwiftLib
 
 @Observable final class LoginInfo {
@@ -123,6 +124,11 @@ struct LoginView: View {
 			case .waiting:
 				Text("Login mechinism, which works via the webbrowser")
 			case .pending(loginUrl: let loginUrl, expiration: _):
+				if let desktopError {
+					Text(desktopError)
+						.foregroundColor(.red)
+				}
+
 				Button {
 					openURL(loginUrl)
 				} label: {
@@ -151,7 +157,10 @@ struct LoginView: View {
 					Text(desktopError ?? "Something went wrong")
 						.foregroundColor(.red)
 					if desktopError != nil {
-						Button(action: startAuthorization) {
+						Button {
+							desktopError = nil
+							startAuthorization()
+						} label: {
 							Text("Use Device Login")
 						}
 					}
@@ -185,7 +194,6 @@ struct LoginView: View {
 
 	func startAuthorization() {
 		authorizationTask?.cancel()
-		desktopError = nil
 		authorizationTask = Task {
 			for await state in session.startAuthorization() {
 				authState = state
@@ -233,6 +241,11 @@ struct LoginView: View {
 	/// `LoginInfo.receive` delivers. A timeout or any failure falls through to
 	/// the `deviceLogin` failure state, which offers the device-code flow.
 	func startDesktopAuthorization() {
+		guard callbackSchemeReachesThisApp else {
+			desktopError = "Another app handles tidal:// links, so the browser login could not return here. Using device login instead."
+			startAuthorization()
+			return
+		}
 		authorizationTask?.cancel()
 		desktopError = nil
 		authState = .waiting
@@ -258,8 +271,25 @@ struct LoginView: View {
 		}
 	}
 
+	/// Whether macOS will hand `tidal://` callbacks to this app. The official TIDAL
+	/// desktop app registers the same scheme, and LaunchServices silently picks one
+	/// winner, so the browser login can be routed to TIDAL and the callback never
+	/// arrives. Asking before opening the browser turns the full 300 s wait into the
+	/// device login the user is offered after the timeout anyway. A nil answer means
+	/// no app claims the scheme and so the check cannot tell: the desktop login still
+	/// starts, and its timeout stays the fallback.
+	private var callbackSchemeReachesThisApp: Bool {
+		guard let handler = NSWorkspace.shared.urlForApplication(toOpen: URL(string: "tidal://")!) else {
+			return true
+		}
+		return Bundle(url: handler)?.bundleIdentifier == Bundle.main.bundleIdentifier
+	}
+
 	/// Waits for `pending`'s callback, or fails with a timeout so the screen can
 	/// offer the device-code fallback instead of spinning forever.
+	///
+	/// The desktop login's timeout is the final fallback for when
+	/// `callbackSchemeReachesThisApp` cannot tell who owns the scheme.
 	private func waitForDesktopCallback(_ pending: PendingDesktopLogin) async throws -> URL {
 		do {
 			return try await withThrowingTaskGroup(of: URL.self) { group in

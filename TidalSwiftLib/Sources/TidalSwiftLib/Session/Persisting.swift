@@ -31,6 +31,11 @@ extension Session {
 	}
 
 	public func saveSession() {
+		// A token is what makes this a session, so a logged-out save writes nothing.
+		// This runs from `saveState` on quit and on every scene-phase change, and
+		// writing here is what put a stale "Session Information" back after a logout
+		// and made the next launch report a session with no token behind it.
+		guard !config.refreshToken.isEmpty else { return }
 		guard let countryCode = countryCode,
 			  let userId = userId else {
 			displayError(title: "Couldn't save Session Information",

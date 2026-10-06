@@ -69,13 +69,9 @@ extension Network {
 			let urlString = request.url!.absoluteString + "?" + encodeParameters(parameters)
 			request.url = URL(string: urlString)
 		}
-		print("=== Network Request ===")
-		print("\(request.httpMethod!) Request with URL: \(request.url!.absoluteString)")
-		print("Headers: \(request.allHTTPHeaderFields!)")
-		if let httpBody = request.httpBody {
-			print("Body: \(String(data: httpBody, encoding: .utf8)!)")
-		}
-		print("=======================")
+		#if DEBUG
+		logRequest(request)
+		#endif
 
 		let (data, response) = try await URLSession.shared.data(for: request)
 
@@ -89,11 +85,9 @@ extension Network {
 			etag = Int(etagSubString)
 		}
 
-		if let responseString = String(data: data, encoding: .utf8) {
-			print("Response: \(responseString)")
-		} else {
-			print("Response is not UTF8")
-		}
+		#if DEBUG
+		logResponse(request, statusCode: statusCode)
+		#endif
 
 		return Response(data: data, statusCode: statusCode, etag: etag)
 	}
@@ -155,4 +149,19 @@ extension Network {
 		}
 		try FileManager.default.moveItem(at: downloadURL, to: path)
 	}
+
+	// MARK: - Logging
+
+	#if DEBUG
+	/// Everything the console may learn about a request: method, path, status. Never
+	/// a header and never a body — `Authorization` and `X-Tidal-Token` are
+	/// credentials, and a body or a signed URL carries one too.
+	private static func logRequest(_ request: URLRequest) {
+		print("[NET] \(request.httpMethod ?? "?") \(request.url?.path ?? "?")")
+	}
+
+	private static func logResponse(_ request: URLRequest, statusCode: Int?) {
+		print("[NET] \(request.httpMethod ?? "?") \(request.url?.path ?? "?") -> \(statusCode.map(String.init) ?? "no response")")
+	}
+	#endif
 }
