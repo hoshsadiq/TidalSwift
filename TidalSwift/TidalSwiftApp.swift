@@ -281,6 +281,8 @@ final class TidalSwiftAppModel {
 	/// the full text goes to the console and the title is shown alone instead.
 	private static let toastMessageLimit = 120
 
+	// MARK: Lifecycle
+
 	init() {
 		session = Session(config: nil)
 
@@ -332,6 +334,8 @@ final class TidalSwiftAppModel {
 		}
 	}
 
+	// MARK: Startup
+
 	func startupIfNeeded() {
 		guard !didStart else { return }
 		didStart = true
@@ -362,23 +366,7 @@ final class TidalSwiftAppModel {
 		initSecondaryWindows()
 		registerCloseLastWindowBehavior()
 		registerSpaceKeyMonitor()
-
-		// Claim tidal:// at launch when the preference asks for it, so the browser
-		// login's callback reaches this app without the user registering it by hand.
-		// The handler and its path are logged because a stale copy of the app that
-		// still claims the scheme can only be told apart from the running app by its
-		// path, and that is the usual reason a callback never arrives.
-		Task {
-			let before = TidalLinkRegistration.currentHandler()
-			let beforePath = TidalLinkRegistration.currentHandlerApplicationURL()?.path ?? "none"
-			await TidalLinkRegistration.applyCurrentRegistration()
-			let after = TidalLinkRegistration.currentHandler()
-			print("[LOGIN] tidal:// handler at launch: \(TidalLinkRegistration.logDescription(of: before)) at \(beforePath); after registering: \(TidalLinkRegistration.logDescription(of: after))")
-			if after != .thisApp {
-				print("[LOGIN] tidal:// is not handled by this app, so a browser login's callback cannot return here; the sheet will fall back to a device code")
-			}
-		}
-
+		registerTidalLinkHandlerAtLaunch()
 		updateCheck(showNoUpdatesAlert: false)
 		#endif
 
@@ -388,6 +376,8 @@ final class TidalSwiftAppModel {
 	}
 
 	#if canImport(AppKit)
+	// MARK: Termination
+
 	func prepareForTermination() {
 		guard !isTerminating else { return }
 		isTerminating = true
@@ -454,6 +444,24 @@ final class TidalSwiftAppModel {
 			}
 			self.togglePlay()
 			return nil
+		}
+	}
+
+	/// Claims tidal:// at launch when the preference asks for it, so the browser
+	/// login's callback reaches this app without the user registering it by hand.
+	/// The handler and its path are logged because a stale copy of the app that
+	/// still claims the scheme can only be told apart from the running app by its
+	/// path, and that is the usual reason a callback never arrives.
+	private func registerTidalLinkHandlerAtLaunch() {
+		Task {
+			let before = TidalLinkRegistration.currentHandler()
+			let beforePath = TidalLinkRegistration.currentHandlerApplicationURL()?.path ?? "none"
+			await TidalLinkRegistration.applyCurrentRegistration()
+			let after = TidalLinkRegistration.currentHandler()
+			print("[LOGIN] tidal:// handler at launch: \(TidalLinkRegistration.logDescription(of: before)) at \(beforePath); after registering: \(TidalLinkRegistration.logDescription(of: after))")
+			if after != .thisApp {
+				print("[LOGIN] tidal:// is not handled by this app, so a browser login's callback cannot return here; the sheet will fall back to a device code")
+			}
 		}
 	}
 
@@ -719,6 +727,8 @@ final class TidalSwiftAppModel {
 		playlistEditingValues.showEditModal = false
 	}
 
+	// MARK: Now Playing
+
 	private func updateNowPlayingForTrackChange() {
 		let queue = player.queueInfo.queue
 		let currentIndex = player.queueInfo.currentIndex
@@ -857,6 +867,8 @@ final class TidalSwiftAppModel {
 		MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsed
 	}
 
+	// MARK: Saving
+
 	/// Saves unsaved changes every 10 seconds, and only then: nothing is written
 	/// up front, matching the previous 10-second timer publisher's first fire.
 	private func startSaveLoop() {
@@ -981,6 +993,29 @@ final class TidalSwiftAppModel {
 				refreshFavoriteState()
 				viewState.refreshCurrentView()
 			}
+		}
+	}
+
+	/// Flips the current track's favorite state, keeping the row in the list and only
+	/// updating its heart.
+	func toggleCurrentTrackFavorite() {
+		let queue = player.queueInfo.queue
+		let currentIndex = player.queueInfo.currentIndex
+		guard queue.indices.contains(currentIndex) else { return }
+		let trackId = queue[currentIndex].track.id
+		Task {
+			guard let favorites = session.favorites else { return }
+			guard let isFavorite = await favorites.doFavoritesContainTrack(trackId: trackId) else { return }
+			let success: Bool
+			if isFavorite {
+				success = await favorites.removeTrack(trackId: trackId)
+			} else {
+				success = await favorites.addTrack(trackId: trackId)
+			}
+			guard success else { return }
+			session.helpers.offline.asyncSyncFavoriteTracks()
+			refreshFavoriteState()
+			NotificationCenter.default.post(name: .favoriteTrackChanged, object: nil, userInfo: ["trackId": trackId, "isFavorite": !isFavorite])
 		}
 	}
 
@@ -1262,24 +1297,12 @@ struct TidalSwiftCommands: Commands {
 			.keyboardShortcut(.leftArrow, modifiers: .command)
 			Button("Seek Forward") {
 				guard !KeyboardGuard.isTextEntryActive else { return }
-				guard !appModel.player.queueInfo.queue.isEmpty else { return }
-				let currentIndex = appModel.player.queueInfo.currentIndex
-				guard appModel.player.queueInfo.queue.indices.contains(currentIndex) else { return }
-				let track = appModel.player.queueInfo.queue[currentIndex].track
-				guard track.duration > 0 else { return }
-				let newFraction = min(max((Double(appModel.player.playbackInfo.fraction) * Double(track.duration) + 15.0) / Double(track.duration), 0.0), 1.0)
-				appModel.player.seek(to: newFraction)
+				seek(by: 15)
 			}
 			.keyboardShortcut(.rightArrow, modifiers: [.command, .option])
 			Button("Seek Backward") {
 				guard !KeyboardGuard.isTextEntryActive else { return }
-				guard !appModel.player.queueInfo.queue.isEmpty else { return }
-				let currentIndex = appModel.player.queueInfo.currentIndex
-				guard appModel.player.queueInfo.queue.indices.contains(currentIndex) else { return }
-				let track = appModel.player.queueInfo.queue[currentIndex].track
-				guard track.duration > 0 else { return }
-				let newFraction = min(max((Double(appModel.player.playbackInfo.fraction) * Double(track.duration) - 15.0) / Double(track.duration), 0.0), 1.0)
-				appModel.player.seek(to: newFraction)
+				seek(by: -15)
 			}
 			.keyboardShortcut(.leftArrow, modifiers: [.command, .option])
 
@@ -1342,27 +1365,7 @@ struct TidalSwiftCommands: Commands {
 
 			Button("Favorite Current Track") {
 				guard !KeyboardGuard.isTextEntryActive else { return }
-				guard !appModel.player.queueInfo.queue.isEmpty else { return }
-				let queue = appModel.player.queueInfo.queue
-				let currentIndex = appModel.player.queueInfo.currentIndex
-				guard queue.indices.contains(currentIndex) else { return }
-				let trackId = queue[currentIndex].track.id
-				Task {
-					guard let favorites = appModel.session.favorites else { return }
-					guard let isFavorite = await favorites.doFavoritesContainTrack(trackId: trackId) else { return }
-					let success: Bool
-					if isFavorite {
-						success = await favorites.removeTrack(trackId: trackId)
-					} else {
-						success = await favorites.addTrack(trackId: trackId)
-					}
-					if success {
-						appModel.session.helpers.offline.asyncSyncFavoriteTracks()
-						appModel.refreshFavoriteState()
-						// Keep the row in the current list; only update its heart.
-						NotificationCenter.default.post(name: .favoriteTrackChanged, object: nil, userInfo: ["trackId": trackId, "isFavorite": !isFavorite])
-					}
-				}
+				appModel.toggleCurrentTrackFavorite()
 			}
 		}
 
@@ -1425,6 +1428,18 @@ struct TidalSwiftCommands: Commands {
 			}
 			.disabled(!appModel.hasCurrentTrack)
 		}
+	}
+
+	/// Seeks `delta` seconds from the current position, clamped to the track.
+	private func seek(by delta: Double) {
+		let player = appModel.player
+		guard !player.queueInfo.queue.isEmpty else { return }
+		let currentIndex = player.queueInfo.currentIndex
+		guard player.queueInfo.queue.indices.contains(currentIndex) else { return }
+		let track = player.queueInfo.queue[currentIndex].track
+		guard track.duration > 0 else { return }
+		let newFraction = min(max((Double(player.playbackInfo.fraction) * Double(track.duration) + delta) / Double(track.duration), 0.0), 1.0)
+		player.seek(to: newFraction)
 	}
 
 	@ViewBuilder

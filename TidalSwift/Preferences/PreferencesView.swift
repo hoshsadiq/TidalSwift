@@ -293,18 +293,26 @@ private struct AudioQualityRows: View {
 			.fixedSize()
 		}
 
+		qualityRow(title: "High", subtitle: "16-bit, 44.1 kHz", quality: .high)
+		qualityRow(title: "Max", subtitle: "Up to 24-bit, 192 kHz", quality: .max)
+	}
+
+	/// One plain radio row for a tier that has no per-value picker.
+	@ViewBuilder
+	private func qualityRow(title: String, subtitle: String, quality: AudioQuality) -> some View {
+		let isSelected = selection == quality
 		Button {
-			select(.high)
+			select(quality)
 		} label: {
 			HStack {
-				Image(systemName: selection == .high ? "largecircle.fill.circle" : "circle")
-					.foregroundStyle(selection == .high ? Color.accentColor : Color.secondary)
+				Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+					.foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
 					.imageScale(.large)
 
 				VStack(alignment: .leading) {
-					Text("High")
+					Text(title)
 						.foregroundStyle(.primary)
-					Text("16-bit, 44.1 kHz")
+					Text(subtitle)
 						.font(.caption)
 						.foregroundStyle(.secondary)
 				}
@@ -313,29 +321,7 @@ private struct AudioQualityRows: View {
 			.contentShape(Rectangle())
 		}
 		.buttonStyle(.plain)
-		.disabled(!isAvailable(.high))
-
-		Button {
-			select(.max)
-		} label: {
-			HStack {
-				Image(systemName: selection == .max ? "largecircle.fill.circle" : "circle")
-					.foregroundStyle(selection == .max ? Color.accentColor : Color.secondary)
-					.imageScale(.large)
-
-				VStack(alignment: .leading) {
-					Text("Max")
-						.foregroundStyle(.primary)
-					Text("Up to 24-bit, 192 kHz")
-						.font(.caption)
-						.foregroundStyle(.secondary)
-				}
-				Spacer()
-			}
-			.contentShape(Rectangle())
-		}
-		.buttonStyle(.plain)
-		.disabled(!isAvailable(.max))
+		.disabled(!isAvailable(quality))
 	}
 }
 

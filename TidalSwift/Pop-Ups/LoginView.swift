@@ -102,7 +102,7 @@ struct LoginView: View {
 	@State private var phase: LoginPhase = .idle
 	@State private var authorizationTask: Task<Void, Never>?
 	@State private var pendingLoginUrl: URL?
-	@State private var counter = 300
+	@State private var secondsRemaining = Int(desktopLoginTimeout)
 	@State private var loginNotice: String?
 	@State private var loginError: String?
 
@@ -168,16 +168,16 @@ struct LoginView: View {
 				Text("Open Browser")
 			}
 
-			if counter > 0 {
-				Text("Time remaining: \(counter)")
+			if secondsRemaining > 0 {
+				Text("Time remaining: \(secondsRemaining)")
 					.task {
-						while counter > 0 {
+						while secondsRemaining > 0 {
 							do {
 								try await Task.sleep(for: .seconds(1))
 							} catch {
 								return
 							}
-							counter -= 1
+							secondsRemaining -= 1
 						}
 					}
 			} else {
@@ -252,7 +252,7 @@ struct LoginView: View {
 		let pending = PendingDesktopLogin()
 		loginInfo.pendingDesktopLogin = pending
 		pendingLoginUrl = url
-		counter = 300
+		secondsRemaining = Int(desktopLoginTimeout)
 		phase = .systemBrowser
 		openURL(url)
 		print("[LOGIN] opened authorize URL in the default browser: \(url.absoluteString)")
@@ -290,7 +290,7 @@ struct LoginView: View {
 			case .pending(loginUrl: let loginUrl, expiration: _):
 				phase = .deviceCode
 				pendingLoginUrl = loginUrl
-				counter = 300
+				secondsRemaining = Int(desktopLoginTimeout)
 				openURL(loginUrl)
 				print("[LOGIN] opened device-code URL in the default browser: \(loginUrl.absoluteString)")
 			case .success:
