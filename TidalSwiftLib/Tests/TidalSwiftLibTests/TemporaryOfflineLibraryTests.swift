@@ -33,6 +33,12 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 	]
 	private var savedDefaults: [String: Any] = [:]
 
+	/// The keys a logout owns, and the offline preferences it must leave alone.
+	/// Unlike `offlineDBKeys`, these are the developer's real values: a test
+	/// snapshots and restores them around any call that could touch them.
+	private let sessionKeys = ["Config Information", "Session Information"]
+	private let offlinePreferenceKeys = ["SaveFavoritesOffline", "offlinePreferDolbyAtmos"]
+
 	override func setUp() {
 		super.setUp()
 		for key in offlineDBKeys { savedDefaults[key] = UserDefaults.standard.object(forKey: key) }
@@ -205,7 +211,82 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 		XCTAssertTrue(cleared, "removing downloads must delete the file and clear the database")
 	}
 
+	/// A plain logout (keep downloads) must not touch the offline state. The
+	/// `OfflineDB:*` database decides which files the next launch's sync keeps,
+	/// so wiping it empties the library on restart. Only the session and config
+	/// keys may go.
+	func testLogoutKeepsOfflineDatabaseAndPreferences() {
+		let track = makeTrack(id: 987_654_503)
+		OfflineDB().addStandaloneOfflineTrack(track) // persists OfflineDB:StandaloneOfflineTracks
+
+		withPreservedDefaults(sessionKeys + offlinePreferenceKeys) {
+			UserDefaults.standard.set(["countryCode": "US", "userId": "1"], forKey: "Session Information")
+			UserDefaults.standard.set(true, forKey: "SaveFavoritesOffline")
+			UserDefaults.standard.set(true, forKey: "offlinePreferDolbyAtmos")
+
+			offlineLibrary.makeSession().logout()
+
+			XCTAssertNil(UserDefaults.standard.object(forKey: "Session Information"),
+						  "logout must clear the stored session")
+			XCTAssertNil(UserDefaults.standard.object(forKey: "Config Information"),
+						  "logout must clear the stored config")
+			XCTAssertNotNil(UserDefaults.standard.data(forKey: "OfflineDB:StandaloneOfflineTracks"),
+							"logout must leave the offline database alone")
+			XCTAssertTrue(UserDefaults.standard.bool(forKey: "SaveFavoritesOffline"),
+						  "logout must leave the offline preferences alone")
+			XCTAssertTrue(UserDefaults.standard.bool(forKey: "offlinePreferDolbyAtmos"),
+						  "logout must leave the offline preferences alone")
+		}
+	}
+
+	/// The session half of the belt-and-braces guard: even called directly,
+	/// `deletePersistentInformation` must not reach a single `OfflineDB:*` key or
+	/// offline preference, or a logout would arm the next launch to delete the
+	/// whole library.
+	func testDeletePersistentInformationCannotTouchOfflineState() {
+		let track = makeTrack(id: 987_654_504)
+		OfflineDB().addStandaloneOfflineTrack(track)
+
+		withPreservedDefaults(sessionKeys + offlinePreferenceKeys) {
+			UserDefaults.standard.set(["countryCode": "US", "userId": "1"], forKey: "Session Information")
+			UserDefaults.standard.set(true, forKey: "offlinePreferDolbyAtmos")
+			let offlineKeysBefore = offlineRelatedKeys()
+
+			offlineLibrary.makeSession().deletePersistentInformation()
+
+			XCTAssertNil(UserDefaults.standard.object(forKey: "Session Information"))
+			XCTAssertNil(UserDefaults.standard.object(forKey: "Config Information"))
+			XCTAssertEqual(offlineRelatedKeys(), offlineKeysBefore,
+						   "deletePersistentInformation must not touch the offline database or preferences")
+		}
+	}
+
 	// MARK: - Helpers
+
+	/// Snapshots and restores the given keys around a call, so a test running
+	/// against the developer's real UserDefaults domain puts back exactly what it
+	/// found.
+	private func withPreservedDefaults(_ keys: [String], _ body: () -> Void) {
+		let saved = keys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
+		defer {
+			for (key, value) in saved {
+				if let value {
+					UserDefaults.standard.set(value, forKey: key)
+				} else {
+					UserDefaults.standard.removeObject(forKey: key)
+				}
+			}
+		}
+		body()
+	}
+
+	/// Every offline-related key currently in the app domain: the database and the
+	/// offline preferences.
+	private func offlineRelatedKeys() -> Set<String> {
+		Set(UserDefaults.standard.dictionaryRepresentation().keys.filter {
+			$0.hasPrefix("OfflineDB:") || offlinePreferenceKeys.contains($0)
+		})
+	}
 
 	/// Polls a MainActor condition while letting the sync tasks run. Bounded so a
 	/// broken sync fails the test instead of hanging it.

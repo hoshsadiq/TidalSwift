@@ -60,9 +60,18 @@ extension Session {
 		UserDefaults.standard.set(persistentInformation, forKey: "Config Information")
 	}
 
+	/// The only keys a logout owns: what `saveConfig` and `saveSession` write.
+	/// Everything else in the app's UserDefaults domain — the `OfflineDB:*`
+	/// database and the offline preferences — says which audio files the offline
+	/// library holds. `Offline.init` deletes every file missing from that database
+	/// at launch, so removing the whole persistent domain here emptied the
+	/// library on the next start.
+	private static let sessionKeys = ["Config Information", "Session Information"]
+
 	public func deletePersistentInformation() {
-		let domain = Bundle.main.bundleIdentifier!
-		UserDefaults.standard.removePersistentDomain(forName: domain)
+		for key in Self.sessionKeys {
+			UserDefaults.standard.removeObject(forKey: key)
+		}
 	}
 }
 
