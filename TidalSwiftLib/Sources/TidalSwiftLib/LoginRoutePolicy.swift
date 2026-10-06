@@ -7,66 +7,60 @@
 //
 
 import Foundation
-import AuthenticationServices
 
-/// The order in which the login sheet tries its methods, and what an ended
-/// in-app browser session means. Pure and free of windows, so every branch is
-/// exercisable without a browser or a user.
+/// The login methods, in the order the sheet tries them, and what a method that
+/// stopped without completing the login means. Pure and free of browsers and
+/// windows, so every branch is exercisable without a login.
 public nonisolated enum LoginRoutePolicy {
 	/// The login methods, in the order the sheet tries them.
 	public enum Route: Equatable, Sendable {
-		/// Tidal's page in a session-owned browser window. The session catches
-		/// the `tidal://login/auth` redirect itself, so this route needs no
-		/// URL-scheme registration.
-		case inAppBrowser
-		/// Tidal's page in the system browser, whose callback returns over
-		/// `tidal://` and so needs this app to be the scheme's handler.
+		/// Tidal's page in the system browser. Its `tidal://login/auth` callback
+		/// reaches the app only while this app is the handler of that scheme.
 		case systemBrowser
-		/// Tidal's device-code flow, which needs no callback and no browser page
-		/// of ours.
+		/// Tidal's device-code flow, which needs no callback and no browser page of
+		/// ours.
 		case deviceCode
 	}
 
-	/// How an in-app browser session ended.
-	public enum SessionEnd: Equatable, Sendable {
-		case succeeded
-		/// The user dismissed the session, or declined macOS's offer to share the
-		/// Safari session. A normal cancel, never a failure to report as one.
+	/// Why a method stopped without completing the login.
+	public enum End: Equatable, Sendable {
+		/// The sheet closed, or a new attempt replaced this one. The user is gone: a
+		/// normal cancel, never a failure to report.
 		case cancelled
-		/// The session never started: no presentation context, or an unusable one.
-		case unavailable
-		/// The session started and then ended for another reason.
+		/// The browser page was opened, but no callback reached the app in time.
+		case timedOut
+		/// Anything else.
 		case failed
 	}
 
-	/// The route to run after an in-app browser session ends this way, or `nil`
-	/// when the session completed the login and nothing follows.
+	/// The method the sheet starts with.
 	///
-	/// The system browser is only available when the `handleTidalLinks`
-	/// preference turned it on and `tidal://` is this app's, because its callback
-	/// arrives over that scheme; otherwise the chain skips to the device code.
-	/// Cancel and failure both continue down the chain, so no outcome leaves the
-	/// sheet waiting on a session that is already over.
-	public static func nextRoute(after end: SessionEnd, systemBrowserAvailable: Bool) -> Route? {
-		switch end {
-		case .succeeded:
+	/// The browser only runs when the `handleTidalLinks` preference makes `tidal://`
+	/// this app's, because that is what brings its callback back here; otherwise the
+	/// device code runs straight away and no page of ours is opened at all.
+	public static func firstRoute(systemBrowserAvailable: Bool) -> Route {
+		systemBrowserAvailable ? .systemBrowser : .deviceCode
+	}
+
+	/// The method to run after `route` stopped without completing the login, or nil
+	/// when the chain is over. The browser is followed by the device code, and a
+	/// cancel ends the chain — nothing starts behind the user's back.
+	public static func nextRoute(after route: Route, end: End) -> Route? {
+		guard end != .cancelled else { return nil }
+		switch route {
+		case .systemBrowser:
+			return .deviceCode
+		case .deviceCode:
 			return nil
-		case .cancelled, .unavailable, .failed:
-			return systemBrowserAvailable ? .systemBrowser : .deviceCode
 		}
 	}
 
-	/// Reads an `ASWebAuthenticationSession` error as a `SessionEnd`. Anything
-	/// from another domain is a failure.
-	public static func sessionEnd(for error: Error) -> SessionEnd {
-		guard let sessionError = error as? ASWebAuthenticationSessionError else { return .failed }
-		switch sessionError.code {
-		case .canceledLogin:
-			return .cancelled
-		case .presentationContextNotProvided, .presentationContextInvalid:
-			return .unavailable
-		default:
-			return .failed
-		}
+	/// Reads an error as an `End`. A cancelled task is the sheet closing or an attempt
+	/// being replaced, which is not a failure; the login's own timeout is its own end
+	/// because the sheet words it differently from a failure.
+	public static func end(for error: Error) -> End {
+		if error is CancellationError { return .cancelled }
+		if let loginError = error as? DesktopLogin.LoginError, case .timeout = loginError { return .timedOut }
+		return .failed
 	}
 }

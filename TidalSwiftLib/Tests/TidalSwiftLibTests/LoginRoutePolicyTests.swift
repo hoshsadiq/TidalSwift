@@ -7,102 +7,82 @@
 //
 
 import XCTest
-import AuthenticationServices
 @testable import TidalSwiftLib
 
-/// Pins how the login sheet continues after an in-app browser session, and what
-/// an `ASWebAuthenticationSession` error means. Both are pure functions, so the
-/// whole table is asserted rather than a representative few.
+/// Pins the login chain's order and what an error means. Both are pure functions, so
+/// the whole table is asserted rather than a representative few.
 final class LoginRoutePolicyTests: XCTestCase {
 
-	/// The rule, restated independently of the implementation, so a change to
-	/// either side that the other does not follow fails here.
+	/// The rule, restated independently of the implementation, so a change to either
+	/// side that the other does not follow fails here.
 	private func expectedNext(
-		after end: LoginRoutePolicy.SessionEnd,
-		systemBrowserAvailable: Bool
+		after route: LoginRoutePolicy.Route,
+		end: LoginRoutePolicy.End
 	) -> LoginRoutePolicy.Route? {
-		switch end {
-		case .succeeded:
-			return nil
-		case .cancelled, .unavailable, .failed:
-			return systemBrowserAvailable ? .systemBrowser : .deviceCode
-		}
+		guard end != .cancelled else { return nil }
+		return route == .systemBrowser ? .deviceCode : nil
 	}
 
-	/// The whole table: every way a session can end, with and without a usable
-	/// system browser.
-	func testNextRouteTableForEveryEndAndAvailability() {
-		let ends: [LoginRoutePolicy.SessionEnd] = [.succeeded, .cancelled, .unavailable, .failed]
-		for end in ends {
-			for available in [true, false] {
+	/// The whole table: where the chain starts, and where each end leaves it, with and
+	/// without a system browser that can return the callback.
+	func testRouteTableForEveryEndAndAvailability() {
+		let ends: [LoginRoutePolicy.End] = [.cancelled, .timedOut, .failed]
+		for available in [true, false] {
+			let start = LoginRoutePolicy.firstRoute(systemBrowserAvailable: available)
+			XCTAssertEqual(start, available ? .systemBrowser : .deviceCode, "systemBrowserAvailable=\(available)")
+			for end in ends {
 				XCTAssertEqual(
-					LoginRoutePolicy.nextRoute(after: end, systemBrowserAvailable: available),
-					expectedNext(after: end, systemBrowserAvailable: available),
-					"end=\(end), systemBrowserAvailable=\(available)"
+					LoginRoutePolicy.nextRoute(after: start, end: end),
+					expectedNext(after: start, end: end),
+					"route=\(start), end=\(end), systemBrowserAvailable=\(available)"
 				)
 			}
 		}
 	}
 
-	/// A cancel — including macOS's declined "share your Safari session" alert —
-	/// continues down the chain instead of stopping the login.
-	func testCancelledLoginFallsThroughInsteadOfStopping() {
-		XCTAssertEqual(
-			LoginRoutePolicy.nextRoute(after: .cancelled, systemBrowserAvailable: true),
-			.systemBrowser
-		)
-		XCTAssertEqual(
-			LoginRoutePolicy.nextRoute(after: .cancelled, systemBrowserAvailable: false),
-			.deviceCode
-		)
+	/// The browser is what the sheet starts with when the `tidal://` callback can
+	/// reach this app, and the device code is what follows it, whether the attempt
+	/// timed out or failed otherwise.
+	func testSystemBrowserStartsAndTheDeviceCodeFollows() {
+		XCTAssertEqual(LoginRoutePolicy.firstRoute(systemBrowserAvailable: true), .systemBrowser)
+		XCTAssertEqual(LoginRoutePolicy.nextRoute(after: .systemBrowser, end: .timedOut), .deviceCode)
+		XCTAssertEqual(LoginRoutePolicy.nextRoute(after: .systemBrowser, end: .failed), .deviceCode)
 	}
 
-	/// A session that never started is still a reason to try the next method, not
-	/// to leave the sheet waiting.
-	func testSessionThatCannotStartStillFallsThrough() {
-		XCTAssertEqual(
-			LoginRoutePolicy.nextRoute(after: .unavailable, systemBrowserAvailable: true),
-			.systemBrowser
-		)
-		XCTAssertEqual(
-			LoginRoutePolicy.nextRoute(after: .unavailable, systemBrowserAvailable: false),
-			.deviceCode
-		)
+	/// Without a browser that can return the callback, the device code is where the
+	/// sheet starts and there is nothing after it.
+	func testDeviceCodeIsTheWholeChainWhenTheBrowserCannotReturn() {
+		XCTAssertEqual(LoginRoutePolicy.firstRoute(systemBrowserAvailable: false), .deviceCode)
+		XCTAssertNil(LoginRoutePolicy.nextRoute(after: .deviceCode, end: .timedOut))
+		XCTAssertNil(LoginRoutePolicy.nextRoute(after: .deviceCode, end: .failed))
 	}
 
-	/// A completed login has nothing to fall through to.
-	func testCompletedLoginHasNoNextRoute() {
-		XCTAssertNil(LoginRoutePolicy.nextRoute(after: .succeeded, systemBrowserAvailable: true))
-		XCTAssertNil(LoginRoutePolicy.nextRoute(after: .succeeded, systemBrowserAvailable: false))
+	/// A cancel — the sheet closing, or a new attempt replacing this one — ends the
+	/// chain, so nothing starts behind the user's back.
+	func testCancelEndsTheChain() {
+		XCTAssertNil(LoginRoutePolicy.nextRoute(after: .systemBrowser, end: .cancelled))
+		XCTAssertNil(LoginRoutePolicy.nextRoute(after: .deviceCode, end: .cancelled))
 	}
 
-	/// Dismissing the sheet, or declining the Safari-session alert, is the error
-	/// code macOS reports for both.
-	func testSessionEndReadsCancelAsNormalCancel() {
-		XCTAssertEqual(
-			LoginRoutePolicy.sessionEnd(for: ASWebAuthenticationSessionError(.canceledLogin)),
-			.cancelled
-		)
+	/// A cancelled task is read as a cancel, never as a failure to report.
+	func testCancelledTaskIsReadAsCancel() {
+		XCTAssertEqual(LoginRoutePolicy.end(for: CancellationError()), .cancelled)
 	}
 
-	/// A missing or unusable presentation context is what makes the session unable
-	/// to start at all.
-	func testSessionEndReadsPresentationContextErrorsAsUnavailable() {
-		XCTAssertEqual(
-			LoginRoutePolicy.sessionEnd(for: ASWebAuthenticationSessionError(.presentationContextNotProvided)),
-			.unavailable
-		)
-		XCTAssertEqual(
-			LoginRoutePolicy.sessionEnd(for: ASWebAuthenticationSessionError(.presentationContextInvalid)),
-			.unavailable
-		)
+	/// The callback never arriving is its own end, because the sheet words it
+	/// differently from a failure.
+	func testLoginTimeoutIsReadAsTimeout() {
+		XCTAssertEqual(LoginRoutePolicy.end(for: DesktopLogin.LoginError.timeout), .timedOut)
 	}
 
-	/// Errors from anywhere else are failures, never cancels.
-	func testSessionEndReadsForeignErrorsAsFailed() {
+	/// Every other login error is a failure, including one that wraps a cancellation:
+	/// only a cancelled task is a cancel.
+	func testLoginErrorsAreReadAsFailure() {
+		XCTAssertEqual(LoginRoutePolicy.end(for: DesktopLogin.LoginError.invalidCallback), .failed)
 		XCTAssertEqual(
-			LoginRoutePolicy.sessionEnd(for: NSError(domain: "io.hosh.TidalSwift", code: 1)),
+			LoginRoutePolicy.end(for: DesktopLogin.LoginError.network(underlying: CancellationError())),
 			.failed
 		)
+		XCTAssertEqual(LoginRoutePolicy.end(for: NSError(domain: "io.hosh.TidalSwift", code: 1)), .failed)
 	}
 }
