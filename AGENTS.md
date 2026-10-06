@@ -56,6 +56,8 @@ Use Xcode's MCP if possible.
   Build the framework target.
 
 There is no test suite for the app target. `TidalSwiftLib` has one: run `mise run test-lib`, which is what the CI library job runs. `mise run scan` runs Periphery across both targets to flag unused code. If `mise run build` fails due to local cache issues, build directly in Xcode and capture the exact error in the PR.
+
+Run the app with `mise run app`, which builds it, then launches the copy in this checkout. It also unregisters every other copy of `TidalSwift.app` that has ever been launched — earlier worktree builds, the Periphery cache, an installed copy — because each one claims the `tidal://` scheme, and LaunchServices picks among them when the login callback arrives. A stale path can swallow it, which looks like a login that opens the wrong app or never returns. `TIDY_ONLY=1 mise run app` does the tidying without launching.
 Tests must stay away from the developer's own data: never let a test read the stored session (`Session(config: nil)` does, through `Config.load()`), and never let one write to the real offline folder — construct a `TemporaryOfflineLibrary` and pass its root to `Session`.
 
 ## Coding Style & Naming Conventions
