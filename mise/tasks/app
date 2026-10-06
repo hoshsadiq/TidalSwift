@@ -75,6 +75,15 @@ if [[ -n "${TIDY_ONLY:-}" ]]; then
 fi
 
 # The app claims tidal:// for itself on launch, which is what makes the callback
-# come back here rather than to one of the copies just removed.
-open "$APP_PATH"
-printf 'launched %s\n' "$APP_PATH"
+# come back here rather than to one of the copies just removed. Run the binary
+# rather than `open` so its console output — the `[LOGIN]` and `[PLAYBACK]` lines —
+# arrives in this terminal: a launched app's stdout goes nowhere otherwise, which
+# makes the login flow impossible to read. Ctrl-C quits it; LAUNCH_DETACHED=1 uses
+# `open` instead.
+if [[ -n "${LAUNCH_DETACHED:-}" ]]; then
+	open "$APP_PATH"
+	printf 'launched %s (detached, no console output)\n' "$APP_PATH"
+else
+	printf 'launching %s — console output follows, Ctrl-C quits\n' "$APP_PATH"
+	exec "$APP_PATH/Contents/MacOS/TidalSwift"
+fi
