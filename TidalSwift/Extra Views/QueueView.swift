@@ -373,21 +373,31 @@ private struct QueueScrollObserver: NSViewRepresentable {
 
 	private final class ObserverView: NSView {
 		var onUserScroll: (() -> Void)?
-		/// Only touched on the main thread; `nonisolated(unsafe)` lets the
-		/// nonisolated `deinit` remove the registration.
+		/// Registered on the main thread, but `deinit` is not guaranteed to run there,
+		/// so the lock guards the handoff.
+		nonisolated let observerLock = NSLock()
 		nonisolated(unsafe) private var observer: NSObjectProtocol?
 
 		override func viewDidMoveToWindow() {
 			super.viewDidMoveToWindow()
 			guard window != nil else { return }
 			attachIfNeeded()
-			if observer == nil {
+			if registeredObserver == nil {
 				DispatchQueue.main.async { [weak self] in self?.attachIfNeeded() }
 			}
 		}
 
+		private var registeredObserver: NSObjectProtocol? {
+			observerLock.lock()
+			defer { observerLock.unlock() }
+			return observer
+		}
+
 		private func attachIfNeeded() {
-			guard observer == nil, let scrollView = enclosingScrollView else { return }
+			guard let scrollView = enclosingScrollView else { return }
+			observerLock.lock()
+			defer { observerLock.unlock() }
+			guard observer == nil else { return }
 			observer = NotificationCenter.default.addObserver(
 				forName: NSScrollView.willStartLiveScrollNotification,
 				object: scrollView,
@@ -405,8 +415,12 @@ private struct QueueScrollObserver: NSViewRepresentable {
 		override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
 		deinit {
-			if let observer {
-				NotificationCenter.default.removeObserver(observer)
+			observerLock.lock()
+			let token = observer
+			observer = nil
+			observerLock.unlock()
+			if let token {
+				NotificationCenter.default.removeObserver(token)
 			}
 		}
 	}

@@ -607,6 +607,10 @@ final class HiResStreamCacheTests: XCTestCase {
 
 		let downloadAndDecrypt: @Sendable (AcceptedHiResManifest, URL) async throws -> Void = HiResStreaming.downloadAndDecrypt
 		_ = downloadAndDecrypt
+		// `Network.download` runs off the caller's actor too, so the file moves that
+		// follow its await do not land on the main actor.
+		let download: @Sendable (URL, URL, Bool, URLSession) async throws -> Void = Network.download
+		_ = download
 	}
 
 	/// Waits for a condition the prefetcher sets on the main actor, without a fixed

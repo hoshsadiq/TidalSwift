@@ -54,24 +54,31 @@ enum NowPlayingAmbient {
 		return cache
 	}()
 
-	/// Average color of the given artwork, tuned to the TIDAL look, or `nil` when
+	/// One shared context for every derivation. Building one per call measured 63 ms
+	/// cold against 12 ms warm, and `CIContext` is thread-safe, so a single instance
+	/// is reused across the off-main-actor derivations.
+	private nonisolated static let colorContext = CIContext(options: [.workingColorSpace: NSNull()])
+
+	/// Average colour of the given image data, tuned to the TIDAL look, or `nil` when
 	/// it can't be derived.
-	static func color(from image: NSImage) -> Color? {
-		guard let tiff = image.tiffRepresentation,
-			  let ciImage = CIImage(data: tiff) else { return nil }
+	///
+	/// `@concurrent`: rasterising and area-averaging is CPU work with no UI or
+	/// observable state, so it does not run on the caller's (main) actor.
+	@concurrent
+	private static func averageColor(of data: Data) async -> Color? {
+		guard let ciImage = CIImage(data: data) else { return nil }
 		let extent = ciImage.extent
 		guard let filter = CIFilter(name: "CIAreaAverage",
 									parameters: [kCIInputImageKey: ciImage,
 												 kCIInputExtentKey: CIVector(cgRect: extent)]),
 			  let output = filter.outputImage else { return nil }
 		var bitmap = [UInt8](repeating: 0, count: 4)
-		let context = CIContext(options: [.workingColorSpace: NSNull()])
-		context.render(output,
-					   toBitmap: &bitmap,
-					   rowBytes: 4,
-					   bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
-					   format: .RGBA8,
-					   colorSpace: nil)
+		colorContext.render(output,
+							toBitmap: &bitmap,
+							rowBytes: 4,
+							bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
+							format: .RGBA8,
+							colorSpace: nil)
 		return tuned(red: CGFloat(bitmap[0]) / 255,
 					 green: CGFloat(bitmap[1]) / 255,
 					 blue: CGFloat(bitmap[2]) / 255)
@@ -86,17 +93,20 @@ enum NowPlayingAmbient {
 		if let cached = cache.object(forKey: url as NSURL) {
 			return Color(nsColor: cached)
 		}
-		let image: NSImage
+		let data: Data
 		if let cachedImage = ArtworkImage.cachedImage(for: url) {
-			image = cachedImage
-		} else if let (data, _) = try? await URLSession.shared.data(from: url),
-				  let downloaded = NSImage(data: data) {
-			image = downloaded
+			guard let tiff = cachedImage.tiffRepresentation else {
+				logger.error("ambient derivation failed url=\(url.absoluteString, privacy: .public)")
+				return fallback
+			}
+			data = tiff
+		} else if let (downloaded, _) = try? await URLSession.shared.data(from: url) {
+			data = downloaded
 		} else {
 			logger.error("ambient derivation failed url=\(url.absoluteString, privacy: .public)")
 			return fallback
 		}
-		guard let color = color(from: image) else {
+		guard let color = await averageColor(of: data) else {
 			logger.error("ambient derivation failed url=\(url.absoluteString, privacy: .public)")
 			return fallback
 		}
@@ -108,7 +118,7 @@ enum NowPlayingAmbient {
 	/// Keeps the artwork's hue but cuts saturation and pins brightness into the
 	/// ~25–35% band, so the ambient reads as a deep, muted TIDAL-style wash
 	/// rather than a bright copy of the cover.
-	private static func tuned(red: CGFloat, green: CGFloat, blue: CGFloat) -> Color {
+	nonisolated private static func tuned(red: CGFloat, green: CGFloat, blue: CGFloat) -> Color {
 		let base = NSColor(calibratedRed: red, green: green, blue: blue, alpha: 1)
 			.usingColorSpace(.deviceRGB) ?? NSColor(calibratedWhite: 0.2, alpha: 1)
 		var hue: CGFloat = 0
@@ -161,6 +171,11 @@ struct NowPlayingAmbientLayer: View {
 			playbackInfo.ambientColor = NowPlayingAmbient.fallback
 			return
 		}
-		playbackInfo.ambientColor = await NowPlayingAmbient.color(for: url)
+		let color = await NowPlayingAmbient.color(for: url)
+		// `.task(id:)` cancels this derivation when the track changes. A cancelled
+		// download yields the fallback colour, and writing it here would overwrite the
+		// colour the replacement task already wrote.
+		guard !Task.isCancelled else { return }
+		playbackInfo.ambientColor = color
 	}
 }

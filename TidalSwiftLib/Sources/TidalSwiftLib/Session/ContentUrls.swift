@@ -100,11 +100,13 @@ extension Session {
 	/// the 24-bit stereo rendition when the session carries a `cuk` claim.
 	///
 	/// The endpoint lives on `desktop.tidal.com` and is asked the way the official
-	/// desktop client asks it (measured 2026-10-05): `audioquality=HI_RES_LOSSLESS`,
-	/// `playbackmode=STREAM`, `assetpresentation=FULL`, the desktop
-	/// `X-Tidal-Token`, the desktop user agent and a fresh streaming session id per
-	/// request. A session without `cuk` is answered Atmos here, which the policy
-	/// refuses, so the same call is safe to make unconditionally.
+	/// desktop client asks it: `audioquality=HI_RES_LOSSLESS`, `playbackmode=STREAM`,
+	/// `assetpresentation=FULL` plus the same request variant every other v1 call
+	/// sends (`countryCode`/`deviceType`/`platform`/`locale`), the desktop
+	/// `X-Tidal-Token`, the `x-tidal-client-version` header, the desktop user agent
+	/// and a fresh streaming session id per request. A session without `cuk` is
+	/// answered Atmos here, which the policy refuses, so the same call is safe to
+	/// make unconditionally.
 	func hiResStereoStream(trackId: Int, audioQuality: AudioQuality = .max) async -> HiResStereoResolution {
 		do {
 			let response: TrackPlaybackInfo = try await desktopPlaybackInfo(trackId: trackId, audioQuality: audioQuality)
@@ -117,15 +119,23 @@ extension Session {
 
 	private func desktopPlaybackInfo(trackId: Int, audioQuality: AudioQuality) async throws -> TrackPlaybackInfo {
 		try? await refreshAccessTokenIfNeeded()
-		var components = URLComponents(string: "\(HiResStreaming.desktopAPILocation)/tracks/\(trackId)/playbackinfo")!
-		components.queryItems = [
-			URLQueryItem(name: "audioquality", value: audioQuality.rawValue),
-			URLQueryItem(name: "playbackmode", value: "STREAM"),
-			URLQueryItem(name: "assetpresentation", value: "FULL")
+		var parameters: [String: String] = [
+			"audioquality": audioQuality.rawValue,
+			"playbackmode": "STREAM",
+			"assetpresentation": "FULL",
+			"deviceType": "BROWSER",
+			"platform": "WEB",
+			"locale": Self.localeParameter
 		]
+		if let countryCode {
+			parameters["countryCode"] = countryCode
+		}
+		var components = URLComponents(string: "\(HiResStreaming.desktopAPILocation)/tracks/\(trackId)/playbackinfo")!
+		components.queryItems = parameters.map { URLQueryItem(name: $0.key, value: $0.value) }
 		var request = URLRequest(url: components.url!)
 		request.setValue(config.accessToken, forHTTPHeaderField: "Authorization")
 		request.setValue(AuthInformation.DesktopClientID, forHTTPHeaderField: "X-Tidal-Token")
+		request.setValue(AuthInformation.clientVersion, forHTTPHeaderField: "x-tidal-client-version")
 		request.setValue(AuthInformation.tidalClientUserAgent, forHTTPHeaderField: "User-Agent")
 		request.setValue(UUID().uuidString.lowercased(), forHTTPHeaderField: "x-tidal-streamingsessionid")
 
@@ -262,8 +272,9 @@ extension Session {
 	}
 
 	/// Resolves a track through `/tracks/{id}/playbackinfopostpaywall`, the fallback
-	/// for tracks `streamUrl` refuses. Dolby Atmos-only tracks answer
-	/// HTTP 401 subStatus 4005 "Asset is not ready for playback". Returns nil for
+	/// for tracks `streamUrl` refuses. `streamUrl` answers an Atmos-only track with
+	/// HTTP 401 subStatus 4005 "Asset is not ready for playback"; this endpoint serves
+	/// that track's unencrypted E-AC-3 (`eac3`) BTS manifest instead. Returns nil for
 	/// non-BTS manifests: Tidal answers the High/Low tiers with DASH, which AVPlayer
 	/// cannot play, while hi-res answers BTS. Whether the accepted rendition is Atmos
 	/// is decided by `PlaybackManifestPolicy` from the response, not assumed from the
