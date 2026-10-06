@@ -136,7 +136,7 @@ struct LoginView: View {
 		VStack {
 			switch phase {
 			case .idle:
-				Text("Sign in with your Tidal account. The login page opens in a window inside the app.")
+				Text("Sign in with your Tidal account. Tidal's page opens in its own window and returns here when you are done.")
 			case .inAppBrowser:
 				Text("Waiting for you to sign in…")
 			case .systemBrowser:

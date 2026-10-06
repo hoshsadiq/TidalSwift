@@ -62,7 +62,11 @@ final class LoginWindowCaptureView: NSView {
 	}
 }
 
-/// Runs one Tidal login in a browser window inside the app.
+/// Runs one Tidal login in a session-owned browser window.
+///
+/// On macOS the session shows its own window rather than a sheet inside the app's
+/// window, which is the platform's presentation for this API; the anchor below
+/// only decides which window it is associated with.
 ///
 /// `ASWebAuthenticationSession` intercepts the `tidal://login/auth` redirect
 /// itself — the header allows this through `callbackURLScheme:` — so the login

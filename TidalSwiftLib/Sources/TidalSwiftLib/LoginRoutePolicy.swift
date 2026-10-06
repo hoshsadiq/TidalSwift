@@ -15,7 +15,7 @@ import AuthenticationServices
 public nonisolated enum LoginRoutePolicy {
 	/// The login methods, in the order the sheet tries them.
 	public enum Route: Equatable, Sendable {
-		/// Tidal's page in a browser window inside the app. The session catches
+		/// Tidal's page in a session-owned browser window. The session catches
 		/// the `tidal://login/auth` redirect itself, so this route needs no
 		/// URL-scheme registration.
 		case inAppBrowser
