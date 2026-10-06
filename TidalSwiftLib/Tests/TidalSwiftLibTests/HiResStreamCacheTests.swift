@@ -169,7 +169,7 @@ final class HiResStreamCacheTests: XCTestCase {
 		let offlineLibrary = TemporaryOfflineLibrary(label: "HiResStreamCache")
 		defer { offlineLibrary.remove() }
 		let session = offlineLibrary.makeSession(config: Config(
-			accessToken: Self.tokenWithCukClaim(),
+			accessToken: try Self.tokenWithCukClaim(),
 			refreshToken: "",
 			clientID: AuthInformation.DesktopClientID,
 			offlineAudioQuality: .high
@@ -210,7 +210,7 @@ final class HiResStreamCacheTests: XCTestCase {
 		let offlineLibrary = TemporaryOfflineLibrary(label: "HiResStreamCache")
 		defer { offlineLibrary.remove() }
 		let session = offlineLibrary.makeSession(config: Config(
-			accessToken: Self.tokenWithCukClaim(),
+			accessToken: try Self.tokenWithCukClaim(),
 			refreshToken: "",
 			clientID: AuthInformation.DesktopClientID,
 			offlineAudioQuality: .max
@@ -502,9 +502,9 @@ final class HiResStreamCacheTests: XCTestCase {
 		}
 	}
 
-	private static func tokenWithCukClaim() -> String {
+	private static func tokenWithCukClaim() throws -> String {
 		let payload: [String: Any] = ["uid": 1, "cuk": "client-key"]
-		let data = try! JSONSerialization.data(withJSONObject: payload)
+		let data = try JSONSerialization.data(withJSONObject: payload)
 		let body = data.base64EncodedString()
 			.replacingOccurrences(of: "+", with: "-")
 			.replacingOccurrences(of: "/", with: "_")

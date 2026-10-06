@@ -12,36 +12,36 @@ public class Favorites {
 	private unowned let session: Session
 	private var cache: FavoritesCache!
 	private let baseUrl: String
-	
+
 	public init(session: Session, userId: Int) {
 		self.session = session
 		self.baseUrl = "\(AuthInformation.APILocation)/users/\(userId)/favorites"
 		self.cache = FavoritesCache(favorites: self)
 	}
-	
+
 	// Return
-	
+
 	public func artists(order: ArtistOrder? = nil, orderDirection: OrderDirection? = nil) async -> [FavoriteArtist]? {
 		let url = URL(string: "\(baseUrl)/artists")!
 		return await allPages(FavoriteArtists.self, url: url, pageSize: 1000, order: order?.rawValue, orderDirection: orderDirection)
 	}
-	
+
 	public func albums(order: AlbumOrder? = nil, orderDirection: OrderDirection? = nil) async -> [FavoriteAlbum]? {
 		let url = URL(string: "\(baseUrl)/albums")!
 		return await allPages(FavoriteAlbums.self, url: url, pageSize: 1000, order: order?.rawValue, orderDirection: orderDirection)
 	}
-	
+
 	public func tracks(order: TrackOrder? = nil, orderDirection: OrderDirection? = nil) async -> [FavoriteTrack]? {
 		let url = URL(string: "\(baseUrl)/tracks")!
 		return await allPages(FavoriteTracks.self, url: url, pageSize: 1000, order: order?.rawValue, orderDirection: orderDirection)
 	}
-	
+
 	public func videos(order: VideoOrder? = nil, orderDirection: OrderDirection? = nil) async -> [FavoriteVideo]? {
 		let url = URL(string: "\(baseUrl)/videos")!
 		// Unlike the rest, here a maximum limit of 100 exists. Error if higher.
 		return await allPages(FavoriteVideos.self, url: url, pageSize: 100, order: order?.rawValue, orderDirection: orderDirection)
 	}
-	
+
 	/// - Note: Includes User Playlists
 	public func playlists(order: PlaylistOrder? = nil, orderDirection: OrderDirection? = nil) async -> [FavoritePlaylist]? {
 		guard let userId = session.userId else {
@@ -51,7 +51,7 @@ public class Favorites {
 		// Maximum of 50 allowed by Tidal
 		return await allPages(FavoritePlaylists.self, url: url, pageSize: 50, order: order?.rawValue, orderDirection: orderDirection)
 	}
-	
+
 	/// - Note: Only includes User Favorited Playlists, unlike `playlists()`, which also includes User Playlists.
 	public func favoritedPlaylists(order: PlaylistOrder? = nil, orderDirection: OrderDirection? = nil) async -> [Playlist]? {
 		let url = URL(string: "\(baseUrl)/playlists")!
@@ -60,7 +60,7 @@ public class Favorites {
 		}
 		return items.map(\.item)
 	}
-	
+
 	/// Fetches every page, so the result doesn't depend on the order.
 	/// - Note: Defaults to newest first, because Tidal's default order isn't stable across pages and repeats or skips items.
 	private func allPages<Page: FavoritesPage>(_ pageType: Page.Type, url: URL, pageSize: Int, order: String?, orderDirection: OrderDirection?) async -> [Page.Item]? {
@@ -85,18 +85,18 @@ public class Favorites {
 			}
 		}
 	}
-	
+
 	public func userPlaylists() async -> [Playlist]? {
 		guard let userId = session.userId else {
 			displayError(title: "User Playlists failed", content: "User ID not set yet.")
 			return nil
 		}
-		
+
 		return await session.userPlaylists(userId: userId)
 	}
-	
+
 	// Add
-	
+
 	@discardableResult public func addArtist(artistId: Int) async -> Bool {
 		let url = URL(string: "\(baseUrl)/artists")!
 		var parameters = session.sessionParameters
@@ -109,7 +109,7 @@ public class Favorites {
 			return false
 		}
 	}
-	
+
 	@discardableResult public func addAlbum(albumId: Int) async -> Bool {
 		let url = URL(string: "\(baseUrl)/albums")!
 		var parameters = session.sessionParameters
@@ -122,7 +122,7 @@ public class Favorites {
 			return false
 		}
 	}
-	
+
 	@discardableResult public func addTrack(trackId: Int) async -> Bool {
 		let url = URL(string: "\(baseUrl)/tracks")!
 		var parameters = session.sessionParameters
@@ -135,7 +135,7 @@ public class Favorites {
 			return false
 		}
 	}
-	
+
 	@discardableResult public func addVideo(videoId: Int) async -> Bool {
 		let url = URL(string: "\(baseUrl)/videos")!
 		var parameters = session.sessionParameters
@@ -148,7 +148,7 @@ public class Favorites {
 			return false
 		}
 	}
-	
+
 	@discardableResult public func addPlaylist(playlistId: String) async -> Bool {
 		let url = URL(string: "\(baseUrl)/playlists")!
 		var parameters = session.sessionParameters
@@ -161,9 +161,9 @@ public class Favorites {
 			return false
 		}
 	}
-	
+
 	// Delete
-	
+
 	@discardableResult public func removeArtist(artistId: Int) async -> Bool {
 		let url = URL(string: "\(baseUrl)/artists/\(artistId)")!
 		do {
@@ -174,7 +174,7 @@ public class Favorites {
 			return false
 		}
 	}
-	
+
 	@discardableResult public func removeAlbum(albumId: Int) async -> Bool {
 		let url = URL(string: "\(baseUrl)/albums/\(albumId)")!
 		do {
@@ -185,7 +185,7 @@ public class Favorites {
 			return false
 		}
 	}
-	
+
 	@discardableResult public func removeTrack(trackId: Int) async -> Bool {
 		let url = URL(string: "\(baseUrl)/tracks/\(trackId)")!
 		do {
@@ -196,7 +196,7 @@ public class Favorites {
 			return false
 		}
 	}
-	
+
 	@discardableResult public func removeVideo(videoId: Int) async -> Bool {
 		let url = URL(string: "\(baseUrl)/videos/\(videoId)")!
 		do {
@@ -207,7 +207,7 @@ public class Favorites {
 			return false
 		}
 	}
-	
+
 	@discardableResult public func removePlaylist(playlistId: String) async -> Bool {
 		let url = URL(string: "\(baseUrl)/playlists/\(playlistId)")!
 		do {
@@ -218,9 +218,9 @@ public class Favorites {
 			return false
 		}
 	}
-	
+
 	// Check
-	
+
 	public func doFavoritesContainArtist(artistId: Int) async -> Bool? {
 		guard let artists = await cache.artists else {
 			return nil
@@ -230,7 +230,7 @@ public class Favorites {
 		}
 		return false
 	}
-	
+
 	public func doFavoritesContainAlbum(albumId: Int) async -> Bool? {
 		guard let albums = await cache.albums else {
 			return nil
@@ -240,7 +240,7 @@ public class Favorites {
 		}
 		return false
 	}
-	
+
 	public func doFavoritesContainTrack(trackId: Int) async -> Bool? {
 		guard let tracks = await cache.tracks else {
 			return nil
@@ -250,7 +250,7 @@ public class Favorites {
 		}
 		return false
 	}
-	
+
 	public func doFavoritesContainVideo(videoId: Int) async -> Bool? {
 		guard let videos = await cache.videos else {
 			return nil
@@ -260,7 +260,7 @@ public class Favorites {
 		}
 		return false
 	}
-	
+
 	public func doFavoritesContainPlaylist(playlistId: String) async -> Bool? {
 		guard let playlists = await cache.playlists else {
 			return nil
@@ -270,25 +270,25 @@ public class Favorites {
 		}
 		return false
 	}
-	
+
 	// Refresh Caches
-	
+
 	private func refreshCachedArtists() async {
 		cache.set(await artists())
 	}
-	
+
 	private func refreshCachedAlbums() async {
 		cache.set(await albums())
 	}
-	
+
 	private func refreshCachedTracks() async {
 		cache.set(await tracks())
 	}
-	
+
 	private func refreshCachedVideos() async {
 		cache.set(await videos())
 	}
-	
+
 	private func refreshCachedPlaylists() async {
 		cache.set(await playlists())
 	}
@@ -300,7 +300,7 @@ private class FavoritesCache {
 	private let tracksCache: CachedFavorites<FavoriteTrack>
 	private let videosCache: CachedFavorites<FavoriteVideo>
 	private let playlistsCache: CachedFavorites<FavoritePlaylist>
-	
+
 	init(favorites: Favorites, timeoutInSeconds: Double = 60) {
 		artistsCache = CachedFavorites(timeoutInSeconds: timeoutInSeconds) { [unowned favorites] in await favorites.artists() }
 		albumsCache = CachedFavorites(timeoutInSeconds: timeoutInSeconds) { [unowned favorites] in await favorites.albums() }
@@ -308,35 +308,35 @@ private class FavoritesCache {
 		videosCache = CachedFavorites(timeoutInSeconds: timeoutInSeconds) { [unowned favorites] in await favorites.videos() }
 		playlistsCache = CachedFavorites(timeoutInSeconds: timeoutInSeconds) { [unowned favorites] in await favorites.playlists() }
 	}
-	
+
 	var artists: [FavoriteArtist]? {
 		get async { await artistsCache.items }
 	}
 	func set(_ newValue: [FavoriteArtist]?) {
 		artistsCache.set(newValue)
 	}
-	
+
 	var albums: [FavoriteAlbum]? {
 		get async { await albumsCache.items }
 	}
 	func set(_ newValue: [FavoriteAlbum]?) {
 		albumsCache.set(newValue)
 	}
-	
+
 	var tracks: [FavoriteTrack]? {
 		get async { await tracksCache.items }
 	}
 	func set(_ newValue: [FavoriteTrack]?) {
 		tracksCache.set(newValue)
 	}
-	
+
 	var videos: [FavoriteVideo]? {
 		get async { await videosCache.items }
 	}
 	func set(_ newValue: [FavoriteVideo]?) {
 		videosCache.set(newValue)
 	}
-	
+
 	var playlists: [FavoritePlaylist]? {
 		get async { await playlistsCache.items }
 	}
@@ -348,19 +348,19 @@ private class FavoritesCache {
 private class CachedFavorites<Item> {
 	private let timeoutInSeconds: Double
 	private let load: () async -> [Item]?
-	
+
 	private var value: [Item]?
 	private var lastUpdated = Date(timeIntervalSince1970: 0)
 	/// Shared by all callers while a reload is running, so concurrent lookups trigger only one request
 	private var reloadTask: Task<Void, Never>?
 	/// Incremented by set(), so a reload that was running meanwhile doesn't overwrite newer data
 	private var generation = 0
-	
+
 	init(timeoutInSeconds: Double, load: @escaping () async -> [Item]?) {
 		self.timeoutInSeconds = timeoutInSeconds
 		self.load = load
 	}
-	
+
 	var items: [Item]? {
 		get async {
 			guard Date().timeIntervalSince(lastUpdated) > timeoutInSeconds else {
@@ -371,14 +371,14 @@ private class CachedFavorites<Item> {
 			return value
 		}
 	}
-	
+
 	func set(_ newValue: [Item]?) {
 		value = newValue
 		lastUpdated = .now
 		reloadTask = nil
 		generation += 1
 	}
-	
+
 	private func startReload() -> Task<Void, Never> {
 		let generation = generation
 		let task = Task {

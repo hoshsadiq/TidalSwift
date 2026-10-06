@@ -14,7 +14,7 @@ public enum TidalLink: Equatable, Sendable {
 	case album(id: Int)
 	case artist(id: Int)
 	case playlist(uuid: String)
-	
+
 	/// Parses links like `https://tidal.com/browse/album/123`, `https://listen.tidal.com/track/123/u`,
 	/// `http://www.tidal.com/playlist/<uuid>` or `tidal://artist/123`. The scheme may be left out.
 	public init?(string: String) {
@@ -27,12 +27,12 @@ public enum TidalLink: Equatable, Sendable {
 		}
 		self.init(url: url)
 	}
-	
+
 	public init?(url: URL) {
 		guard let scheme = url.scheme?.lowercased(), let host = url.host()?.lowercased() else {
 			return nil
 		}
-		
+
 		var components = url.pathComponents.filter { $0 != "/" }
 		switch scheme {
 		case "http", "https":
@@ -45,7 +45,7 @@ public enum TidalLink: Equatable, Sendable {
 		default:
 			return nil
 		}
-		
+
 		// Take the last match, so album/123/track/456 opens the track
 		var link: TidalLink?
 		for (type, id) in zip(components, components.dropFirst()) {
@@ -56,7 +56,7 @@ public enum TidalLink: Equatable, Sendable {
 		}
 		self = link
 	}
-	
+
 	private init?(type: String, id: String) {
 		switch type {
 		case "track":

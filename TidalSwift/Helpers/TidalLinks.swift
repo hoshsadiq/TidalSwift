@@ -23,7 +23,7 @@ extension ViewState {
 			nil
 		}
 	}
-	
+
 	/// Opens the view for a link. Tracks open their album.
 	func open(_ link: TidalLink) {
 		Task {
@@ -35,7 +35,7 @@ extension ViewState {
 			}
 		}
 	}
-	
+
 	private func push(_ link: TidalLink) async -> Bool {
 		switch link {
 		case .track(let id):

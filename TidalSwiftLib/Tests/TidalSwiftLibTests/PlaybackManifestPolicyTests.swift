@@ -14,11 +14,11 @@ import XCTest
 final class PlaybackManifestPolicyTests: XCTestCase {
 	/// A BTS payload, base64-encoded the way the API sends it. The URL is http
 	/// on purpose, so the accept path is also pinned to upgrade it.
-	private func btsPayload(codecs: String?, encryptionType: String? = "NONE", url: String = "http://lgf.audio.tidal.com/track.flac") -> String {
+	private func btsPayload(codecs: String?, encryptionType: String? = "NONE", url: String = "http://lgf.audio.tidal.com/track.flac") throws -> String {
 		var object: [String: Any] = ["urls": [url]]
 		if let codecs { object["codecs"] = codecs }
 		if let encryptionType { object["encryptionType"] = encryptionType }
-		let data = try! JSONSerialization.data(withJSONObject: object)
+		let data = try JSONSerialization.data(withJSONObject: object)
 		return data.base64EncodedString()
 	}
 
@@ -32,9 +32,9 @@ final class PlaybackManifestPolicyTests: XCTestCase {
 
 	/// Rule: an Atmos audioMode with an eac3 manifest is accepted and reported
 	/// as Atmos, and the URL is upgraded to https.
-	func testAtmosEac3ManifestIsReportedAsAtmos() {
+	func testAtmosEac3ManifestIsReportedAsAtmos() throws {
 		let accepted = PlaybackManifestPolicy.accept(
-			response(audioMode: .dolbyAtmos, manifest: btsPayload(codecs: "eac3"))
+			response(audioMode: .dolbyAtmos, manifest: try btsPayload(codecs: "eac3"))
 		)
 		XCTAssertNotNil(accepted)
 		XCTAssertTrue(accepted?.isDolbyAtmos ?? false)
@@ -43,9 +43,9 @@ final class PlaybackManifestPolicyTests: XCTestCase {
 
 	/// Rule: a stereo audioMode is accepted (the URL is still chosen) but must
 	/// NOT be reported as Atmos. This is the lie the policy exists to prevent.
-	func testStereoManifestIsAcceptedButNotReportedAsAtmos() {
+	func testStereoManifestIsAcceptedButNotReportedAsAtmos() throws {
 		let accepted = PlaybackManifestPolicy.accept(
-			response(audioMode: .stereo, manifest: btsPayload(codecs: "flac"))
+			response(audioMode: .stereo, manifest: try btsPayload(codecs: "flac"))
 		)
 		XCTAssertNotNil(accepted)
 		XCTAssertFalse(accepted?.isDolbyAtmos ?? true)
@@ -53,9 +53,9 @@ final class PlaybackManifestPolicyTests: XCTestCase {
 
 	/// Rule: an Atmos audioMode on a manifest whose codec is not eac3 is still
 	/// accepted, but the codec contradicts Atmos so it is not reported as Atmos.
-	func testAtmosAudioModeWithNonEac3CodecIsNotReportedAsAtmos() {
+	func testAtmosAudioModeWithNonEac3CodecIsNotReportedAsAtmos() throws {
 		let accepted = PlaybackManifestPolicy.accept(
-			response(audioMode: .dolbyAtmos, manifest: btsPayload(codecs: "flac"))
+			response(audioMode: .dolbyAtmos, manifest: try btsPayload(codecs: "flac"))
 		)
 		XCTAssertNotNil(accepted)
 		XCTAssertFalse(accepted?.isDolbyAtmos ?? true)
@@ -63,9 +63,9 @@ final class PlaybackManifestPolicyTests: XCTestCase {
 
 	/// Rule: when the manifest carries no codec, the audioMode is the only
 	/// evidence, so an Atmos audioMode is reported as Atmos.
-	func testAtmosAudioModeWithoutCodecIsReportedAsAtmos() {
+	func testAtmosAudioModeWithoutCodecIsReportedAsAtmos() throws {
 		let accepted = PlaybackManifestPolicy.accept(
-			response(audioMode: .dolbyAtmos, manifest: btsPayload(codecs: nil))
+			response(audioMode: .dolbyAtmos, manifest: try btsPayload(codecs: nil))
 		)
 		XCTAssertNotNil(accepted)
 		XCTAssertTrue(accepted?.isDolbyAtmos ?? false)
@@ -73,20 +73,20 @@ final class PlaybackManifestPolicyTests: XCTestCase {
 
 	/// Rule: a DASH manifest is refused — AVPlayer cannot play it — so the
 	/// ladder keeps looking. Nothing is reported.
-	func testDashManifestIsRefused() {
+	func testDashManifestIsRefused() throws {
 		XCTAssertNil(
 			PlaybackManifestPolicy.accept(
-				response(audioMode: nil, mimeType: "application/dash+xml", manifest: btsPayload(codecs: "flac"))
+				response(audioMode: nil, mimeType: "application/dash+xml", manifest: try btsPayload(codecs: "flac"))
 			)
 		)
 	}
 
 	/// Rule: an encrypted manifest is refused, whichever encryption type is used.
-	func testEncryptedManifestIsRefused() {
+	func testEncryptedManifestIsRefused() throws {
 		for encryption in ["AES128", "CENC", "cbcs"] {
 			XCTAssertNil(
 				PlaybackManifestPolicy.accept(
-					response(audioMode: .dolbyAtmos, manifest: btsPayload(codecs: "eac3", encryptionType: encryption))
+					response(audioMode: .dolbyAtmos, manifest: try btsPayload(codecs: "eac3", encryptionType: encryption))
 				),
 				"\(encryption) must be refused"
 			)
@@ -94,11 +94,11 @@ final class PlaybackManifestPolicyTests: XCTestCase {
 	}
 
 	/// Rule: a manifest that is not usable base64 or carries no URL is refused.
-	func testMalformedManifestIsRefused() {
+	func testMalformedManifestIsRefused() throws {
 		XCTAssertNil(
 			PlaybackManifestPolicy.accept(response(audioMode: .stereo, manifest: "not base64 !!"))
 		)
-		let noUrl = try! JSONSerialization.data(withJSONObject: ["codecs": "flac"]).base64EncodedString()
+		let noUrl = try JSONSerialization.data(withJSONObject: ["codecs": "flac"]).base64EncodedString()
 		XCTAssertNil(
 			PlaybackManifestPolicy.accept(response(audioMode: .stereo, manifest: noUrl))
 		)

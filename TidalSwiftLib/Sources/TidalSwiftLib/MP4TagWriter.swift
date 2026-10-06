@@ -17,7 +17,7 @@ nonisolated enum MP4TagWriter {
 		case exportUnavailable
 		case exportFailed(Error?)
 	}
-	
+
 	@concurrent
 	static func write(_ tags: AudioTags, to url: URL) async throws {
 		let asset = AVURLAsset(url: url)
@@ -26,11 +26,11 @@ nonisolated enum MP4TagWriter {
 		}
 		exportSession.metadata = metadataItems(for: tags)
 		let fileType: AVFileType = url.pathExtension.lowercased() == "m4a" ? .m4a : .mp4
-		
+
 		let temporaryDirectory = try FileManager.default.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: url, create: true)
 		defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
 		let temporaryUrl = temporaryDirectory.appendingPathComponent(url.lastPathComponent)
-		
+
 		if #available(macOS 15, iOS 18, *) {
 			try await exportSession.export(to: temporaryUrl, as: fileType)
 		} else {
@@ -41,14 +41,14 @@ nonisolated enum MP4TagWriter {
 				throw WriteError.exportFailed(exportSession.error)
 			}
 		}
-		
+
 		if let isrc = tags.isrc, !isrc.isEmpty {
 			MP4FreeformAtom.insert(isrc, into: temporaryUrl)
 		}
-		
+
 		_ = try FileManager.default.replaceItemAt(url, withItemAt: temporaryUrl)
 	}
-	
+
 	private static func metadataItems(for tags: AudioTags) -> [AVMetadataItem] {
 		var items = [
 			item(.iTunesMetadataSongName, tags.title),
@@ -71,14 +71,14 @@ nonisolated enum MP4TagWriter {
 		}
 		return items
 	}
-	
+
 	private static func item(_ identifier: AVMetadataIdentifier, _ string: String?) -> AVMetadataItem? {
 		guard let string, !string.isEmpty else {
 			return nil
 		}
 		return item(identifier, string as NSString, dataType: kCMMetadataBaseDataType_UTF8)
 	}
-	
+
 	private static func item(_ identifier: AVMetadataIdentifier, _ value: NSCopying & NSObjectProtocol, dataType: CFString) -> AVMetadataItem {
 		let item = AVMutableMetadataItem()
 		item.identifier = identifier
@@ -86,7 +86,7 @@ nonisolated enum MP4TagWriter {
 		item.dataType = dataType as String
 		return item
 	}
-	
+
 	/// `trkn` has two trailing padding bytes, `disk` doesn't
 	private static func numberPair(_ number: Int, of total: Int?, trailingPadding: Bool) -> NSData {
 		var data = Data(count: 2)

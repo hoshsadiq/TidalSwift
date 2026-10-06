@@ -16,12 +16,12 @@ final class HiResManifestPolicyTests: XCTestCase {
 		encryptionType: String?,
 		keyId: String? = "a2V5",
 		url: String = "http://lgf.audio.tidal.com/track.flac"
-	) -> String {
+	) throws -> String {
 		var object: [String: Any] = ["urls": [url]]
 		if let codecs { object["codecs"] = codecs }
 		if let encryptionType { object["encryptionType"] = encryptionType }
 		if let keyId { object["keyId"] = keyId }
-		let data = try! JSONSerialization.data(withJSONObject: object)
+		let data = try JSONSerialization.data(withJSONObject: object)
 		return data.base64EncodedString()
 	}
 
@@ -35,9 +35,9 @@ final class HiResManifestPolicyTests: XCTestCase {
 
 	/// Rule: a stereo, `OLD_AES`, FLAC BTS manifest is accepted, keeps its key and
 	/// the URL is upgraded to https.
-	func testStereoOldAesFlacManifestIsAccepted() {
+	func testStereoOldAesFlacManifestIsAccepted() throws {
 		let accepted = HiResManifestPolicy.accept(
-			response(audioMode: .stereo, manifest: btsPayload(codecs: "flac", encryptionType: "OLD_AES"))
+			response(audioMode: .stereo, manifest: try btsPayload(codecs: "flac", encryptionType: "OLD_AES"))
 		)
 		XCTAssertNotNil(accepted)
 		XCTAssertEqual(accepted?.keyId, "a2V5")
@@ -46,31 +46,31 @@ final class HiResManifestPolicyTests: XCTestCase {
 
 	/// Rule: a DASH body is refused — AVPlayer cannot play it and there is nothing to
 	/// decrypt — so the caller keeps today's path.
-	func testDashBodyIsRefused() {
+	func testDashBodyIsRefused() throws {
 		XCTAssertNil(
 			HiResManifestPolicy.accept(
-				response(audioMode: .stereo, mimeType: "application/dash+xml", manifest: btsPayload(codecs: "flac", encryptionType: "OLD_AES"))
+				response(audioMode: .stereo, mimeType: "application/dash+xml", manifest: try btsPayload(codecs: "flac", encryptionType: "OLD_AES"))
 			)
 		)
 	}
 
 	/// Rule: an Atmos rendition is refused, so a session without `cuk` (which Tidal
 	/// answers with Atmos here) falls back instead of trying to decrypt E-AC-3.
-	func testAtmosAudioModeIsRefused() {
+	func testAtmosAudioModeIsRefused() throws {
 		XCTAssertNil(
 			HiResManifestPolicy.accept(
-				response(audioMode: .dolbyAtmos, manifest: btsPayload(codecs: "eac3", encryptionType: "OLD_AES"))
+				response(audioMode: .dolbyAtmos, manifest: try btsPayload(codecs: "eac3", encryptionType: "OLD_AES"))
 			)
 		)
 	}
 
 	/// Rule: an encryption scheme this app cannot unwrap is refused, so its bytes are
 	/// never downloaded as if they were playable.
-	func testEncryptedWithSomethingElseIsRefused() {
+	func testEncryptedWithSomethingElseIsRefused() throws {
 		for encryption in ["CENC", "AES128", "cbcs"] {
 			XCTAssertNil(
 				HiResManifestPolicy.accept(
-					response(audioMode: .stereo, manifest: btsPayload(codecs: "flac", encryptionType: encryption))
+					response(audioMode: .stereo, manifest: try btsPayload(codecs: "flac", encryptionType: encryption))
 				),
 				"\(encryption) must be refused"
 			)
@@ -79,21 +79,21 @@ final class HiResManifestPolicyTests: XCTestCase {
 
 	/// Rule: a manifest that is not usable base64, has the wrong codec, or carries no
 	/// key or URL is refused.
-	func testMalformedManifestIsRefused() {
+	func testMalformedManifestIsRefused() throws {
 		XCTAssertNil(
 			HiResManifestPolicy.accept(response(audioMode: .stereo, manifest: "not base64 !!"))
 		)
 		XCTAssertNil(
 			HiResManifestPolicy.accept(
-				response(audioMode: .stereo, manifest: btsPayload(codecs: "aac", encryptionType: "OLD_AES"))
+				response(audioMode: .stereo, manifest: try btsPayload(codecs: "aac", encryptionType: "OLD_AES"))
 			)
 		)
 		XCTAssertNil(
 			HiResManifestPolicy.accept(
-				response(audioMode: .stereo, manifest: btsPayload(codecs: "flac", encryptionType: "OLD_AES", keyId: nil))
+				response(audioMode: .stereo, manifest: try btsPayload(codecs: "flac", encryptionType: "OLD_AES", keyId: nil))
 			)
 		)
-		let noUrl = try! JSONSerialization.data(withJSONObject: ["codecs": "flac", "encryptionType": "OLD_AES", "keyId": "a2V5"]).base64EncodedString()
+		let noUrl = try JSONSerialization.data(withJSONObject: ["codecs": "flac", "encryptionType": "OLD_AES", "keyId": "a2V5"]).base64EncodedString()
 		XCTAssertNil(
 			HiResManifestPolicy.accept(response(audioMode: .stereo, manifest: noUrl))
 		)

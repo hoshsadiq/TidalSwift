@@ -672,8 +672,10 @@ class Player {
 		var chosenQuality = stream.quality
 //		print("\(chosenQuality) \(quality)")
 
-		// Tidal answers a HI_RES_LOSSLESS request with a 16 Bit / 44,1 kHz file, so a
-		// Max request never plays hi-res. See `AudioQuality.max`.
+		// The direct `streamUrl` fallback answers a HI_RES_LOSSLESS request with the
+		// lossless 16 Bit / 44,1 kHz file, so a Max request that lands here is labelled
+		// as High. The desktop hi-res route reports its own bit depth and sample rate
+		// above and never reaches this clamp. See `AudioQuality.max`.
 		if chosenQuality == .max {
 			chosenQuality = .high
 		}
@@ -706,6 +708,9 @@ class Player {
 		case .high:
 			return "16-bit 44.1kHz"
 		case .max:
+			// The Max tier's advertised specification, never shown: `currentQualityString`
+			// clamps `.max` to `.high` above, and the decrypted hi-res rendition is labelled
+			// from its stream's own bit depth and sample rate.
 			return "24-bit 192kHz"
 		}
 	}

@@ -11,26 +11,26 @@ import XCTest
 /// so these use unsigned fixtures.
 @MainActor
 final class HiResSessionAccessTests: XCTestCase {
-	private func token(payload: [String: Any]) -> String {
-		let header = base64URL(["alg": "RS256", "typ": "JWT"])
-		let body = base64URL(payload)
+	private func token(payload: [String: Any]) throws -> String {
+		let header = try base64URL(["alg": "RS256", "typ": "JWT"])
+		let body = try base64URL(payload)
 		return "Bearer \(header).\(body).signature"
 	}
 
-	private func base64URL(_ object: [String: Any]) -> String {
-		let data = try! JSONSerialization.data(withJSONObject: object)
+	private func base64URL(_ object: [String: Any]) throws -> String {
+		let data = try JSONSerialization.data(withJSONObject: object)
 		return data.base64EncodedString()
 			.replacingOccurrences(of: "+", with: "-")
 			.replacingOccurrences(of: "/", with: "_")
 			.replacingOccurrences(of: "=", with: "")
 	}
 
-	func testTokenWithCukClaimHasHiResAccess() {
-		XCTAssertTrue(HiResStreamingSession.hasHiResStereoClaim(in: token(payload: ["uid": 1, "cuk": "client-key"])))
+	func testTokenWithCukClaimHasHiResAccess() throws {
+		XCTAssertTrue(HiResStreamingSession.hasHiResStereoClaim(in: try token(payload: ["uid": 1, "cuk": "client-key"])))
 	}
 
-	func testTokenWithoutCukClaimHasNoHiResAccess() {
-		XCTAssertFalse(HiResStreamingSession.hasHiResStereoClaim(in: token(payload: ["uid": 1, "cid": 3003])))
+	func testTokenWithoutCukClaimHasNoHiResAccess() throws {
+		XCTAssertFalse(HiResStreamingSession.hasHiResStereoClaim(in: try token(payload: ["uid": 1, "cid": 3003])))
 	}
 
 	func testMalformedTokenHasNoHiResAccess() {

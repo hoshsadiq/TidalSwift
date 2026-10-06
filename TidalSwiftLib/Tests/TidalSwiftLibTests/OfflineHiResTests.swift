@@ -52,7 +52,7 @@ final class OfflineHiResTests: XCTestCase {
 		let libraryDirectory = try makeLibraryDirectory()
 		let encrypted = try EncryptedFLACFixture.make(in: offlineLibrary.root)
 
-		let session = makeSession()
+		let session = try makeSession()
 		let offline = session.helpers.offline
 		offline.setOfflineTracksForTesting([makeTrack(id: trackId)])
 		let downloads = Counter()
@@ -103,17 +103,17 @@ final class OfflineHiResTests: XCTestCase {
 	}
 
 	/// A session whose token carries the `cuk` claim the hi-res route needs.
-	private func makeSession() -> Session {
+	private func makeSession() throws -> Session {
 		offlineLibrary.makeSession(config: Config(
-			accessToken: Self.tokenWithCukClaim(),
+			accessToken: try Self.tokenWithCukClaim(),
 			refreshToken: "",
 			clientID: AuthInformation.DesktopClientID,
 			offlineAudioQuality: .high
 		))
 	}
 
-	private static func tokenWithCukClaim() -> String {
-		let data = try! JSONSerialization.data(withJSONObject: ["uid": 1, "cuk": "client-key"])
+	private static func tokenWithCukClaim() throws -> String {
+		let data = try JSONSerialization.data(withJSONObject: ["uid": 1, "cuk": "client-key"])
 		let body = data.base64EncodedString()
 			.replacingOccurrences(of: "+", with: "-")
 			.replacingOccurrences(of: "/", with: "_")

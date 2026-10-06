@@ -66,8 +66,9 @@ final class OfflineSyncOrderTests: XCTestCase {
 		let offline = session.helpers.offline
 		offline.setOfflineTracksForTesting([makeTrack(id: trackId)])
 		// Downloading the fixture over a file URL succeeds without a network.
+		let fixture = try silentFlacFixture()
 		offline.resolveOfflineStream = { _ in
-			AudioStream(url: try! self.silentFlacFixture(), pathExtension: "flac", isDolbyAtmos: false)
+			AudioStream(url: fixture, pathExtension: "flac", isDolbyAtmos: false)
 		}
 
 		await offline.awaitOngoingSync()

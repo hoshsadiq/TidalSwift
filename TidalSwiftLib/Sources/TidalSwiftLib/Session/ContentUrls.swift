@@ -264,9 +264,10 @@ extension Session {
 	/// Resolves a track through `/tracks/{id}/playbackinfopostpaywall`, the fallback
 	/// for tracks `streamUrl` refuses. Dolby Atmos-only tracks answer
 	/// HTTP 401 subStatus 4005 "Asset is not ready for playback". Returns nil for
-	/// non-BTS manifests: hi-res answers with DASH, which AVPlayer cannot play.
-	/// Whether the accepted rendition is Atmos is decided by `PlaybackManifestPolicy`
-	/// from the response, not assumed from the caller.
+	/// non-BTS manifests: Tidal answers the High/Low tiers with DASH, which AVPlayer
+	/// cannot play, while hi-res answers BTS. Whether the accepted rendition is Atmos
+	/// is decided by `PlaybackManifestPolicy` from the response, not assumed from the
+	/// caller.
 	func playbackManifestUrl(trackId: Int, audioQuality: AudioQuality) async -> AcceptedPlaybackManifest? {
 		let url = URL(string: "\(AuthInformation.APILocation)/tracks/\(trackId)/playbackinfopostpaywall")!
 		var parameters = sessionParameters
