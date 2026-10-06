@@ -22,8 +22,10 @@ public nonisolated enum DashAudioError: Error, Equatable, Sendable {
 	case unsupportedSegmentTemplate
 	/// The manifest has no `<SegmentTimeline>` to count segments from.
 	case missingSegmentTimeline
-	/// A segment or the initialization could not be fetched after retrying.
-	case fetchFailed(url: URL)
+	/// A segment or the initialization could not be fetched after retrying. Only the
+	/// host is kept: a segment URL carries its own token, and an error value travels
+	/// into whatever prints it.
+	case fetchFailed(host: String)
 	/// The destination could not be written.
 	case writeFailed(underlying: Error)
 
@@ -188,6 +190,9 @@ public nonisolated enum DashAudio {
 	/// Nothing is written until every segment has been fetched, so a failure
 	/// leaves no output file at all: a partial AAC file is worse than an error.
 	/// `fetch` is injectable so a test can stand a local directory in for the CDN.
+	/// `@concurrent` because the concatenation and the atomic write are synchronous
+	/// file IO — around 9 MB per track — and every call site is main-actor.
+	@concurrent
 	public static func assemble(
 		_ manifest: DashAudioManifest,
 		to destination: URL,
@@ -211,6 +216,12 @@ public nonisolated enum DashAudio {
 		}
 	}
 
+	/// The error for a resource that could not be fetched. Only the host survives:
+	/// the segment URLs carry their own tokens and an error value reaches a printed line.
+	static func fetchFailure(for url: URL) -> DashAudioError {
+		DashAudioError.fetchFailed(host: url.host ?? "unknown")
+	}
+
 	/// The default fetcher: a local read for `file://`, a plain GET otherwise.
 	/// The CDN segment URLs carry their own token and need no auth header.
 	public static func defaultFetch(_ url: URL) async throws -> Data {
@@ -224,7 +235,7 @@ public nonisolated enum DashAudio {
 		request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
 		let (data, response) = try await URLSession.shared.data(for: request)
 		if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-			throw DashAudioError.fetchFailed(url: url)
+			throw DashAudio.fetchFailure(for: url)
 		}
 		return data
 	}
@@ -268,7 +279,7 @@ public nonisolated enum DashAudio {
 	}
 
 	private static func fetchWithRetry(_ url: URL, fetch: SegmentFetcher) async throws -> Data {
-		var lastError: Error = DashAudioError.fetchFailed(url: url)
+		var lastError: Error = DashAudio.fetchFailure(for: url)
 		for attempt in 0 ..< maxFetchAttempts {
 			do {
 				return try await fetch(url)

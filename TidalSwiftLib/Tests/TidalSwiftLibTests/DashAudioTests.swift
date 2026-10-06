@@ -184,12 +184,22 @@ final class DashAudioTests: XCTestCase {
 		try await DashAudio.assemble(cdn.manifest, to: destination) { url in
 			let count = await attempts.increment(url)
 			if count == 1, url.lastPathComponent == "seg-2.mp4" {
-				throw DashAudioError.fetchFailed(url: url)
+				throw DashAudio.fetchFailure(for: url)
 			}
 			return try Data(contentsOf: url)
 		}
 		let expected = Data("INIT".utf8) + Data("AAAA".utf8) + Data("BBB".utf8) + Data("CC".utf8)
 		XCTAssertEqual(try Data(contentsOf: destination), expected)
+	}
+
+	/// Rule: a failed fetch names the host, never the URL. A segment URL carries its
+	/// own token, and the error value is printed wherever it travels.
+	func testFetchFailureNamesOnlyTheHost() throws {
+		let url = try XCTUnwrap(URL(string: "https://lgf.audio.tidal.com/mediatracks/secret/seg-1.mp4?token=secret"))
+		let error = DashAudio.fetchFailure(for: url)
+
+		XCTAssertEqual(error, .fetchFailed(host: "lgf.audio.tidal.com"))
+		XCTAssertFalse(String(describing: error).contains("secret"))
 	}
 
 	private struct CDN {
