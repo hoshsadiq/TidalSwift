@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+# shellcheck shell=bash
 # Shared helpers for the mise tasks in this directory. Source it, do not run it:
 #
 #     . "$(dirname -- "${BASH_SOURCE[0]}")/_lib.sh"
