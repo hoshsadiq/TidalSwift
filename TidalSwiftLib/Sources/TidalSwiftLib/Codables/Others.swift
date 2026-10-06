@@ -9,12 +9,12 @@
 import Foundation
 
 public enum AudioQuality: String, Codable {
-	/// Kept so a Max subscriber can be offered Max, but know what Tidal actually returns:
-	/// measured 2026-10-04, `HI_RES_LOSSLESS` and `LOSSLESS` answer with the same file
-	/// (FLAC 44,1 kHz / 16 Bit, identical bit rate), because Tidal silently downgrades the
-	/// request instead of refusing it. True 24 Bit is only reachable through the OpenAPI
-	/// `trackManifests` route with FairPlay DRM, which this app does not implement, so a
-	/// "Max" setting buys honesty about the subscription, not hi-res audio.
+	/// Kept so a Max subscriber can be offered Max. On the direct-stream endpoints
+	/// (`streamUrl`, `playbackinfopostpaywall`) Tidal silently answers a
+	/// `HI_RES_LOSSLESS` request with the lossless file, byte-identical, measured
+	/// 2026-10-04. The desktop host's `playbackinfo` does serve 24 Bit for the same
+	/// request, but only to a session it recognises as the desktop client, and it
+	/// returns it AES-encrypted. See `HiResStreaming` for that route.
 	case max = "HI_RES_LOSSLESS"
 	case high = "LOSSLESS"			// Lossless, 16 Bit / 44,1 kHz
 	case medium = "HIGH"			// 320 kbps

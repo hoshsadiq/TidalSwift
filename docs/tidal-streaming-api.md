@@ -156,4 +156,21 @@ Re-probed the endpoints above on 2026-10-04 with a US premium account, a differe
 | `offlineUrl`, every quality | 404 `subStatus 2001` "Resource not found" |
 | Atmos-only track, post-paywall | unencrypted E-AC-3 BTS manifest, played by `AVPlayer`; no stereo rendition |
 
-The conclusion is the same as in the September run and is worth stating plainly: asking for `HI_RES_LOSSLESS` does not unlock true hi-res through these v1 endpoints. Tidal silently downgrades the request to the lossless stream instead of refusing it, and returns byte-identical audio, so no client-side flag can unlock Max. `offlineUrl` is dead for every quality. Atmos stays a separate rendition: a track with only `DOLBY_ATMOS` has no stereo fallback of its own, and its post-paywall response is a playable E-AC-3 stream.
+The conclusion for these v1 endpoints stands: asking for `HI_RES_LOSSLESS` here does not unlock true hi-res. Tidal silently downgrades the request to the lossless stream instead of refusing it, and returns byte-identical audio, so no client-side flag can unlock Max on this path. `offlineUrl` is dead for every quality. Atmos stays a separate rendition: a track with only `DOLBY_ATMOS` has no stereo fallback of its own, and its post-paywall response is a playable E-AC-3 stream.
+
+## The desktop host serves more, to the right session (measured 2026-10-05)
+
+The same request against `https://desktop.tidal.com/v1/tracks/{id}/playbackinfo` behaves differently, including for tracks the v1 host refuses:
+
+| Session | `HI_RES_LOSSLESS` | `LOSSLESS` | `HIGH` / `LOW` |
+|---|---|---|---|
+| This app's device-code token (`cid` 3003, no `cuk`) | `DOLBY_ATMOS`, E-AC-3, `NONE` | `DOLBY_ATMOS` | audio DASH |
+| The official desktop app's token (`cid` 7785, `cuk` present) | `STEREO`, **24 Bit**, FLAC, `OLD_AES` | `STEREO`, 16 Bit, FLAC, `OLD_AES` | audio DASH |
+
+So the rendition is decided by the session, not by the request: identical calls with identical headers return Atmos or stereo depending only on which client the token belongs to. Same account in both cases, so it is not a subscription difference.
+
+The `OLD_AES` payload is AES-128-CTR encrypted, with the key wrapped in the manifest's `keyId` (64 bytes: a 16-byte IV, then the wrapped key and nonce). Unwrapping uses a publicly documented AES-256-CBC key; `AudioDecryption` implements both steps. Verified end to end: a 31,246,448-byte download decrypts to a file ffprobe reads as `flac, 44100 Hz, 2 ch, 24-bit, 1,116,554 bps`.
+
+The `HIGH` / `LOW` DASH manifest is documented as `cenc` by its namespace alone; it carries no `ContentProtection`, no `pssh`, no `senc`, and no `sinf`. The segments are plain fragmented AAC and play once assembled (`DashAudio`). The `cenc` declaration is vestigial.
+
+The `cuk` claim is what marks a session as the desktop client. It arrives when the login sends `client_unique_key` on both the authorize request and the token exchange, as the official app does. Our login now does that (`DesktopLogin`).

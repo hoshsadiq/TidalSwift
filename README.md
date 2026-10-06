@@ -22,7 +22,21 @@ After downloading and unpacking the TidalSwift.zip, move the app to the Applicat
 xattr -d com.apple.quarantine /Applications/TidalSwift.app
 ```
 
+## Audio quality
 
+Playback goes through Tidal's own playback service, the one the desktop app calls. The app logs in as the desktop client, and that is what makes the stereo renditions available at every tier; a session Tidal does not recognise is served Dolby Atmos instead.
+
+Preferences → Quality sets the tier:
+
+- **Low:** AAC, 320 kbps where Tidal serves it, assembled from the segments it sends.
+- **High:** 16-bit FLAC at 44.1 kHz.
+- **Max:** up to 24-bit FLAC.
+
+The FLAC arrives encrypted and is decrypted on your Mac before it plays. When Tidal serves no stereo rendition for a track, the app falls back to Dolby Atmos or the older direct stream.
+
+Dolby Atmos is a preference rather than a tier, and offline keeps its own copy of it. With it on, an Atmos track plays Atmos. With it off the app asks for stereo, which Tidal refuses for many Atmos-capable tracks, so they still play Atmos.
+
+The same pane holds "Ignore subscription limits", which lets you pick a tier above your subscription even when Tidal may refuse it, "Prefetch tracks", the number prepared ahead of the one playing (0 to 15, default 3), and "Cache size", the space prepared tracks may use in GB (default 2). Prepared tracks live in `~/Library/Caches/TidalSwift/`, so they start instantly.
 
 ## Impressions
 
@@ -35,6 +49,8 @@ Also, unlike the official app, it can display the Lyrics of the currently playin
 ### Offline
 
 Unlike the official desktop app, TidalSwift supports offline playback. Downloaded albums, tracks and playlists appear in Collection alongside your favourites, and a "Downloaded only" toggle filters the list down to them. Items that are available offline show a cloud badge.
+
+Downloads follow the Offline preference, including its own Dolby Atmos setting. Logging out leaves the downloaded music in place; only the option in the logout dialog removes it.
 
 ### Downloads
 
@@ -65,6 +81,8 @@ It even goes a step further. You can download music to your hard drive and do wi
 ![Artist View](README.assets/ArtistView.png)
 
 ### Login
+
+Log in through the desktop-client flow: the app opens Tidal in your browser and waits for the `tidal://` callback. This is the preferred path because its session is the one Tidal serves the lossless and hi-res stereo renditions to. The device-code flow works as a fallback, and there is a manual refresh-token option as well.
 
 ![Login](README.assets/Login.png)
 
