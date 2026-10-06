@@ -15,37 +15,8 @@ import XCTest
 final class OfflineCancellationTests: XCTestCase {
 	private nonisolated let offlineLibrary = TemporaryOfflineLibrary(label: "OfflineCancellation")
 
-	/// The keys the sync and `removeAll()` touch, snapshotted so the test runner's
-	/// defaults are restored afterwards.
-	private let defaultsKeys = [
-		"OfflineDB:Tracks",
-		"OfflineDB:TrackAddedDates",
-		"OfflineDB:FavoriteTracks",
-		"OfflineDB:Albums",
-		"OfflineDB:AlbumTracks",
-		"OfflineDB:Playlists",
-		"OfflineDB:PlaylistTracks",
-		"OfflineDB:StandaloneOfflineTracks",
-		"SaveFavoritesOffline"
-	]
-	private var savedDefaults: [String: Any] = [:]
-
-	override func setUp() {
-		super.setUp()
-		for key in defaultsKeys { savedDefaults[key] = UserDefaults.standard.object(forKey: key) }
-		for key in defaultsKeys { UserDefaults.standard.removeObject(forKey: key) }
-	}
-
 	override func tearDown() {
 		displayErrorHandler = nil
-		for key in defaultsKeys {
-			if let value = savedDefaults[key] {
-				UserDefaults.standard.set(value, forKey: key)
-			} else {
-				UserDefaults.standard.removeObject(forKey: key)
-			}
-		}
-		savedDefaults = [:]
 		offlineLibrary.remove()
 		super.tearDown()
 	}
@@ -63,14 +34,17 @@ final class OfflineCancellationTests: XCTestCase {
 		let offline = session.helpers.offline
 		offline.resolveOfflineStream = { track in
 			resolved.value += 1
-			guard track.id == firstTrackId else { return nil }
-			// The deliberate removal, from inside the running sync. Its own task is
-			// awaited so the cancellation has landed by the time the loop looks for it,
-			// which is what keeps this test off a race.
-			offline.removeAll()
-			for _ in 0..<10 {
-				await Task.yield()
+			// The deliberate removal, from inside the running sync, on whichever track
+			// the wanted set hands out first (it is a Set, so the order is not fixed).
+			// Yielding lets the cancellation land before the loop looks for it, which is
+			// what keeps this test off a race.
+			if resolved.value == 1 {
+				offline.removeAll()
+				for _ in 0..<10 {
+					await Task.yield()
+				}
 			}
+			guard track.id == firstTrackId else { return nil }
 			return AudioStream(url: fixture, pathExtension: "flac", isDolbyAtmos: false)
 		}
 

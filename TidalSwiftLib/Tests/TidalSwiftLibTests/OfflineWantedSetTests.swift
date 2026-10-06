@@ -14,38 +14,7 @@ import XCTest
 final class OfflineWantedSetTests: XCTestCase {
 	private nonisolated let offlineLibrary = TemporaryOfflineLibrary(label: "OfflineWantedSet")
 
-	/// The keys `OfflineDB` reads and writes, plus the two preferences the sync
-	/// consults. Snapshotting them keeps this test off the test runner's real
-	/// defaults, the same way `TemporaryOfflineLibraryTests` does.
-	private let defaultsKeys = [
-		"OfflineDB:Tracks",
-		"OfflineDB:TrackAddedDates",
-		"OfflineDB:FavoriteTracks",
-		"OfflineDB:Albums",
-		"OfflineDB:AlbumTracks",
-		"OfflineDB:Playlists",
-		"OfflineDB:PlaylistTracks",
-		"OfflineDB:StandaloneOfflineTracks",
-		"SaveFavoritesOffline",
-		"offlinePreferDolbyAtmos"
-	]
-	private var savedDefaults: [String: Any] = [:]
-
-	override func setUp() {
-		super.setUp()
-		for key in defaultsKeys { savedDefaults[key] = UserDefaults.standard.object(forKey: key) }
-		for key in defaultsKeys { UserDefaults.standard.removeObject(forKey: key) }
-	}
-
 	override func tearDown() {
-		for key in defaultsKeys {
-			if let value = savedDefaults[key] {
-				UserDefaults.standard.set(value, forKey: key)
-			} else {
-				UserDefaults.standard.removeObject(forKey: key)
-			}
-		}
-		savedDefaults = [:]
 		offlineLibrary.remove()
 		super.tearDown()
 	}
@@ -117,7 +86,7 @@ final class OfflineWantedSetTests: XCTestCase {
 	/// so the track and its date leave the wanted set.
 	func testTurningSaveFavoritesOfflineOffDropsFavouritesFromTheWantedSet() async {
 		let track = makeTrack(id: 641_000_004)
-		UserDefaults.standard.set(false, forKey: "SaveFavoritesOffline")
+		offlineLibrary.defaults.set(false, forKey: "SaveFavoritesOffline")
 		persistFavorites([track])
 		persistDates([track.id: Date(timeIntervalSince1970: 1_600_000_000)])
 
@@ -254,21 +223,21 @@ final class OfflineWantedSetTests: XCTestCase {
 	// MARK: - Persisted state
 
 	private func persistFavorites(_ tracks: [Track]) {
-		UserDefaults.standard.set(try? JSONEncoder().encode(tracks), forKey: "OfflineDB:FavoriteTracks")
+		offlineLibrary.defaults.set(try? JSONEncoder().encode(tracks), forKey: "OfflineDB:FavoriteTracks")
 	}
 
 	private func persistAlbums(_ albums: [Album], tracks: [Album: [Track]]) {
-		UserDefaults.standard.set(try? JSONEncoder().encode(albums), forKey: "OfflineDB:Albums")
-		UserDefaults.standard.set(try? JSONEncoder().encode(tracks), forKey: "OfflineDB:AlbumTracks")
+		offlineLibrary.defaults.set(try? JSONEncoder().encode(albums), forKey: "OfflineDB:Albums")
+		offlineLibrary.defaults.set(try? JSONEncoder().encode(tracks), forKey: "OfflineDB:AlbumTracks")
 	}
 
 	private func persistPlaylists(_ playlists: [Playlist], tracks: [Playlist: [Track]]) {
-		UserDefaults.standard.set(try? JSONEncoder().encode(playlists), forKey: "OfflineDB:Playlists")
-		UserDefaults.standard.set(try? JSONEncoder().encode(tracks), forKey: "OfflineDB:PlaylistTracks")
+		offlineLibrary.defaults.set(try? JSONEncoder().encode(playlists), forKey: "OfflineDB:Playlists")
+		offlineLibrary.defaults.set(try? JSONEncoder().encode(tracks), forKey: "OfflineDB:PlaylistTracks")
 	}
 
 	private func persistDates(_ dates: [Int: Date]) {
-		UserDefaults.standard.set(try? JSONEncoder().encode(dates), forKey: "OfflineDB:TrackAddedDates")
+		offlineLibrary.defaults.set(try? JSONEncoder().encode(dates), forKey: "OfflineDB:TrackAddedDates")
 	}
 
 	// MARK: - Model builders

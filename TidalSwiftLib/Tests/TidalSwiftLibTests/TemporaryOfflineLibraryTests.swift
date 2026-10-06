@@ -18,42 +18,14 @@ import XCTest
 final class TemporaryOfflineLibraryTests: XCTestCase {
 	private nonisolated let offlineLibrary = TemporaryOfflineLibrary(label: "IsolationGuard")
 
-	/// The keys `OfflineDB` reads and writes. Pinning a track calls `save`, which
-	/// persists the whole database; without this snapshot a test would overwrite
-	/// whatever the test runner's UserDefaults domain holds.
-	private let offlineDBKeys = [
-		"OfflineDB:Tracks",
-		"OfflineDB:TrackAddedDates",
-		"OfflineDB:FavoriteTracks",
-		"OfflineDB:Albums",
-		"OfflineDB:AlbumTracks",
-		"OfflineDB:Playlists",
-		"OfflineDB:PlaylistTracks",
-		"OfflineDB:StandaloneOfflineTracks"
-	]
-	private var savedDefaults: [String: Any] = [:]
-
-	/// The keys a logout owns, and the offline preferences it must leave alone.
-	/// Unlike `offlineDBKeys`, these are the developer's real values: a test
-	/// snapshots and restores them around any call that could touch them.
+	/// The keys a logout owns, and a sentinel any logout must leave alone. Unlike
+	/// the offline state (which lives in the throwaway suite), these are the
+	/// developer's real values, so a test snapshots and restores them around any
+	/// call that could touch them.
 	private let sessionKeys = ["Config Information", "Session Information"]
-	private let offlinePreferenceKeys = ["SaveFavoritesOffline", "offlinePreferDolbyAtmos"]
-
-	override func setUp() {
-		super.setUp()
-		for key in offlineDBKeys { savedDefaults[key] = UserDefaults.standard.object(forKey: key) }
-		for key in offlineDBKeys { UserDefaults.standard.removeObject(forKey: key) }
-	}
+	private let sentinelKey = "TidalSwiftTests:LogoutSentinel"
 
 	override func tearDown() {
-		for key in offlineDBKeys {
-			if let value = savedDefaults[key] {
-				UserDefaults.standard.set(value, forKey: key)
-			} else {
-				UserDefaults.standard.removeObject(forKey: key)
-			}
-		}
-		savedDefaults = [:]
 		offlineLibrary.remove()
 		super.tearDown()
 	}
@@ -80,7 +52,7 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 	/// playlist, so the sync's wanted set (`db.tracks`) must take it from the
 	/// standalone set. Otherwise the sync would delete its file on the next run.
 	func testPinnedTrackStaysInTheSyncWantedSetWithoutBeingAFavourite() {
-		let db = OfflineDB()
+		let db = OfflineDB(defaults: offlineLibrary.defaults)
 		let track = makeTrack(id: 987_654_321)
 
 		db.addStandaloneOfflineTrack(track)
@@ -92,7 +64,7 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 	/// Unpinning a track that no other source holds must drop it from the wanted
 	/// set, which is what makes the sync delete its file.
 	func testRemovingThePinMakesTheTrackEligibleForRemoval() {
-		let db = OfflineDB()
+		let db = OfflineDB(defaults: offlineLibrary.defaults)
 		let track = makeTrack(id: 987_654_322)
 
 		db.addStandaloneOfflineTrack(track)
@@ -106,66 +78,82 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 	func testPinnedTracksArePersistedAndReloaded() {
 		let track = makeTrack(id: 987_654_323)
 
-		OfflineDB().addStandaloneOfflineTrack(track)
+		OfflineDB(defaults: offlineLibrary.defaults).addStandaloneOfflineTrack(track)
 
-		XCTAssertTrue(OfflineDB().tracks.contains(track), "a pinned track must be reloaded from the persisted set")
+		XCTAssertTrue(OfflineDB(defaults: offlineLibrary.defaults).tracks.contains(track), "a pinned track must be reloaded from the persisted set")
 	}
 
 	/// A track whose file is already on disk but whose date was lost must come
 	/// back from the file's own creation date, not from "now". The setup writes
 	/// the date into the file, so a "now" result would be clearly different.
-	func testFileOnDiskWithoutStoredDateBackfillsFromItsCreationDate() throws {
+	func testFileOnDiskWithoutStoredDateBackfillsFromItsCreationDate() async throws {
 		let trackId = 987_654_401
 		let fileDate = Date(timeIntervalSince1970: 1_600_000_000)
 		try createOfflineFile(forTrackId: trackId, createdAt: fileDate)
 		persistOfflineState(album: makeAlbum(id: trackId), tracks: [makeTrack(id: trackId)])
 
 		let session = offlineLibrary.makeSession()
-		let added = try XCTUnwrap(session.helpers.offline.addedDate(forTrackId: trackId))
+		let offline = session.helpers.offline
+		offline.resolveOfflineStream = { _ in nil }
+		let started = await offline.awaitOngoingSync()
+		XCTAssertTrue(started, "the launch sync must start")
+		let added = try XCTUnwrap(offline.addedDate(forTrackId: trackId))
 		XCTAssertEqual(added.timeIntervalSince1970, fileDate.timeIntervalSince1970, accuracy: 1,
 					   "a date must come from the file on disk, not the current time")
 	}
 
 	/// A date that already exists is history and must survive a load unchanged,
 	/// even though the file on disk carries a different creation date.
-	func testExistingAddedDateSurvivesAReload() throws {
+	func testExistingAddedDateSurvivesAReload() async throws {
 		let trackId = 987_654_402
 		let existingDate = Date(timeIntervalSince1970: 1_500_000_000)
 		try createOfflineFile(forTrackId: trackId, createdAt: Date(timeIntervalSince1970: 1_700_000_000))
 		persistOfflineState(album: makeAlbum(id: trackId), tracks: [makeTrack(id: trackId)], dates: [trackId: existingDate])
 
 		let session = offlineLibrary.makeSession()
-		let added = try XCTUnwrap(session.helpers.offline.addedDate(forTrackId: trackId))
+		let offline = session.helpers.offline
+		offline.resolveOfflineStream = { _ in nil }
+		let started = await offline.awaitOngoingSync()
+		XCTAssertTrue(started, "the launch sync must start")
+		let added = try XCTUnwrap(offline.addedDate(forTrackId: trackId))
 		XCTAssertEqual(added.timeIntervalSince1970, existingDate.timeIntervalSince1970, accuracy: 1,
 					   "an existing date must not be moved by a file that has a different creation date")
 	}
 
 	/// A wanted track that has no file yet still gets a date, so the offline list
 	/// shows something as soon as the user asks for it.
-	func testWantedTrackWithoutAFileStillGetsADate() throws {
+	func testWantedTrackWithoutAFileStillGetsADate() async throws {
 		let trackId = 987_654_403
 		persistOfflineState(album: makeAlbum(id: trackId), tracks: [makeTrack(id: trackId)])
 
 		let before = Date()
 		let session = offlineLibrary.makeSession()
-		let added = try XCTUnwrap(session.helpers.offline.addedDate(forTrackId: trackId))
+		let offline = session.helpers.offline
+		offline.resolveOfflineStream = { _ in nil }
+		let started = await offline.awaitOngoingSync()
+		XCTAssertTrue(started, "the launch sync must start")
+		let added = try XCTUnwrap(offline.addedDate(forTrackId: trackId))
 		XCTAssertGreaterThanOrEqual(added.timeIntervalSince(before), -1, "a track with no file must fall back to now")
 		XCTAssertLessThanOrEqual(added.timeIntervalSince(before), 5)
 	}
 
 	/// The backfilled dates are written, so they are still there after a reload
 	/// rather than being recomputed (or lost) every launch.
-	func testBackfilledAddedDatesArePersisted() throws {
+	func testBackfilledAddedDatesArePersisted() async throws {
 		let trackId = 987_654_404
 		let fileDate = Date(timeIntervalSince1970: 1_600_000_000)
 		try createOfflineFile(forTrackId: trackId, createdAt: fileDate)
 		persistOfflineState(album: makeAlbum(id: trackId), tracks: [makeTrack(id: trackId)])
 
 		let session = offlineLibrary.makeSession()
-		let inMemory = try XCTUnwrap(session.helpers.offline.addedDate(forTrackId: trackId))
+		let offline = session.helpers.offline
+		offline.resolveOfflineStream = { _ in nil }
+		let started = await offline.awaitOngoingSync()
+		XCTAssertTrue(started, "the launch sync must start")
+		let inMemory = try XCTUnwrap(offline.addedDate(forTrackId: trackId))
 		XCTAssertEqual(inMemory.timeIntervalSince1970, fileDate.timeIntervalSince1970, accuracy: 1)
 
-		let reloaded = OfflineDB()
+		let reloaded = OfflineDB(defaults: offlineLibrary.defaults)
 		let persisted = try XCTUnwrap(reloaded.trackAddedDates[trackId])
 		XCTAssertEqual(persisted.timeIntervalSince1970, fileDate.timeIntervalSince1970, accuracy: 1,
 					   "the backfilled date must be persisted, not just held in memory")
@@ -187,7 +175,7 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 		await offline.awaitOngoingSync()
 
 		XCTAssertTrue(fileExists(forTrackId: trackId), "keeping downloads must not delete the downloaded file")
-		XCTAssertTrue(OfflineDB().tracks.contains(track), "keeping downloads must not clear the database")
+		XCTAssertTrue(OfflineDB(defaults: offlineLibrary.defaults).tracks.contains(track), "keeping downloads must not clear the database")
 	}
 
 	/// An empty wanted set is not a request to delete the library. If the database is
@@ -210,7 +198,7 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 	func testUndecodableStoredStateDoesNotRemoveDownloadedFiles() async throws {
 		let trackId = 987_654_505
 		try createOfflineFile(forTrackId: trackId, createdAt: Date(timeIntervalSince1970: 1_600_000_000))
-		UserDefaults.standard.set(Data("not a stored album list".utf8), forKey: "OfflineDB:Albums")
+		offlineLibrary.defaults.set(Data("not a stored album list".utf8), forKey: "OfflineDB:Albums")
 
 		let session = offlineLibrary.makeSession()
 		await session.helpers.offline.awaitOngoingSync()
@@ -226,8 +214,8 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 		let trackId = 987_654_506
 		try createOfflineFile(forTrackId: trackId, createdAt: Date(timeIntervalSince1970: 1_600_000_000))
 		// A readable album section, and the favourite section the file belongs to, unreadable.
-		UserDefaults.standard.set(try? JSONEncoder().encode([makeAlbum(id: 111)]), forKey: "OfflineDB:Albums")
-		UserDefaults.standard.set(Data("not a stored favourite list".utf8), forKey: "OfflineDB:FavoriteTracks")
+		offlineLibrary.defaults.set(try? JSONEncoder().encode([makeAlbum(id: 111)]), forKey: "OfflineDB:Albums")
+		offlineLibrary.defaults.set(Data("not a stored favourite list".utf8), forKey: "OfflineDB:FavoriteTracks")
 
 		let session = offlineLibrary.makeSession()
 		await session.helpers.offline.awaitOngoingSync()
@@ -250,7 +238,7 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 
 		offline.removeAll()
 		let cleared = await waitUntil {
-			!self.fileExists(forTrackId: trackId) && !OfflineDB().tracks.contains(track)
+			!self.fileExists(forTrackId: trackId) && !OfflineDB(defaults: self.offlineLibrary.defaults).tracks.contains(track)
 		}
 
 		XCTAssertTrue(cleared, "removing downloads must delete the file and clear the database")
@@ -262,12 +250,14 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 	/// keys may go.
 	func testLogoutKeepsOfflineDatabaseAndPreferences() {
 		let track = makeTrack(id: 987_654_503)
-		OfflineDB().addStandaloneOfflineTrack(track) // persists OfflineDB:StandaloneOfflineTracks
+		let offlineStore = offlineLibrary.defaults
+		offlineStore.set(true, forKey: "SaveFavoritesOffline")
+		offlineStore.set(true, forKey: "offlinePreferDolbyAtmos")
+		OfflineDB(defaults: offlineStore).addStandaloneOfflineTrack(track) // persists OfflineDB:StandaloneOfflineTracks
 
-		withPreservedDefaults(sessionKeys + offlinePreferenceKeys) {
+		withPreservedDefaults(sessionKeys + [sentinelKey]) {
 			UserDefaults.standard.set(["countryCode": "US", "userId": "1"], forKey: "Session Information")
-			UserDefaults.standard.set(true, forKey: "SaveFavoritesOffline")
-			UserDefaults.standard.set(true, forKey: "offlinePreferDolbyAtmos")
+			UserDefaults.standard.set("survives", forKey: sentinelKey)
 
 			offlineLibrary.makeSession().logout()
 
@@ -275,11 +265,13 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 						  "logout must clear the stored session")
 			XCTAssertNil(UserDefaults.standard.object(forKey: "Config Information"),
 						  "logout must clear the stored config")
-			XCTAssertNotNil(UserDefaults.standard.data(forKey: "OfflineDB:StandaloneOfflineTracks"),
+			XCTAssertEqual(UserDefaults.standard.string(forKey: sentinelKey), "survives",
+						   "logout owns the session keys, not the whole defaults domain")
+			XCTAssertNotNil(offlineStore.data(forKey: "OfflineDB:StandaloneOfflineTracks"),
 							"logout must leave the offline database alone")
-			XCTAssertTrue(UserDefaults.standard.bool(forKey: "SaveFavoritesOffline"),
+			XCTAssertTrue(offlineStore.bool(forKey: "SaveFavoritesOffline"),
 						  "logout must leave the offline preferences alone")
-			XCTAssertTrue(UserDefaults.standard.bool(forKey: "offlinePreferDolbyAtmos"),
+			XCTAssertTrue(offlineStore.bool(forKey: "offlinePreferDolbyAtmos"),
 						  "logout must leave the offline preferences alone")
 		}
 	}
@@ -290,19 +282,24 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 	/// whole library.
 	func testDeletePersistentInformationCannotTouchOfflineState() {
 		let track = makeTrack(id: 987_654_504)
-		OfflineDB().addStandaloneOfflineTrack(track)
+		let offlineStore = offlineLibrary.defaults
+		offlineStore.set(true, forKey: "offlinePreferDolbyAtmos")
+		OfflineDB(defaults: offlineStore).addStandaloneOfflineTrack(track)
 
-		withPreservedDefaults(sessionKeys + offlinePreferenceKeys) {
+		withPreservedDefaults(sessionKeys + [sentinelKey]) {
 			UserDefaults.standard.set(["countryCode": "US", "userId": "1"], forKey: "Session Information")
-			UserDefaults.standard.set(true, forKey: "offlinePreferDolbyAtmos")
-			let offlineKeysBefore = offlineRelatedKeys()
+			UserDefaults.standard.set("survives", forKey: sentinelKey)
 
 			offlineLibrary.makeSession().deletePersistentInformation()
 
 			XCTAssertNil(UserDefaults.standard.object(forKey: "Session Information"))
 			XCTAssertNil(UserDefaults.standard.object(forKey: "Config Information"))
-			XCTAssertEqual(offlineRelatedKeys(), offlineKeysBefore,
-						   "deletePersistentInformation must not touch the offline database or preferences")
+			XCTAssertEqual(UserDefaults.standard.string(forKey: sentinelKey), "survives",
+						   "deletePersistentInformation owns the session keys, not the whole defaults domain")
+			XCTAssertNotNil(offlineStore.data(forKey: "OfflineDB:StandaloneOfflineTracks"),
+							"deletePersistentInformation must not touch the offline database")
+			XCTAssertTrue(offlineStore.bool(forKey: "offlinePreferDolbyAtmos"),
+						  "deletePersistentInformation must not touch the offline preferences")
 		}
 	}
 
@@ -323,14 +320,6 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 			}
 		}
 		body()
-	}
-
-	/// Every offline-related key currently in the app domain: the database and the
-	/// offline preferences.
-	private func offlineRelatedKeys() -> Set<String> {
-		Set(UserDefaults.standard.dictionaryRepresentation().keys.filter {
-			$0.hasPrefix("OfflineDB:") || offlinePreferenceKeys.contains($0)
-		})
 	}
 
 	/// Polls a MainActor condition while letting the sync tasks run. Bounded so a
@@ -356,10 +345,10 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 	/// account or the real library.
 	private func persistOfflineState(album: Album, tracks: [Track], dates: [Int: Date] = [:]) {
 		let encoder = JSONEncoder()
-		UserDefaults.standard.set(try? encoder.encode([album]), forKey: "OfflineDB:Albums")
-		UserDefaults.standard.set(try? encoder.encode([album: tracks]), forKey: "OfflineDB:AlbumTracks")
+		offlineLibrary.defaults.set(try? encoder.encode([album]), forKey: "OfflineDB:Albums")
+		offlineLibrary.defaults.set(try? encoder.encode([album: tracks]), forKey: "OfflineDB:AlbumTracks")
 		if !dates.isEmpty {
-			UserDefaults.standard.set(try? encoder.encode(dates), forKey: "OfflineDB:TrackAddedDates")
+			offlineLibrary.defaults.set(try? encoder.encode(dates), forKey: "OfflineDB:TrackAddedDates")
 		}
 	}
 
