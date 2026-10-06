@@ -25,6 +25,10 @@ import TidalSwiftLib
 	/// Resumes the pending desktop-login wait. Ignored when no login is waiting,
 	/// so unrelated `tidal://` links are harmless.
 	func receive(callbackURL: URL) {
+		// The callback carries the authorization code in its query, so only the route
+		// is logged, never the whole URL.
+		let route = "\(callbackURL.scheme ?? "?")://\(callbackURL.host() ?? "")\(callbackURL.path)"
+		print("[LOGIN] callback arrived at \(route), waiting for a login: \(pendingDesktopLogin != nil)")
 		pendingDesktopLogin?.resume(returning: callbackURL)
 	}
 }
@@ -202,13 +206,17 @@ struct LoginView: View {
 			enabled: handleTidalLinks,
 			handler: TidalLinkRegistration.currentHandler()
 		)
+		print("[LOGIN] starting chain: handleTidalLinks=\(handleTidalLinks), route=\(decision.route), registration=\(decision.registration)")
 		let registrationAccepted = await TidalLinkRegistration.apply(decision.registration)
-		// A claim the system declined leaves the scheme with another app, so the
-		// callback could not return here; fall back at once instead of waiting it out.
-		let claimDeclined = decision.route == .browser
-			&& decision.registration == .claim
-			&& !registrationAccepted
-		let systemBrowserAvailable = decision.route == .browser && !claimDeclined
+		// A registration the system declined, or one that did not actually leave this
+		// app holding the scheme, leaves the callback unable to return here. Re-read
+		// the handler and trust only that, so the sheet says why it cannot use the
+		// browser instead of counting down for five minutes.
+		let handlerAfterRegistration = TidalLinkRegistration.currentHandler()
+		print("[LOGIN] registration accepted: \(registrationAccepted), tidal:// handler now: \(TidalLinkRegistration.logDescription(of: handlerAfterRegistration))")
+		let systemBrowserAvailable = decision.route == .browser
+			&& registrationAccepted
+			&& handlerAfterRegistration == .thisApp
 
 		var route: LoginRoutePolicy.Route? = LoginRoutePolicy.firstRoute(
 			systemBrowserAvailable: systemBrowserAvailable
@@ -220,7 +228,7 @@ struct LoginView: View {
 				route = LoginRoutePolicy.nextRoute(after: current, end: end)
 			case .deviceCode:
 				if !systemBrowserAvailable {
-					loginNotice = claimDeclined
+					loginNotice = handleTidalLinks
 						? "Another app handles Tidal links, so the browser login cannot return here. Using a device code instead."
 						: "Browser login is off in Settings, so the app is using a device code instead."
 				}
@@ -244,19 +252,24 @@ struct LoginView: View {
 		counter = 300
 		phase = .systemBrowser
 		openURL(url)
+		print("[LOGIN] opened authorize URL in the default browser: \(url.absoluteString)")
 		do {
 			let callback = try await waitForDesktopCallback(pending)
+			print("[LOGIN] exchanging the callback code for a session")
 			try await session.completeDesktopLogin(callbackURL: callback, codeVerifier: verifier)
+			print("[LOGIN] browser login finished")
 			successfulLogin()
 			return nil
 		} catch {
 			let end = LoginRoutePolicy.end(for: error)
 			switch end {
 			case .cancelled:
-				break
+				print("[LOGIN] browser login cancelled")
 			case .timedOut:
+				print("[LOGIN] browser login timed out waiting for the tidal:// callback")
 				loginNotice = (error as? LocalizedError)?.errorDescription
 			case .failed:
+				print("[LOGIN] browser login failed: \(error)")
 				loginError = (error as? LocalizedError)?.errorDescription ?? "Login failed"
 			}
 			return end
@@ -266,6 +279,7 @@ struct LoginView: View {
 	/// Runs Tidal's device-code flow, the last method. Its page is Tidal's, so it
 	/// keeps its own wording.
 	private func runDeviceLogin() async {
+		print("[LOGIN] starting device-code login")
 		for await state in session.startAuthorization() {
 			switch state {
 			case .waiting:
@@ -275,9 +289,12 @@ struct LoginView: View {
 				pendingLoginUrl = loginUrl
 				counter = 300
 				openURL(loginUrl)
+				print("[LOGIN] opened device-code URL in the default browser: \(loginUrl.absoluteString)")
 			case .success:
+				print("[LOGIN] device-code login finished")
 				successfulLogin()
 			case .failure(let error):
+				print("[LOGIN] device-code login failed: \(error)")
 				loginError = (error as? LocalizedError)?.errorDescription ?? "Login failed"
 				phase = .idle
 			}

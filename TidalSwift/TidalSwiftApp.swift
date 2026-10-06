@@ -33,6 +33,13 @@ struct TidalSwiftApp: App {
 			)
 			.environment(appModel)
 			.environment(appModel.toastCenter)
+			// Without this, the `tidal://login/auth` callback opens a second window:
+			// when no open scene declares that it handles the event, SwiftUI creates a
+			// new scene for it. `allowing: ["*"]` declares that this scene handles any
+			// URL the app receives, so the callback lands in the window that is already
+			// open and the login sheet there completes in place. The sets are matched
+			// against the URL's `absoluteString`, and `*` matches anything.
+			.handlesExternalEvents(preferring: [], allowing: ["*"])
 			.onAppear {
 				#if canImport(AppKit)
 				appDelegate.appModel = appModel
@@ -109,11 +116,39 @@ enum TidalLinkRegistration {
 	static let officialTidalApplicationPath = "/Applications/TIDAL.app"
 
 	/// Who macOS would hand a `tidal://` link to right now.
+	///
+	/// Every copy of this app shares one bundle id, so the id alone cannot tell a
+	/// stale copy from the running one. Only the running copy can deliver the
+	/// callback into this process, so the resolved path decides: a handler at any
+	/// other path — including one whose bundle has since been deleted — counts as
+	/// another app, which makes the app reclaim the scheme for itself instead of
+	/// leaving the link pointing at a copy that can vanish mid-session.
 	static func currentHandler() -> TidalLinkHandlingPolicy.SchemeHandler {
-		guard let handler = NSWorkspace.shared.urlForApplication(toOpen: tidalLinkProbeURL) else {
+		guard let handler = currentHandlerApplicationURL() else {
 			return .nobody
 		}
-		return Bundle(url: handler)?.bundleIdentifier == Bundle.main.bundleIdentifier ? .thisApp : .anotherApp
+		let isThisBundle = handler.standardizedFileURL == Bundle.main.bundleURL.standardizedFileURL
+			&& Bundle(url: handler)?.bundleIdentifier == Bundle.main.bundleIdentifier
+		return isThisBundle ? .thisApp : .anotherApp
+	}
+
+	/// The bundle macOS would hand a `tidal://` link to right now, or nil when no
+	/// installed app claims the scheme. Used by `currentHandler` and by the
+	/// `[LOGIN]` line that names the path at launch.
+	static func currentHandlerApplicationURL() -> URL? {
+		NSWorkspace.shared.urlForApplication(toOpen: tidalLinkProbeURL)
+	}
+
+	/// A handler in words, for the `[LOGIN]` console lines.
+	static func logDescription(of handler: TidalLinkHandlingPolicy.SchemeHandler) -> String {
+		switch handler {
+		case .thisApp:
+			return "this app"
+		case .anotherApp:
+			return "another app"
+		case .nobody:
+			return "nobody"
+		}
 	}
 
 	/// What the current preference asks for, given who holds the scheme.
@@ -326,7 +361,19 @@ final class TidalSwiftAppModel {
 
 		// Claim tidal:// at launch when the preference asks for it, so the browser
 		// login's callback reaches this app without the user registering it by hand.
-		Task { await TidalLinkRegistration.applyCurrentRegistration() }
+		// The handler and its path are logged because a stale copy of the app that
+		// still claims the scheme can only be told apart from the running app by its
+		// path, and that is the usual reason a callback never arrives.
+		Task {
+			let before = TidalLinkRegistration.currentHandler()
+			let beforePath = TidalLinkRegistration.currentHandlerApplicationURL()?.path ?? "none"
+			await TidalLinkRegistration.applyCurrentRegistration()
+			let after = TidalLinkRegistration.currentHandler()
+			print("[LOGIN] tidal:// handler at launch: \(TidalLinkRegistration.logDescription(of: before)) at \(beforePath); after registering: \(TidalLinkRegistration.logDescription(of: after))")
+			if after != .thisApp {
+				print("[LOGIN] tidal:// is not handled by this app, so a browser login's callback cannot return here; the sheet will fall back to a device code")
+			}
+		}
 
 		updateCheck(showNoUpdatesAlert: false)
 		#endif
