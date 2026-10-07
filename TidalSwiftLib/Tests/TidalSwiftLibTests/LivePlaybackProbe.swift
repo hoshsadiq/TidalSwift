@@ -15,10 +15,9 @@ import AVFoundation
 import XCTest
 @testable import TidalSwiftLib
 
-/// A main-queue latency probe: a background thread repeatedly hands a block to the
-/// main queue and measures how long it waits before the block runs. That wait is how
-/// long the main queue — and so the main actor — is blocked. A gap of seconds is the
-/// stall a user feels as a frozen window.
+/// A main-queue latency probe: a background thread hands a block to the main queue and measures
+/// how long it waits before running — that wait is how long the main actor is blocked, and a gap
+/// of seconds is the stall a user feels as a frozen window.
 final class MainQueueLatencyMonitor: @unchecked Sendable {
 	private let lock = NSLock()
 	private var running = false
@@ -90,9 +89,8 @@ final class LivePlaybackProbe: XCTestCase {
 		))
 	}
 
-	/// A cache directory under the system temp directory. The probe prepares and
-	/// assembles into this, so it never writes into or removes from the real playback
-	/// cache at `~/Library/Caches/TidalSwift/stream/`.
+	/// A cache directory under the system temp directory, so the probe never touches the real
+	/// playback cache at `~/Library/Caches/TidalSwift/stream/`.
 	private func makeTemporaryCacheDirectory() throws -> URL {
 		let directory = FileManager.default.temporaryDirectory
 			.appendingPathComponent("LiveProbe-cache-\(UUID().uuidString)", isDirectory: true)
@@ -205,9 +203,8 @@ final class LivePlaybackProbe: XCTestCase {
 		XCTAssertEqual(resolved.bitDepth, 16)
 	}
 
-	/// The point of the freeze fix: preparing a hi-res track must not hold the main
-	/// actor while it downloads and decrypts. The monitor's largest wait is the stall;
-	/// before the fix it was the ~2.8 s decrypt of a ~30 MB file.
+	/// The point of the freeze fix: preparing a hi-res track must not hold the main actor while it
+	/// downloads and decrypts. The monitor's largest wait is the stall.
 	func testPreparingAHiResTrackDoesNotStallTheMainActor() async throws {
 		let session = try liveSession()
 		let track = dualFormatTrack()
@@ -216,7 +213,6 @@ final class LivePlaybackProbe: XCTestCase {
 
 		let monitor = MainQueueLatencyMonitor()
 		monitor.start()
-		// Let the heartbeat settle before the measured call.
 		try? await Task.sleep(for: .milliseconds(50))
 		let start = Date()
 		let url = await HiResStreaming.prepareFile(
@@ -231,17 +227,15 @@ final class LivePlaybackProbe: XCTestCase {
 		XCTAssertLessThan(monitor.maxLatencySeconds, 0.25, "preparing a hi-res track must not block the main actor")
 	}
 
-	/// The same measurement for the DASH path. Its assembly was already off the main
-	/// actor (the fetches run in a task group and the nonisolated helpers do no UI
-	/// work), so this passes before and after the fix and pins that it stays that way.
+	/// The same measurement for the DASH path, whose assembly was already off the main actor, so
+	/// this pins that it stays that way.
 	func testAssemblingADashTrackDoesNotStallTheMainActor() async throws {
 		let session = try liveSession()
 		let track = dualFormatTrack()
 		let cacheDirectory = try makeTemporaryCacheDirectory()
 		defer { try? FileManager.default.removeItem(at: cacheDirectory) }
 		let destination = cacheDirectory.appendingPathComponent("\(track.id)-medium.aac.m4a")
-		// Assembling straight into the temp directory forces the assembly instead of a
-		// cached hit, and touches no file in the real cache.
+		// Assembling straight into the temp directory forces the assembly instead of a cached hit.
 		let manifestResult = await session.dashAudioManifest(trackId: track.id, audioQuality: .medium)
 		let manifest = try XCTUnwrap(manifestResult, "Tidal served no DASH manifest")
 

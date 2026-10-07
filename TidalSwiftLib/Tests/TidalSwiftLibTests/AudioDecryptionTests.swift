@@ -8,12 +8,9 @@ import CommonCrypto
 import XCTest
 @testable import TidalSwiftLib
 
-/// Checks `AudioDecryption` against an independent AES implementation.
-///
-/// The fixtures are built here with CommonCrypto's *native* CTR mode and a CBC-encrypt
-/// wrap, so the tests never reuse the decryption paths they are checking: the code under
-/// test builds its keystream from hand-assembled counter blocks and ECB, while the tests
-/// ask CommonCrypto to run the counter itself.
+/// Checks `AudioDecryption` against an independent AES implementation: the fixtures use
+/// CommonCrypto's native CTR mode and CBC, never the hand-assembled counter blocks the
+/// module builds.
 final class AudioDecryptionTests: XCTestCase {
 	private enum TestError: Error {
 		case crypto(CCCryptorStatus)
@@ -45,15 +42,14 @@ final class AudioDecryptionTests: XCTestCase {
 		return url
 	}
 
-	/// A real FLAC fixture padded to `count` bytes. Padding keeps the `fLaC` marker and the
-	/// STREAMINFO block intact, which the file decrypt now verifies before installing.
+	/// A real FLAC fixture padded to `count` bytes; the padding keeps the `fLaC` marker and
+	/// STREAMINFO block intact.
 	private func flacPlaintext(_ count: Int) throws -> Data {
 		var data = try Data(contentsOf: try fixtureURL("silent", "flac"))
 		if data.count < count { data.append(randomBytes(count - data.count)) }
 		return data
 	}
 
-	/// The names of any temporary decrypt files left in `directory`.
 	private func temporaryDecryptFiles(in directory: URL) throws -> [String] {
 		try FileManager.default.contentsOfDirectory(atPath: directory.path).filter { $0.contains(".tmp-") }
 	}
@@ -214,8 +210,8 @@ final class AudioDecryptionTests: XCTestCase {
 	// MARK: - Block boundary and chunking
 
 	func testDecryptHandlesALengthThatIsNotABlockMultiple() throws {
-		// 12345 bytes: 771 whole blocks plus 9 trailing bytes. A stream cipher must still
-		// produce all 12345 bytes; a block-cipher-style implementation would pad or truncate.
+		// 12345 bytes: 771 whole blocks plus 9 trailing bytes, which a stream cipher must
+		// still emit in full.
 		let plaintext = try flacPlaintext(12345)
 		XCTAssertEqual(plaintext.count % 16, 9, "fixture should end mid-block")
 		let key = randomBytes(16)
@@ -308,8 +304,8 @@ final class AudioDecryptionTests: XCTestCase {
 		}
 	}
 
-	/// Random plaintext decrypts cleanly but is not a FLAC stream: the bogus output must be
-	/// discarded, leaving neither a file at the destination nor a temporary behind.
+	/// Random plaintext decrypts cleanly but is not a FLAC stream, so the bogus output is
+	/// discarded and nothing is left behind.
 	func testDecryptDiscardsAnOutputThatIsNotAFLAC() throws {
 		let plaintext = randomBytes(4096)
 		let key = randomBytes(16)
@@ -331,9 +327,8 @@ final class AudioDecryptionTests: XCTestCase {
 		}
 	}
 
-	/// A cancelled task aborts the decrypt and leaves neither a destination nor a temporary
-	/// behind. The task is cancelled before its body can run, so the first block check
-	/// observes it deterministically.
+	/// The task is cancelled before its body can run, so the first block check observes it
+	/// deterministically.
 	func testDecryptAbortsWhenTheTaskIsCancelled() async throws {
 		let plaintext = try flacPlaintext(12_288)
 		let key = randomBytes(16)
@@ -355,7 +350,6 @@ final class AudioDecryptionTests: XCTestCase {
 			try await task.value
 			XCTFail("expected the decrypt to be cancelled")
 		} catch is CancellationError {
-			// Expected.
 		}
 		XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
 		XCTAssertEqual(try temporaryDecryptFiles(in: directory), [], "a temporary file was left behind")

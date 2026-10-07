@@ -9,9 +9,7 @@
 import XCTest
 @testable import TidalSwiftLib
 
-/// Pins the quality -> file-extension mapping and the album-variant collapsing
-/// rule, both of which the fork merge rewrites. The assertions below record the
-/// behaviour as implemented today, including the subscription cap.
+/// Pins the quality → file-extension mapping and the album-variant collapsing rule.
 @MainActor
 final class QualityMappingTests: XCTestCase {
 	private let releaseDate = Date(timeIntervalSince1970: 1_700_000_000)
@@ -22,11 +20,9 @@ final class QualityMappingTests: XCTestCase {
 		super.tearDown()
 	}
 
-	/// `Config.load()` reads the real "Config Information" from UserDefaults, so
-	/// `Session(config: nil)` in a test would load the developer's live Tidal
-	/// token and use it for the background sync `Offline.init` starts. An explicit
-	/// empty config keeps the test off the developer's account, and the temporary
-	/// offline root keeps the sync off the developer's real library.
+	/// `Session(config: nil)` would call `Config.load()` and read the developer's live token;
+	/// an explicit empty config plus a temporary offline root keep the test off both the
+	/// developer's account and real library.
 	private func makeSession() -> Session {
 			offlineLibrary.makeSession(config: Config(
 			accessToken: "",
@@ -107,8 +103,7 @@ final class QualityMappingTests: XCTestCase {
 
 	// MARK: - Variant collapsing
 
-	/// TIDAL lists one entry per variant; identical title/artist/date must collapse
-	/// to a single album.
+	/// Identical title/artist/date must collapse to a single album.
 	func testVariantsCollapseToSingleAlbum() {
 		let variants = [
 			album(id: 1, quality: .max, explicit: true),
@@ -123,7 +118,6 @@ final class QualityMappingTests: XCTestCase {
 		XCTAssertEqual(collapsed.count, 1)
 	}
 
-	/// With no cap the highest tier wins.
 	func testUncappedPrefersHighestTier() {
 		let collapsed = Helpers.collapseVariants(
 			[album(id: 1, quality: .high), album(id: 2, quality: .max)],
@@ -132,8 +126,6 @@ final class QualityMappingTests: XCTestCase {
 		XCTAssertEqual(collapsed.map(\.id), [2])
 	}
 
-	/// The user's quality setting caps which copy is preferred: anything above it
-	/// scores worse than a lower tier within the cap.
 	func testCapExcludesQualityAboveMaxQuality() {
 		let collapsed = Helpers.collapseVariants(
 			[album(id: 1, quality: .max), album(id: 2, quality: .high)],
@@ -142,8 +134,8 @@ final class QualityMappingTests: XCTestCase {
 		XCTAssertEqual(collapsed.map(\.id), [2])
 	}
 
-	/// A Dolby Atmos copy is preferred even when it sits above the user's cap,
-	/// because it is not part of the stereo tier ladder.
+	/// An Atmos copy is preferred even above the user's cap, since it is not part of the
+	/// stereo tier ladder.
 	func testAtmosWinsRegardlessOfCap() {
 		let collapsed = Helpers.collapseVariants(
 			[album(id: 1, quality: .low, atmos: true), album(id: 2, quality: .max)],
@@ -152,8 +144,6 @@ final class QualityMappingTests: XCTestCase {
 		XCTAssertEqual(collapsed.map(\.id), [1])
 	}
 
-	/// Within one tier the explicit copy is preferred, and it beats the
-	/// lowest-id tie-break.
 	func testExplicitWinsWithinTier() {
 		let collapsed = Helpers.collapseVariants(
 			[album(id: 2, quality: .high, explicit: true), album(id: 1, quality: .high, explicit: false)],
@@ -162,7 +152,6 @@ final class QualityMappingTests: XCTestCase {
 		XCTAssertEqual(collapsed.map(\.id), [2])
 	}
 
-	/// Otherwise the lowest id wins, so the row stays stable between refreshes.
 	func testLowestIdBreaksTies() {
 		let collapsed = Helpers.collapseVariants(
 			[album(id: 5, quality: .high), album(id: 3, quality: .high)],

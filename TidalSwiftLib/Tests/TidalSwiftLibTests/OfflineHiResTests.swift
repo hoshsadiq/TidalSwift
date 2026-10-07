@@ -7,10 +7,8 @@ import AVFoundation
 import XCTest
 @testable import TidalSwiftLib
 
-/// The assertion that matters for the offline hi-res route: a track the sync downloads
-/// through it ends up on disk decrypted and playable. An encrypted file left in the
-/// offline library would be a silent corruption of the user's music, so the file is
-/// checked as audio, not just for existing.
+/// A track the sync downloads through the hi-res route ends up on disk decrypted and
+/// playable; an encrypted file left in the offline library would be silent corruption.
 @MainActor
 final class OfflineHiResTests: XCTestCase {
 	private nonisolated let offlineLibrary = TemporaryOfflineLibrary(label: "OfflineHiRes")
@@ -45,8 +43,7 @@ final class OfflineHiResTests: XCTestCase {
 		XCTAssertEqual(stored.length, original.length, "the stored file must decode as the source audio")
 		XCTAssertEqual(stored.fileFormat.sampleRate, original.fileFormat.sampleRate)
 
-		// A decrypted hi-res file satisfies the wanted variant, so the next sync keeps
-		// it instead of downloading again.
+		// A decrypted hi-res file satisfies the wanted variant, so the next sync keeps it.
 		offline.setOfflineTracksForTesting([makeTrack(id: trackId)])
 		await offline.awaitOngoingSync()
 
@@ -54,10 +51,8 @@ final class OfflineHiResTests: XCTestCase {
 		XCTAssertEqual(try libraryFileNames(), ["\(trackId).hires.flac"])
 	}
 
-	/// A dual-format track with the Atmos preference on is wanted in Atmos, so a
-	/// session that can use the hi-res stereo route must still not take it. The route
-	/// used to be asked before the preference, which stored a hi-res file the wish does
-	/// not accept and made every later sync resolve the track over the network again.
+	/// A dual-format track with the Atmos preference on is wanted in Atmos, so even a
+	/// session that can use the hi-res stereo route must not take it.
 	func testDualFormatTrackWithAtmosPreferenceStoresTheAtmosFileOnACapableSession() async throws {
 		let trackId = 779_000_002
 		offlineLibrary.defaults.set(true, forKey: "offlinePreferDolbyAtmos")
@@ -90,8 +85,6 @@ final class OfflineHiResTests: XCTestCase {
 			"a dual-format track with the preference on must be stored as Atmos"
 		)
 
-		// The stored file satisfies the wish, so the next sync must not resolve the
-		// track again — that re-resolution is what the wrong route cost per pass.
 		offline.setOfflineTracksForTesting([makeDualFormatTrack(id: trackId)])
 		await offline.awaitOngoingSync()
 

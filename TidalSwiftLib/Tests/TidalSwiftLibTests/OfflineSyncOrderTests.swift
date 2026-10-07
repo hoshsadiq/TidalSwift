@@ -9,10 +9,8 @@
 import XCTest
 @testable import TidalSwiftLib
 
-/// The sync must never delete a file it cannot replace: downloads happen first,
-/// and a track's old file goes only once its replacement is on disk. These live
-/// apart from `TemporaryOfflineLibraryTests` because the two lanes that added
-/// them met in a merge conflict there.
+/// The sync must never delete a file it cannot replace: downloads happen first, and a
+/// track's old file goes only once its replacement is on disk.
 @MainActor
 final class OfflineSyncOrderTests: XCTestCase {
 	private nonisolated let offlineLibrary = TemporaryOfflineLibrary(label: "OfflineSyncOrder")
@@ -54,8 +52,6 @@ final class OfflineSyncOrderTests: XCTestCase {
 		XCTAssertEqual(files, ["\(trackId).lossless.flac"])
 	}
 
-	/// The behaviour that made variant pruning worthwhile still holds: after a
-	/// successful re-download at the new quality, exactly one file remains.
 	func testSuccessfulQualitySwitchReplacesTheFile() async throws {
 		let trackId = 778_000_002
 		let libraryDirectory = try makeLibraryDirectory()
@@ -65,7 +61,6 @@ final class OfflineSyncOrderTests: XCTestCase {
 		let session = makeSession(offlineAudioQuality: .medium)
 		let offline = session.helpers.offline
 		offline.setOfflineTracksForTesting([makeTrack(id: trackId)])
-		// Downloading the fixture over a file URL succeeds without a network.
 		let fixture = try silentFlacFixture()
 		offline.resolveOfflineStream = { _ in
 			AudioStream(url: fixture, pathExtension: "flac", isDolbyAtmos: false)
@@ -89,10 +84,8 @@ final class OfflineSyncOrderTests: XCTestCase {
 		try XCTUnwrap(Bundle.module.url(forResource: "silent", withExtension: "flac", subdirectory: "Fixtures"))
 	}
 
-	/// The session owns the `Offline` the sync runs on, and the test must keep the
-	/// session alive (Offline's session reference is `unowned`), so build both and
-	/// hold the session in a local. Setup must also stay synchronous: the init sync
-	/// only starts once the test first suspends.
+	/// The session owns the `Offline` the sync runs on (its reference is `unowned`), so
+	/// build both and hold the session in a local; setup must stay synchronous.
 	private func makeSession(offlineAudioQuality: AudioQuality) -> Session {
 		offlineLibrary.makeSession(config: Config(
 			accessToken: "",

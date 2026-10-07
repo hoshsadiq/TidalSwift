@@ -7,10 +7,9 @@ import CommonCrypto
 import Foundation
 @testable import TidalSwiftLib
 
-/// Builds an `OLD_AES`-encrypted copy of the `silent.flac` fixture together with the
-/// matching `keyId`, so the download-and-decrypt path can be driven without a live
-/// Tidal account. Encryption uses CommonCrypto's own CTR mode, a different code path
-/// from the module under test, which hand-builds its counter blocks.
+/// Builds an `OLD_AES`-encrypted copy of the `silent.flac` fixture with its matching `keyId`,
+/// so the download-and-decrypt path can be driven without a live account. Encryption uses
+/// CommonCrypto's own CTR mode, not the module's hand-built counter blocks.
 enum EncryptedFLACFixture {
 	struct Encrypted {
 		let url: URL

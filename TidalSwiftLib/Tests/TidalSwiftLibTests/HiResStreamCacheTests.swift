@@ -7,10 +7,8 @@ import AVFoundation
 import XCTest
 @testable import TidalSwiftLib
 
-/// Pins the playback cache and the prefetcher: the cache stays bounded, LRU evicts the
-/// oldest while sparing the prefetch window, the prefetch window follows the queue, and
-/// the browsing guard stops then resumes preparing. Everything runs in a temporary
-/// directory, never the real caches, and never the offline library.
+/// Pins the playback cache and the prefetcher: the cache stays bounded, LRU evicts the oldest
+/// while sparing the prefetch window, and the browsing guard stops then resumes preparing.
 @MainActor
 final class HiResStreamCacheTests: XCTestCase {
 	private var directory: URL!
@@ -35,17 +33,15 @@ final class HiResStreamCacheTests: XCTestCase {
 		return url
 	}
 
-	/// Real FLAC bytes, so a cache file passes the completeness check the cache applies
-	/// before trusting a file. A handful of arbitrary bytes is exactly what the check
-	/// is meant to reject.
+	/// Real FLAC bytes, so a cache file passes the completeness check; arbitrary bytes are
+	/// exactly what the check rejects.
 	private func silentFLACBytes() throws -> Data {
 		try Data(contentsOf: XCTUnwrap(Bundle.module.url(forResource: "silent", withExtension: "flac", subdirectory: "Fixtures")))
 	}
 
 	// MARK: - Pruning
 
-	/// Size cap: the least recently used entries go first until the directory is under
-	/// the cap.
+	/// The least recently used entries go first until the directory is under the cap.
 	func testPruneRemovesOldestUntilUnderTheSizeCap() throws {
 		let now = Date()
 		let oldest = try write("oldest.flac", bytes: 1000, modified: now.addingTimeInterval(-300))
@@ -60,7 +56,6 @@ final class HiResStreamCacheTests: XCTestCase {
 		XCTAssertTrue(FileManager.default.fileExists(atPath: newest.path))
 	}
 
-	/// Age cap: a file not touched within `maxAge` is dropped even when there is room.
 	func testPruneRemovesFilesOlderThanMaxAge() throws {
 		let now = Date()
 		let stale = try write("stale.flac", bytes: 100, modified: now.addingTimeInterval(-8 * 24 * 60 * 60))
@@ -73,9 +68,7 @@ final class HiResStreamCacheTests: XCTestCase {
 		XCTAssertTrue(FileManager.default.fileExists(atPath: fresh.path))
 	}
 
-	/// A file inside the prefetch window (or the track currently playing) is exempt
-	/// from eviction: removing a file prepared for playback would make the prefetch
-	/// pointless.
+	/// A file prepared for playback is exempt from eviction, or the prefetch would be pointless.
 	func testProtectedTrackIsNeverEvicted() throws {
 		let now = Date()
 		let oldest = try write("100-HI_RES_LOSSLESS.flac", bytes: 1000, modified: now.addingTimeInterval(-300))
@@ -88,8 +81,7 @@ final class HiResStreamCacheTests: XCTestCase {
 		XCTAssertFalse(FileManager.default.fileExists(atPath: newer.path))
 	}
 
-	/// The protection also survives the age cap, so the window is not aged out from
-	/// under the player.
+	/// The window is not aged out from under the player either.
 	func testProtectedTrackSurvivesTheAgeCap() throws {
 		let now = Date()
 		let old = try write("300-HI_RES_LOSSLESS.flac", bytes: 100, modified: now.addingTimeInterval(-8 * 24 * 60 * 60))
@@ -102,8 +94,6 @@ final class HiResStreamCacheTests: XCTestCase {
 
 	// MARK: - Unified budget
 
-	/// A DASH file and a hi-res file both count toward the one budget the settings
-	/// screen shows.
 	func testDashAndHiResFilesShareOneBudget() throws {
 		_ = try write("600.aac.m4a", bytes: 1500, modified: Date())
 		_ = try write("601.flac", bytes: 500, modified: Date())
@@ -111,8 +101,6 @@ final class HiResStreamCacheTests: XCTestCase {
 		XCTAssertEqual(HiResStreamCache.usageBytes(in: directory), 2000)
 	}
 
-	/// Eviction takes the oldest file whichever kind it is, not one lane's files before
-	/// the other's.
 	func testEvictionTakesTheOldestFileOfEitherKind() throws {
 		let now = Date()
 		let oldDash = try write("700.aac.m4a", bytes: 1000, modified: now.addingTimeInterval(-300))
@@ -125,8 +113,7 @@ final class HiResStreamCacheTests: XCTestCase {
 		XCTAssertTrue(FileManager.default.fileExists(atPath: newHiRes.path))
 	}
 
-	/// A DASH file belonging to a track inside the prefetch window is spared by the same
-	/// exemption a hi-res file gets.
+	/// The same exemption a hi-res file gets applies here too.
 	func testProtectedDashFileSurvivesTheSizeCap() throws {
 		let now = Date()
 		let oldestDash = try write("800-HIGH.aac.m4a", bytes: 1000, modified: now.addingTimeInterval(-300))
@@ -139,8 +126,7 @@ final class HiResStreamCacheTests: XCTestCase {
 		XCTAssertFalse(FileManager.default.fileExists(atPath: newerHiRes.path))
 	}
 
-	/// Pruning is scoped to its directory, so the offline library (or anything else on
-	/// disk) can never be a casualty of keeping the cache small.
+	/// Pruning is scoped to its directory, so the offline library can never be a casualty.
 	func testPruneDoesNotTouchAnythingOutsideItsDirectory() throws {
 		let now = Date()
 		let outside = FileManager.default.temporaryDirectory
@@ -156,8 +142,6 @@ final class HiResStreamCacheTests: XCTestCase {
 		XCTAssertTrue(FileManager.default.fileExists(atPath: libraryFile.path), "pruning must never leave its directory")
 	}
 
-	/// Usage counts the bytes in the cache directory, which is what the settings screen
-	/// shows.
 	func testUsageCountsCacheBytes() throws {
 		_ = try write("400.flac", bytes: 1500, modified: Date())
 		_ = try write("500.flac", bytes: 500, modified: Date())
@@ -165,10 +149,8 @@ final class HiResStreamCacheTests: XCTestCase {
 		XCTAssertEqual(HiResStreamCache.usageBytes(in: directory), 2000)
 	}
 
-	/// A file already in the cache is handed back as the stream, so a replay does not
-	/// download and decrypt again. Hermetic: the cache check runs before any Tidal
-	/// request, so a hit never opens a connection, and a regression that skipped the
-	/// check would fail its fetch (or be refused with 401) instead of serving this file.
+	/// Hermetic: the cache check runs before any Tidal request, so a hit never opens a
+	/// connection and a regression that skipped the check would fail its fetch instead.
 	func testCachedFileIsReusedWithoutDownloading() async throws {
 		let trackId = 779_500_001
 		let cached = directory.appendingPathComponent("\(trackId)-HI_RES_LOSSLESS.flac")
@@ -195,10 +177,8 @@ final class HiResStreamCacheTests: XCTestCase {
 
 	// MARK: - Quality in the cache key
 
-	/// A track's two tiers are two different files: the name carries the quality, and a
-	/// file cached at one tier is never served at another. Without the quality in the
-	/// name, a Max play followed by a Lossless play reuses the 24-bit file (and the
-	/// badge claims the wrong format).
+	/// The name carries the quality, and a file cached at one tier is never served at another;
+	/// otherwise a Max play followed by a Lossless play reuses the 24-bit file.
 	func testCacheKeysDifferPerQualityAndDoNotServeTheOtherTier() async throws {
 		let trackId = 779_500_002
 		let maxFile = directory.appendingPathComponent("\(trackId)-HI_RES_LOSSLESS.flac")
@@ -229,10 +209,8 @@ final class HiResStreamCacheTests: XCTestCase {
 		)
 		XCTAssertEqual(atMax?.url, maxFile, "the Max file must be served at Max")
 
-		// A lookup at Lossless is the whole rule "a file cached at Max is not served
-		// at another tier", so it is asserted on the cache directly. Going through
-		// resolution here would fall through to a Tidal request on the miss, which
-		// makes the test need the network — and pass on a 401.
+		// Asserted on the cache directly: going through resolution on the miss would fall through
+		// to a Tidal request, making the test need the network.
 		XCTAssertNil(
 			HiResStreamCache.cachedFile(forTrackId: trackId, quality: .high, in: directory),
 			"a file cached at Max must not be served at Lossless"
@@ -241,20 +219,17 @@ final class HiResStreamCacheTests: XCTestCase {
 
 	// MARK: - Completeness
 
-	/// A cache hit is existence-only no longer: a stub left by an interrupted download
-	/// is deleted and reported as a miss, so the next play re-downloads instead of
-	/// serving a truncated file forever.
+	/// A stub left by an interrupted download is deleted and reported as a miss, so the next
+	/// play re-downloads instead of serving a truncated file forever.
 	func testTruncatedCachedFileIsDeletedAndTreatedAsAMiss() throws {
 		let url = directory.appendingPathComponent("779500003-HI_RES_LOSSLESS.flac")
-		// The right signature, but far too short to be a track.
 		try Data("fLaC".utf8).write(to: url)
 
 		XCTAssertNil(HiResStreamCache.cachedFile(forTrackId: 779_500_003, quality: .max, in: directory))
 		XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "the stub must be deleted")
 	}
 
-	/// A file that does not start with the FLAC signature was not written by this app's
-	/// decrypt; it is deleted rather than handed to the player.
+	/// Not written by this app's decrypt, so it is deleted rather than handed to the player.
 	func testCachedFileWithoutTheFlacSignatureIsDeleted() throws {
 		let url = directory.appendingPathComponent("779500004-HI_RES_LOSSLESS.flac")
 		try Data(repeating: 0x41, count: 4096).write(to: url)
@@ -263,8 +238,6 @@ final class HiResStreamCacheTests: XCTestCase {
 		XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "a file without the signature must be deleted")
 	}
 
-	/// A complete FLAC file is still trusted, so the check does not throw away real
-	/// cache entries.
 	func testCompleteCachedFileIsStillServed() throws {
 		let url = directory.appendingPathComponent("779500005-HI_RES_LOSSLESS.flac")
 		try silentFLACBytes().write(to: url)
@@ -272,9 +245,8 @@ final class HiResStreamCacheTests: XCTestCase {
 		XCTAssertEqual(HiResStreamCache.cachedFile(forTrackId: 779_500_005, quality: .max, in: directory), url)
 	}
 
-	/// The DASH cache applies the same rule with its own format's signature: an
-	/// assembled `.m4a` is trusted, while a stub or a file without the MP4 `ftyp` box is
-	/// deleted and treated as a miss.
+	/// The DASH cache applies the same rule with its own format's signature: an assembled
+	/// `.m4a` is trusted, a stub or a file without the MP4 `ftyp` box is a miss.
 	func testDashCacheValidatesItsOwnSignatureAndLength() throws {
 		let trackId = 779_500_006
 		let complete = HiResStreamCache.dashFileURL(forTrackId: trackId, quality: .medium, in: directory)
@@ -294,9 +266,8 @@ final class HiResStreamCacheTests: XCTestCase {
 
 	// MARK: - De-duplication
 
-	/// Concurrent preparation of the same track and quality runs the work once and both
-	/// callers get the result. The prefetcher and a play that arrives meanwhile share this
-	/// table, so the manifest and every segment are fetched once, not twice.
+	/// The prefetcher and a play that arrives meanwhile share this table, so the manifest and
+	/// every segment are fetched once, not twice.
 	func testConcurrentPreparationOfTheSameTrackRunsTheWorkOnce() async throws {
 		let trackId = 779_600_001
 		let dir = try XCTUnwrap(directory)
@@ -319,8 +290,6 @@ final class HiResStreamCacheTests: XCTestCase {
 		XCTAssertEqual(secondURL, produced)
 	}
 
-	/// A different quality is different work: the key carries the quality, so a Max
-	/// preparation does not borrow the Medium task's result.
 	func testPreparationKeySeparatesQualities() async throws {
 		let trackId = 779_600_002
 		let dir = try XCTUnwrap(directory)
@@ -338,9 +307,8 @@ final class HiResStreamCacheTests: XCTestCase {
 		XCTAssertEqual(runCount, 2, "the quality must be part of the in-flight key")
 	}
 
-	/// The route is also part of the key: a preparation made for one route must not
-	/// answer a request for another, so a `cuk` capability change cannot hand a hi-res
-	/// file to a DASH caller.
+	/// A preparation made for one route must not answer a request for another, so a `cuk`
+	/// capability change cannot hand a hi-res file to a DASH caller.
 	func testPreparationKeySeparatesRoutes() async throws {
 		let trackId = 779_600_003
 		let dir = try XCTUnwrap(directory)
@@ -358,8 +326,6 @@ final class HiResStreamCacheTests: XCTestCase {
 		XCTAssertEqual(runCount, 2, "the route must be part of the in-flight key")
 	}
 
-	/// A preparation that runs past its timeout is abandoned and reported as no file, so
-	/// a stuck operation cannot hold the play path or a later prefetch.
 	func testAStuckPreparationTimesOutAndReturnsNothing() async throws {
 		let dir = try XCTUnwrap(directory)
 		let started = Date()
@@ -380,8 +346,7 @@ final class HiResStreamCacheTests: XCTestCase {
 		XCTAssertLessThan(Date().timeIntervalSince(started), 5, "a stuck preparation must not hold the caller")
 	}
 
-	/// After a timeout the entry is released, so the next preparation starts fresh instead
-	/// of awaiting the abandoned work.
+	/// The next preparation starts fresh instead of awaiting the abandoned work.
 	func testPreparationAfterATimeoutStartsFresh() async throws {
 		let dir = try XCTUnwrap(directory)
 		let produced = dir.appendingPathComponent("fresh.flac")
@@ -420,8 +385,8 @@ final class HiResStreamCacheTests: XCTestCase {
 
 	// MARK: - Bit depth
 
-	/// The persisted manifest values describe the file, so `describe` reports them even
-	/// though the FLAC file itself cannot: `AVAudioFile` reads 0 bits per channel for one.
+	/// The persisted manifest values describe the file, which the FLAC file itself cannot:
+	/// `AVAudioFile` reads 0 bits per channel for one.
 	func testBitDepthComesFromPersistedMetadataWhenTheFileCannotReportIt() throws {
 		let url = directory.appendingPathComponent("950-HI_RES_LOSSLESS.flac")
 		try Data("not a real flac".utf8).write(to: url)
@@ -433,8 +398,6 @@ final class HiResStreamCacheTests: XCTestCase {
 		XCTAssertEqual(playback.sampleRate, 44_100)
 	}
 
-	/// With no persisted values the file is the fallback, and a file that carries a
-	/// format reports it.
 	func testBitDepthComesFromTheFileWhenItCarriesOne() throws {
 		let url = directory.appendingPathComponent("951-16bit.wav")
 		let format = try XCTUnwrap(AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 44_100, channels: 2, interleaved: true))
@@ -451,8 +414,7 @@ final class HiResStreamCacheTests: XCTestCase {
 		XCTAssertEqual(playback.sampleRate, 44_100)
 	}
 
-	/// Neither a persisted value nor a readable file means the depth is unknown, and the
-	/// badge reports none rather than guessing from the requested quality.
+	/// None rather than guessing from the requested quality.
 	func testBitDepthIsNilWhenNothingReportsOne() throws {
 		let url = directory.appendingPathComponent("952-HI_RES_LOSSLESS.flac")
 		try Data("garbage that AVAudioFile cannot open".utf8).write(to: url)
@@ -465,7 +427,7 @@ final class HiResStreamCacheTests: XCTestCase {
 
 	// MARK: - Prefetch window
 
-	/// The window is the tracks after the current one, in queue order, and never wraps.
+	/// The tracks after the current one, in queue order, and never wrapping.
 	func testPrefetchWindowFollowsQueueOrder() {
 		let queue = makeTracks(ids: [10, 20, 30, 40, 50])
 
@@ -479,7 +441,6 @@ final class HiResStreamCacheTests: XCTestCase {
 		)
 	}
 
-	/// The depth setting is respected, including 0 (off).
 	func testPrefetchDepthIsRespected() {
 		let queue = makeTracks(ids: [10, 20, 30, 40, 50])
 
@@ -494,8 +455,7 @@ final class HiResStreamCacheTests: XCTestCase {
 		)
 	}
 
-	/// A negative depth and an out-of-range current index yield no tracks rather than
-	/// trapping, because the policy is asked with whatever the controls and the queue hold.
+	/// The policy is asked with whatever the controls and the queue hold, so it must not trap.
 	func testNegativeDepthAndOutOfRangeIndexYieldNothing() {
 		let queue = makeTracks(ids: [10, 20, 30])
 
@@ -505,8 +465,6 @@ final class HiResStreamCacheTests: XCTestCase {
 		XCTAssertTrue(HiResPrefetchPolicy.upcomingTracks(queue: [], currentIndex: 0, depth: 3).isEmpty)
 	}
 
-	/// Tracks already in the cache, and tracks the settings would not play through the
-	/// hi-res route, are left out of the window.
 	func testWindowSkipsCachedAndIneligibleTracks() {
 		let queue = makeTracks(ids: [10, 20, 30, 40])
 
@@ -521,8 +479,6 @@ final class HiResStreamCacheTests: XCTestCase {
 		XCTAssertEqual(window.map(\.id), [40])
 	}
 
-	/// Eligibility follows the same route rule as playback: at High/Low a stereo track
-	/// leads with DASH, so its upcoming tracks are prepared.
 	func testHighQualityQueuePreparesItsUpcomingTracks() {
 		let queue = makeTracks(ids: [10, 20, 30, 40])
 
@@ -544,8 +500,7 @@ final class HiResStreamCacheTests: XCTestCase {
 		XCTAssertEqual(window.map(\.id), [20, 30])
 	}
 
-	/// At Lossless Tidal's route leads too, so the upcoming tracks are prepared — the
-	/// prepared cache is what keeps that uniform choice instant at playback time.
+	/// The prepared cache is what keeps that uniform choice instant at playback time.
 	func testLosslessStereoQueuePreparesItsUpcomingTracks() {
 		let queue = makeTracks(ids: [10, 20, 30])
 
@@ -567,13 +522,10 @@ final class HiResStreamCacheTests: XCTestCase {
 		XCTAssertEqual(window.map(\.id), [20, 30])
 	}
 
-	/// With the toggle off nothing is prepared at any tier: the direct-stream path
-	/// streams, so there is no local file to fetch ahead of time.
 
 	// MARK: - Prefetch behaviour
 
-	/// Three skips in a row stop preparing until a track settles, then preparing
-	/// resumes with the window at the new current track.
+	/// Three skips in a row stop preparing until a track settles, then preparing resumes.
 	func testThreeSkipsStopPreparingAndSettlingResumesIt() async {
 		var prepared: [Int] = []
 		let prefetcher = HiResStreamPrefetcher(
@@ -603,7 +555,6 @@ final class HiResStreamCacheTests: XCTestCase {
 		XCTAssertEqual(prepared, [20, 30, 30, 40], "preparing resumes with the window at the new track")
 	}
 
-	/// Fewer than three skips do not stop preparing.
 	func testTwoSkipsDoNotStopPreparing() async {
 		var prepared: [Int] = []
 		let prefetcher = HiResStreamPrefetcher(
@@ -622,7 +573,6 @@ final class HiResStreamCacheTests: XCTestCase {
 		XCTAssertEqual(prepared, [20])
 	}
 
-	/// Preparing and pruning never reach into the offline library.
 	func testPrefetchAndPruneStayOutOfTheOfflineLibrary() async {
 		let offlineLibrary = FileManager.default.temporaryDirectory
 			.appendingPathComponent("HiResStreamCacheTests-library-\(UUID().uuidString)", isDirectory: true)
@@ -643,8 +593,7 @@ final class HiResStreamCacheTests: XCTestCase {
 		XCTAssertTrue(FileManager.default.fileExists(atPath: libraryFile.path), "the offline library must be untouched")
 	}
 
-	/// A High-quality queue is prepared one at a time, up to the depth: the same depth
-	/// and one-at-a-time rules, now eligible at High/Low too.
+	/// The same depth and one-at-a-time rules, now eligible at High/Low too.
 	func testHighQualityPrefetcherPreparesUpToTheDepth() async {
 		var prepared: [Int] = []
 		let prefetcher = HiResStreamPrefetcher(
@@ -671,12 +620,10 @@ final class HiResStreamCacheTests: XCTestCase {
 
 	// MARK: - Helpers
 
-	/// Compile-time pin for the freeze fix: the heavy stream work must not be
-	/// main-actor isolated. Every call below is in a `nonisolated` context, so if the
-	/// function is annotated `@MainActor` again this file stops compiling — a
-	/// regression guard no comment can match. The download+decrypt step is pinned by
-	/// its conversion to a non-isolated `@Sendable` function value, which a
-	/// main-actor function cannot satisfy.
+	/// Compile-time pin for the freeze fix: the heavy stream work must not be main-actor isolated,
+	/// so every call below sits in a `nonisolated` context and annotating the function
+	/// `@MainActor` again stops this file compiling. The download+decrypt step is pinned by its
+	/// conversion to a non-isolated `@Sendable` function value.
 	nonisolated func testHeavyStreamWorkIsCallableOffTheMainActor() async throws {
 		let directory = FileManager.default.temporaryDirectory
 		let file = directory.appendingPathComponent("off-main-\(UUID().uuidString).flac")
@@ -690,14 +637,11 @@ final class HiResStreamCacheTests: XCTestCase {
 
 		let downloadAndDecrypt: @Sendable (AcceptedHiResManifest, URL) async throws -> Void = HiResStreaming.downloadAndDecrypt
 		_ = downloadAndDecrypt
-		// `Network.download` runs off the caller's actor too, so the file moves that
-		// follow its await do not land on the main actor.
 		let download: @Sendable (URL, URL, Bool, URLSession) async throws -> Void = Network.download
 		_ = download
 	}
 
-	/// Waits for a condition the prefetcher sets on the main actor, without a fixed
-	/// sleep that would make the test flaky.
+	/// Without a fixed sleep that would make the test flaky.
 	private func waitUntil(timeout: TimeInterval = 0.5, _ condition: () -> Bool) async {
 		let deadline = Date().addingTimeInterval(timeout)
 		while Date() < deadline {

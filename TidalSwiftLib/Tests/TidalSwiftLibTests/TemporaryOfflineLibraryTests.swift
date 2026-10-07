@@ -9,19 +9,14 @@
 import XCTest
 @testable import TidalSwiftLib
 
-/// Guards the two properties that keep the rest of the suite off this machine's
-/// real account and real music folder. Both were violated once already: a test
-/// session loaded the developer's stored Tidal token, and `Offline.init` started
-/// a sync against `~/Music/TidalSwift Offline Library` that removes any audio
-/// file it cannot find in its database.
+/// Guards the two properties that keep the rest of the suite off this machine's real account
+/// and real music folder: a test session must not load the developer's stored token, and
+/// `Offline.init` must not sync against `~/Music/TidalSwift Offline Library`.
 @MainActor
 final class TemporaryOfflineLibraryTests: XCTestCase {
 	private nonisolated let offlineLibrary = TemporaryOfflineLibrary(label: "IsolationGuard")
 
-	/// The keys a logout owns, and a sentinel any logout must leave alone. Unlike
-	/// the offline state (which lives in the throwaway suite), these are the
-	/// developer's real values, so a test snapshots and restores them around any
-	/// call that could touch them.
+	/// The developer's real values, so a test snapshots and restores them around any call.
 	private let sessionKeys = ["Config Information", "Session Information"]
 	private let sentinelKey = "TidalSwiftTests:LogoutSentinel"
 
@@ -30,16 +25,14 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 		super.tearDown()
 	}
 
-	/// `Session(config: nil)` calls `Config.load()`, which reads whatever is
-	/// stored under "Config Information" — a real account token on a developer
-	/// machine. A test session must not carry one.
+	/// `Config.load()`, which `Session(config: nil)` calls, reads whatever is stored under
+	/// "Config Information" — a real account token on a developer machine.
 	func testSessionDoesNotUseAStoredAccount() {
 		let session = offlineLibrary.makeSession()
 		XCTAssertTrue(session.config.accessToken.isEmpty, "test session carries a stored access token")
 		XCTAssertTrue(session.config.refreshToken.isEmpty, "test session carries a stored refresh token")
 	}
 
-	/// The offline root must be a throwaway directory, never the Music folder.
 	func testOfflineRootIsTemporary() {
 		let temporary = FileManager.default.temporaryDirectory.standardizedFileURL.path
 		XCTAssertTrue(
@@ -48,9 +41,8 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 		)
 	}
 
-	/// A track pinned from the context menu is not a favourite, an album or a
-	/// playlist, so the sync's wanted set (`db.tracks`) must take it from the
-	/// standalone set. Otherwise the sync would delete its file on the next run.
+	/// A pinned track is not a favourite, an album or a playlist, so the wanted set must take it
+	/// from the standalone set; otherwise the sync would delete its file on the next run.
 	func testPinnedTrackStaysInTheSyncWantedSetWithoutBeingAFavourite() {
 		let db = OfflineDB(defaults: offlineLibrary.defaults)
 		let track = makeTrack(id: 987_654_321)
@@ -61,8 +53,7 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 		XCTAssertTrue(db.tracks.contains(track), "a pinned track must be part of the offline set even though it is not a favourite")
 	}
 
-	/// Unpinning a track that no other source holds must drop it from the wanted
-	/// set, which is what makes the sync delete its file.
+	/// Unpinning a track no other source holds is what makes the sync delete its file.
 	func testRemovingThePinMakesTheTrackEligibleForRemoval() {
 		let db = OfflineDB(defaults: offlineLibrary.defaults)
 		let track = makeTrack(id: 987_654_322)
@@ -73,8 +64,7 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 		XCTAssertFalse(db.tracks.contains(track), "an unpinned track held by no favourite, album or playlist must leave the offline set")
 	}
 
-	/// The pinned set is persisted, so it survives an app relaunch (`OfflineDB`
-	/// re-reads UserDefaults in `init`).
+	/// The pinned set is persisted (`OfflineDB` re-reads UserDefaults in `init`).
 	func testPinnedTracksArePersistedAndReloaded() {
 		let track = makeTrack(id: 987_654_323)
 
@@ -83,9 +73,7 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 		XCTAssertTrue(OfflineDB(defaults: offlineLibrary.defaults).tracks.contains(track), "a pinned track must be reloaded from the persisted set")
 	}
 
-	/// A track whose file is already on disk but whose date was lost must come
-	/// back from the file's own creation date, not from "now". The setup writes
-	/// the date into the file, so a "now" result would be clearly different.
+	/// A lost date comes back from the file's own creation date, not from "now".
 	func testFileOnDiskWithoutStoredDateBackfillsFromItsCreationDate() async throws {
 		let trackId = 987_654_401
 		let fileDate = Date(timeIntervalSince1970: 1_600_000_000)
@@ -102,8 +90,7 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 					   "a date must come from the file on disk, not the current time")
 	}
 
-	/// A date that already exists is history and must survive a load unchanged,
-	/// even though the file on disk carries a different creation date.
+	/// Even though the file on disk carries a different creation date.
 	func testExistingAddedDateSurvivesAReload() async throws {
 		let trackId = 987_654_402
 		let existingDate = Date(timeIntervalSince1970: 1_500_000_000)
@@ -120,8 +107,6 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 					   "an existing date must not be moved by a file that has a different creation date")
 	}
 
-	/// A wanted track that has no file yet still gets a date, so the offline list
-	/// shows something as soon as the user asks for it.
 	func testWantedTrackWithoutAFileStillGetsADate() async throws {
 		let trackId = 987_654_403
 		persistOfflineState(album: makeAlbum(id: trackId), tracks: [makeTrack(id: trackId)])
@@ -137,8 +122,6 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 		XCTAssertLessThanOrEqual(added.timeIntervalSince(before), 5)
 	}
 
-	/// The backfilled dates are written, so they are still there after a reload
-	/// rather than being recomputed (or lost) every launch.
 	func testBackfilledAddedDatesArePersisted() async throws {
 		let trackId = 987_654_404
 		let fileDate = Date(timeIntervalSince1970: 1_600_000_000)
@@ -161,9 +144,8 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 
 	// MARK: - Logout
 
-	/// Logging out while keeping downloads must leave the online library alone: the
-	/// keep path never calls `removeAll()`, so the file and its database entry both
-	/// survive the sync.
+	/// The keep path never calls `removeAll()`, so the file and its database entry both survive
+	/// the sync.
 	func testKeepingDownloadsLeavesFileAndDatabaseIntact() async throws {
 		let trackId = 987_654_501
 		let track = makeTrack(id: trackId)
@@ -213,7 +195,6 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 	func testPartiallyReadableStoredStateKeepsTheFilesOfTheUnreadSection() async throws {
 		let trackId = 987_654_506
 		try createOfflineFile(forTrackId: trackId, createdAt: Date(timeIntervalSince1970: 1_600_000_000))
-		// A readable album section, and the favourite section the file belongs to, unreadable.
 		offlineLibrary.defaults.set(try? JSONEncoder().encode([makeAlbum(id: 111)]), forKey: "OfflineDB:Albums")
 		offlineLibrary.defaults.set(Data("not a stored favourite list".utf8), forKey: "OfflineDB:FavoriteTracks")
 
@@ -223,9 +204,8 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 		XCTAssertTrue(fileExists(forTrackId: trackId), "a section that failed to decode must not be read as an empty one")
 	}
 
-	/// Logging out and removing downloads is the destructive path the confirmation
-	/// dialog offers. It must delete the file and clear the database, exactly as
-	/// the old unconditional `removeAll()` did.
+	/// This is the destructive path the confirmation dialog offers, and it must delete the file
+	/// and clear the database.
 	func testRemovingDownloadsClearsFileAndDatabase() async throws {
 		let trackId = 987_654_502
 		let track = makeTrack(id: trackId)
@@ -244,10 +224,8 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 		XCTAssertTrue(cleared, "removing downloads must delete the file and clear the database")
 	}
 
-	/// A plain logout (keep downloads) must not touch the offline state. The
-	/// `OfflineDB:*` database decides which files the next launch's sync keeps,
-	/// so wiping it empties the library on restart. Only the session and config
-	/// keys may go.
+	/// A plain logout (keep downloads) must not touch the offline state: wiping the `OfflineDB:*`
+	/// database would empty the library on the next launch's sync.
 	func testLogoutKeepsOfflineDatabaseAndPreferences() {
 		let track = makeTrack(id: 987_654_503)
 		let offlineStore = offlineLibrary.defaults
@@ -276,10 +254,8 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 		}
 	}
 
-	/// The session half of the belt-and-braces guard: even called directly,
-	/// `deletePersistentInformation` must not reach a single `OfflineDB:*` key or
-	/// offline preference, or a logout would arm the next launch to delete the
-	/// whole library.
+	/// Even called directly, `deletePersistentInformation` must not reach a single `OfflineDB:*`
+	/// key or offline preference.
 	func testDeletePersistentInformationCannotTouchOfflineState() {
 		let track = makeTrack(id: 987_654_504)
 		let offlineStore = offlineLibrary.defaults
@@ -322,8 +298,7 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 		body()
 	}
 
-	/// Polls a MainActor condition while letting the sync tasks run. Bounded so a
-	/// broken sync fails the test instead of hanging it.
+	/// Bounded so a broken sync fails the test instead of hanging it.
 	private func waitUntil(timeout: TimeInterval = 5, _ condition: @MainActor () -> Bool) async -> Bool {
 		let deadline = Date().addingTimeInterval(timeout)
 		while Date() < deadline {
@@ -340,9 +315,8 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 		return FileManager.default.fileExists(atPath: file.path)
 	}
 
-	/// Writes the persisted offline state `OfflineDB` reads in `init`, so a test
-	/// can drive the load path — where dates are backfilled — without a Tidal
-	/// account or the real library.
+	/// Drives the load path, where dates are backfilled, without a Tidal account or the real
+	/// library.
 	private func persistOfflineState(album: Album, tracks: [Track], dates: [Int: Date] = [:]) {
 		let encoder = JSONEncoder()
 		offlineLibrary.defaults.set(try? encoder.encode([album]), forKey: "OfflineDB:Albums")
@@ -352,8 +326,7 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 		}
 	}
 
-	/// Creates the offline library folder with one track file, dated so a test can
-	/// tell a backfilled date from "now".
+	/// A file dated so a test can tell a backfilled date from "now".
 	private func createOfflineFile(forTrackId trackId: Int, createdAt date: Date) throws {
 		let directory = offlineLibrary.root.appendingPathComponent("TidalSwift Offline Library")
 		try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

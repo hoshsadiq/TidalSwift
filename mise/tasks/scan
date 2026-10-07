@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 #MISE description="Detect unused code across app and lib targets"
 #MISE depends=["generate"]
-# Flags dead code before it is removed by hand. Runs Periphery, so it is slow and is
-# meant to be run on demand rather than on every build.
+# Runs Periphery, so it is slow and meant to be run on demand rather than on every build.
 set -Eeuo pipefail
 
 # shellcheck source=mise/tasks/_lib.sh

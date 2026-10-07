@@ -9,9 +9,7 @@
 import XCTest
 @testable import TidalSwiftLib
 
-/// Pins the `AudioQuality` raw-value contract. The fork merge swaps in a
-/// tolerant decoder, so the known strings must keep mapping to the same cases
-/// and the unknown string must stop throwing.
+/// Pins the `AudioQuality` raw-value contract: the unknown string must stop throwing.
 final class AudioQualityTests: XCTestCase {
 	private struct QualityEnvelope: Decodable {
 		let audioQuality: AudioQuality
@@ -38,8 +36,8 @@ final class AudioQualityTests: XCTestCase {
 		XCTAssertEqual(envelope.audioQuality, .max)
 	}
 
-	/// A future quality string must not fail the whole surrounding payload: the
-	/// tolerant decoder maps it to `.high` instead of throwing.
+	/// A future quality string must not fail the whole payload: the decoder maps it to
+	/// `.high` instead of throwing.
 	@MainActor
 	func testUnknownQualityStringDoesNotThrow() {
 		let json = #""SUPER_HI_RES_LOSSLESS""#

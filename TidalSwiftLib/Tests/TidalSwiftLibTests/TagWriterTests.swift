@@ -11,12 +11,9 @@ import CryptoKit
 import XCTest
 @testable import TidalSwiftLib
 
-/// Checks the download tag writers against the file formats themselves.
-///
-/// The written files are parsed here by hand (FLAC metadata blocks, MP4 atoms),
-/// never with the writers' own code, so a writer bug fails the test instead of
-/// being mirrored by it. The audio is verified by decoding both the untouched
-/// fixture and the tagged copy and comparing the samples.
+/// Checks the download tag writers against the file formats themselves: the written files are
+/// parsed here by hand (FLAC metadata blocks, MP4 atoms), never with the writers' own code, so
+/// a writer bug fails the test instead of being mirrored by it.
 final class TagWriterTests: XCTestCase {
 	private enum ParseError: Error {
 		case malformed(String)
@@ -289,9 +286,8 @@ final class TagWriterTests: XCTestCase {
 		return String(decoding: payload, as: UTF8.self)
 	}
 
-	/// Reads the UTF-8 text out of a freeform box's child (`mean`/`name`/`data`).
-	/// Freeform children carry a 4-byte version/flags prefix before their text, and `data`
-	/// adds 4 more bytes of type and locale, so callers say how many bytes to skip.
+	/// Reads the UTF-8 text out of a freeform box's child (`mean`/`name`/`data`). Freeform
+	/// children and `data` each carry a version/flags prefix, so callers say how many bytes to skip.
 	private func freeformText(in box: Atom, type: String, skipping: Int, bytes: [UInt8]) -> String? {
 		guard let child = atoms(bytes, from: box.bodyStart, to: box.bodyEnd)
 			.first(where: { $0.type == fourCC(type) }) else {
@@ -309,8 +305,7 @@ final class TagWriterTests: XCTestCase {
 
 	// MARK: - Independent audio check
 
-	/// Decodes a file with AVFoundation and returns its frame count and a digest of the decoded samples.
-	/// Comparing the digest of the untouched fixture with the tagged copy proves the audio survived unchanged.
+	/// A digest of the samples proves the audio survived the rewrite unchanged.
 	private func decodedAudio(_ url: URL) throws -> (frames: AVAudioFramePosition, digest: String) {
 		let file = try AVAudioFile(forReading: url)
 		let format = file.processingFormat
@@ -435,7 +430,6 @@ final class TagWriterTests: XCTestCase {
 		let afterSize = try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int
 		XCTAssertTrue((afterSize ?? 0) > (beforeSize ?? 0), "expected the file to grow, \(beforeSize ?? -1) -> \(afterSize ?? -1)")
 
-		// And it still decodes to the same samples.
 		let original = try decodedAudio(fixture)
 		let tagged = try decodedAudio(url)
 		XCTAssertEqual(tagged.frames, original.frames)
@@ -579,10 +573,8 @@ final class TagWriterTests: XCTestCase {
 		XCTAssertEqual(discNumber.payload, [0x00, 0x00, 0x00, 0x01, 0x00, 0x00])
 	}
 
-	/// `AudioTags.isrc` goes in as a freeform `----` atom, because AVFoundation exposes no
-	/// iTunes ISRC identifier. Other players read it as `----:com.apple.iTunes:ISRC`, so
-	/// the assertions check the box and the mean/name inside it, not just that the string
-	/// is somewhere in the metadata.
+	/// `AudioTags.isrc` goes in as a freeform `----` atom, because AVFoundation exposes no iTunes
+	/// ISRC identifier; other players read it as `----:com.apple.iTunes:ISRC`.
 	@MainActor
 	func testMP4WritesISRC() async throws {
 		let url = try temporaryCopy(ofFixture: "silent", extension: "m4a")
@@ -592,19 +584,16 @@ final class TagWriterTests: XCTestCase {
 		let bytes = [UInt8](try Data(contentsOf: url))
 		let ilst = try XCTUnwrap(ilstAtom(bytes))
 
-		// AVFoundation writes its own `iTunSMPB` freeform box too, so pick the one named ISRC
-		// rather than whichever comes first.
+		// AVFoundation writes its own `iTunSMPB` freeform box too, so pick the one named ISRC.
 		let isrcBox = try XCTUnwrap(isrcFreeformBox(in: ilst, bytes: bytes), "no freeform atom named ISRC in ilst")
 		XCTAssertEqual(freeformText(in: isrcBox, type: "mean", skipping: 4, bytes: bytes), "com.apple.iTunes")
 		XCTAssertEqual(freeformText(in: isrcBox, type: "data", skipping: 8, bytes: bytes), "GBBKT9700061")
 	}
 
 	/// The faststart fixture keeps `moov` before `mdat`, so inserting the atom shifts the media
-	/// data and every `stco`/`co64` chunk offset has to grow. Through `MP4TagWriter.write` the
-	/// AVFoundation passthrough export always reorders to mdat-first, so this calls
-	/// `MP4FreeformAtom.insert` directly — the only way to reach `adjustChunkOffsets`.
-	/// The audio digest is the proof the correction ran: a stale offset makes the decoder read
-	/// the wrong bytes.
+	/// data and every `stco`/`co64` chunk offset has to grow; a stale offset makes the decoder
+	/// read the wrong bytes. The AVFoundation passthrough export reorders to mdat-first, so this
+	/// calls `MP4FreeformAtom.insert` directly — the only way to reach `adjustChunkOffsets`.
 	@MainActor
 	func testMP4FreeformAtomInsertShiftsChunkOffsetsWhenMoovPrecedesMedia() throws {
 		let fixture = try fixtureURL("silent-faststart", "m4a")
@@ -638,7 +627,6 @@ final class TagWriterTests: XCTestCase {
 		XCTAssertEqual(tagged.frames, original.frames, "frame count changed")
 		XCTAssertEqual(tagged.digest, original.digest, "decoded audio differs after tagging")
 
-		// The inserted boxes are moov's growth; that growth is what pushed mdat.
 		let beforeSize = try FileManager.default.attributesOfItem(atPath: fixture.path)[.size] as? Int
 		let afterSize = try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int
 		XCTAssertGreaterThan(afterSize ?? 0, beforeSize ?? 0, "expected the file to grow, \(beforeSize ?? -1) -> \(afterSize ?? -1)")

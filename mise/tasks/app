@@ -1,12 +1,8 @@
 #!/usr/bin/env bash
 #MISE description="Launch the app from this checkout, tidying stale URL-scheme registrations first"
 #MISE depends=["build"]
-# TidalSwift claims the tidal:// scheme, and so does every build copy of the app that
-# has ever been launched: earlier worktree builds, the Periphery cache, an installed
-# copy. LaunchServices chooses among them when the login callback arrives, and a path
-# that no longer exists can swallow it, which looks like a login that opens the wrong
-# app or never returns. This removes the other copies from the registry, then launches
-# the build in this checkout, which claims the scheme for itself at launch.
+# TidalSwift claims tidal://, and so does every build copy ever launched: a stale path in the
+# registry can swallow the login callback. This removes the others, then launches this checkout.
 set -Eeuo pipefail
 
 # shellcheck source=mise/tasks/_lib.sh
@@ -28,12 +24,8 @@ Env overrides:
 EOF
 }
 
-# Every registered copy of this app, taken from the LaunchServices dump. Each record
-# pairs a `path:` line with the `bundle`/`bindings` lines that follow it, so the path
-# is held until the next record starts. Matching on the path alone, not on a binding:
-# a copy registered under this app's bundle id can be chosen by the system even when
-# the dump does not list it as a claimant of this scheme, and one in Xcode's
-# DerivedData did exactly that.
+# Every registered copy of this app, from the LaunchServices dump; matched on the path alone,
+# because a copy can be chosen by the system even when the dump does not list it as a claimant.
 registered_paths() {
 	"$LSREGISTER" -dump 2>/dev/null | awk '
 		/^[[:space:]]*path:/ {
@@ -52,8 +44,7 @@ tidy_registry() {
 	local kept_other=0
 	while IFS= read -r path; do
 		[[ -n "$path" ]] || continue
-		# Only this app's own copies are touched: TIDAL.app and anything else that
-		# claims the scheme keep their registration.
+		# Only this app's own copies are touched; TIDAL.app keeps its registration.
 		[[ "$path" == */"$BUNDLE_NAME" ]] || continue
 		if [[ "$path" == "$here" ]]; then
 			continue
@@ -72,11 +63,8 @@ tidy_registry() {
 	fi
 }
 
-# The app claims tidal:// for itself on launch, which is what makes the callback come
-# back here rather than to one of the copies just removed. Run the binary rather than
-# `open` so its console output — the `[LOGIN]` and `[PLAYBACK]` lines — arrives in
-# this terminal: a launched app's stdout goes nowhere otherwise, which makes the login
-# flow impossible to read. Ctrl-C quits it; LAUNCH_DETACHED=1 uses `open` instead.
+# Run the binary rather than `open` so its `[LOGIN]`/`[PLAYBACK]` console output arrives here;
+# the app claims tidal:// for itself on launch, which is what returns the callback.
 launch() {
 	local app_path="$1"
 	if [[ -n "${LAUNCH_DETACHED:-}" ]]; then
@@ -84,10 +72,8 @@ launch() {
 		printf 'launched %s (detached, no console output)\n' "$app_path"
 	else
 		printf 'launching %s — console output follows, Ctrl-C quits\n' "$app_path"
-		# Foundation buffers stdout when it is not a terminal, so piping the output to a
-		# file loses every `[LOGIN]` and `[PLAYBACK]` line until the buffer fills or the
-		# app exits on its own. NSUnbufferedIO writes each line as it happens, which is
-		# what makes a captured log worth reading.
+		# Foundation buffers stdout when it is not a terminal, which would hide every line of a
+		# captured log until the buffer fills; NSUnbufferedIO writes each as it happens.
 		NSUnbufferedIO=YES exec "$app_path/Contents/MacOS/TidalSwift"
 	fi
 }

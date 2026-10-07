@@ -6,11 +6,9 @@
 import XCTest
 @testable import TidalSwiftLib
 
-/// "Remove All Offline Content" cancels the sync that is running. Nothing checked for
-/// that, so the pass walked the remaining tracks, resolved each one over the network
-/// and reported every cancellation as a failed download — a flash of error toasts on
-/// a deliberate action. Everything runs against the temporary library root from
-/// `TemporaryOfflineLibrary`, never the real folder or the network.
+/// "Remove All Offline Content" cancels the sync that is running: without that the pass
+/// reported every cancellation as a failed download, a flash of error toasts on a
+/// deliberate action.
 @MainActor
 final class OfflineCancellationTests: XCTestCase {
 	private nonisolated let offlineLibrary = TemporaryOfflineLibrary(label: "OfflineCancellation")
@@ -34,10 +32,9 @@ final class OfflineCancellationTests: XCTestCase {
 		let offline = session.helpers.offline
 		offline.resolveOfflineStream = { track in
 			resolved.value += 1
-			// The deliberate removal, from inside the running sync, on whichever track
-			// the wanted set hands out first (it is a Set, so the order is not fixed).
-			// Yielding lets the cancellation land before the loop looks for it, which is
-			// what keeps this test off a race.
+			// The removal runs from inside the sync, on whichever track the wanted set hands
+			// out first (it is a Set); yielding lets the cancellation land before the loop
+			// looks for it.
 			if resolved.value == 1 {
 				offline.removeAll()
 				for _ in 0..<10 {

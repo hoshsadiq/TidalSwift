@@ -9,10 +9,8 @@
 import XCTest
 @testable import TidalSwiftLib
 
-/// Pins the browser-free PKCE mechanics of the desktop login: verifier and
-/// challenge, the authorize URL, and callback parsing. The code exchange is a
-/// network call and is deliberately not covered here; the suite has no seam
-/// for it, so only a live login can confirm the exchange.
+/// Pins the browser-free PKCE mechanics: verifier, challenge, authorize URL and callback
+/// parsing. The code exchange is a network call, not covered here.
 final class DesktopLoginTests: XCTestCase {
 
 	// MARK: - PKCE
@@ -31,9 +29,7 @@ final class DesktopLoginTests: XCTestCase {
 		}
 	}
 
-	/// The challenge is `base64url(sha256(verifier))` with the padding removed.
-	/// Asserted against the published RFC 7636 Appendix B pair, not against the
-	/// implementation's own output.
+	/// Asserted against the published RFC 7636 Appendix B pair, not the implementation's output.
 	@MainActor
 	func testCodeChallengeMatchesRFC7636Pair() {
 		let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
