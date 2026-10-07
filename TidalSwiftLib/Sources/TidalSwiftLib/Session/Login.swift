@@ -9,13 +9,10 @@
 import Foundation
 
 extension Session {
-	/// Margin before actual expiration to trigger a refresh (5 minutes)
 	private static let tokenRefreshMargin: TimeInterval = 5 * 60
 
-	/// Finishes the desktop-client PKCE login from the callback URL: parses the
-	/// code, exchanges it (no client secret), stores the token and loads the
-	/// user. The stored `clientID` is the desktop client's, which is what makes
-	/// `refreshAccessToken` skip the secret on later refreshes.
+	/// The stored `clientID` is the desktop client's, which makes `refreshAccessToken`
+	/// skip the secret on later refreshes.
 	public func completeDesktopLogin(callbackURL: URL, codeVerifier: String) async throws {
 		let code = try DesktopLogin.authorizationCode(from: callbackURL)
 		let token = try await DesktopLogin.exchangeAuthorizationCode(code: code, verifier: codeVerifier)
@@ -72,7 +69,7 @@ extension Session {
 		case unknown
 	}
 
-	/// Runs the device authorization flow. Cancelling the consumer of the stream stops the polling.
+	/// Cancelling the consumer of the stream stops the polling.
 	public func startAuthorization() -> AsyncStream<AuthorizationState> {
 		let (stream, continuation) = AsyncStream.makeStream(of: AuthorizationState.self)
 		let task = Task {
@@ -156,8 +153,7 @@ extension Session {
 		}
 	}
 
-	/// Refreshes the access token. Concurrent calls share a single refresh
-	/// request instead of each hitting the auth server.
+	/// Concurrent calls share a single refresh request instead of each hitting the auth server.
 	public func refreshAccessToken() async throws {
 		if let activeTokenRefresh {
 			return try await activeTokenRefresh.value
@@ -212,11 +208,9 @@ extension Session {
 		}
 	}
 
-	/// Refreshes the access token if it is expired or about to expire.
 	public func refreshAccessTokenIfNeeded() async throws {
 		guard !config.refreshToken.isEmpty else { return }
 		guard let expirationDate = config.tokenExpirationDate else {
-			// No expiration date recorded — refresh to be safe
 			try await refreshAccessToken()
 			return
 		}
@@ -232,10 +226,9 @@ extension Session {
 		activeTokenRefresh = nil
 		activeTokenRefreshID = nil
 		deletePersistentInformation()
-		// The ids go with the tokens: `saveState` calls `saveSession` from the quit
-		// and scene-phase paths, and a stale id left here would be written back —
-		// which is exactly what made the next launch's `loadSession` report a
-		// logged-in session with no token behind it.
+		// The ids go with the tokens: `saveSession` runs from the quit and scene-phase
+		// paths, and a stale id left here would be written back and make the next launch
+		// report a logged-in session with no token behind it.
 		countryCode = nil
 		userId = nil
 		config = Config(accessToken: "", refreshToken: "", clientID: "", offlineAudioQuality: .high)

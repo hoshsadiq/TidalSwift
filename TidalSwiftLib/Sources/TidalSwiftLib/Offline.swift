@@ -11,19 +11,14 @@ import SwiftUI
 // MARK: DB
 
 public final class OfflineDB {
-	/// Where the database is read and written. The app keeps the standard defaults;
-	/// a test points `Offline.defaults` at its own suite, so parallel test classes
-	/// do not share one store.
 	private let defaults: UserDefaults
 
-	/// All tracks needed offline. Derived from the favorites, albums and playlists instead of stored,
-	/// so a track is kept exactly as long as one of them still contains it.
+	/// Derived rather than stored, so a track is kept exactly as long as a favourite, album
+	/// or playlist holds it.
 	private(set) var tracks: Set<Track> = []
 
-	/// Gives every wanted track a date and drops the dates of tracks that left.
-	/// The whole wanted set is checked, not only the ids that are new since the
-	/// last pass, so a date that was lost can come back. Returns whether a date
-	/// changed, so a no-op load can skip the write.
+	/// Gives every wanted track a date and drops the dates of those that left; the whole set
+	/// is checked, not only new ids, so a lost date can come back.
 	@discardableResult
 	private func updateTracks() -> Bool {
 		let albumTracks = albums.flatMap { self.albumTracks[$0] ?? [] }
@@ -32,13 +27,12 @@ public final class OfflineDB {
 		let newIds = Set(newTracks.map(\.id))
 
 		var datesChanged = false
-		// The dates are only touched once the persisted state is loaded, so a
-		// half-loaded db can't wipe a date for a track it simply hasn't read yet.
+		// The dates are only touched once the persisted state is loaded, so a half-loaded db
+		// can't wipe a date for a track it has not read yet.
 		if isLoaded {
 			let onDisk = downloadDatesForTracksOnDisk?() ?? [:]
 			for id in newIds where trackAddedDates[id] == nil {
-				// A file on disk knows when the track was really downloaded; a
-				// wanted track without one was only asked for now.
+				// A file on disk knows when the track was really downloaded.
 				recordAddedDate(for: id, at: onDisk[id] ?? Date())
 				datesChanged = true
 			}
@@ -53,28 +47,23 @@ public final class OfflineDB {
 
 	private var isLoaded = false
 
-	/// Resolves the download date of every track file on disk, by track id.
-	/// `Offline` sets it right after creating the db, since it owns the
-	/// filesystem. Installing it also triggers a backfill, which is where a lost
-	/// date is rebuilt from the files rather than stamped with "now".
+	/// Set by `Offline` right after the db is created; a lost date is rebuilt from disk.
 	var downloadDatesForTracksOnDisk: (() -> [Int: Date])? {
 		didSet {
 			if updateTracks() { save() }
 		}
 	}
 
-	// [TrackId: DateAddedToOffline]
-	// Persisted by the adjacent `tracks` derivation's save(); always changed together with it.
+	// [TrackId: DateAddedToOffline], persisted by `save()` alongside `tracks`.
 	private(set) var trackAddedDates: [Int: Date] = [:]
 
-	/// Records when a track joined the offline set. A date that already exists is
-	/// never moved: the map is history, and a re-add must not reorder the library.
+	/// A date that already exists is never moved; a re-add must not reorder the library.
 	func recordAddedDate(for trackId: Int, at date: Date = Date()) {
 		guard trackAddedDates[trackId] == nil else { return }
 		trackAddedDates[trackId] = date
 	}
 
-	private(set) var favoriteTracks: [Track] = [] { // Used for Favorites
+	private(set) var favoriteTracks: [Track] = [] {
 		didSet {
 			updateTracks()
 			save()
@@ -130,9 +119,7 @@ public final class OfflineDB {
 		playlistTracks[playlist] = tracks
 	}
 
-	/// Tracks pinned individually from the track context menu, independent of
-	/// favourites, albums and playlists. Stored as full records rather than ids:
-	/// the sync needs a track's metadata to download it.
+	/// Pinned individually from the track context menu, stored as full records for the sync.
 	private(set) var standaloneOfflineTracks: [Track] = [] {
 		didSet {
 			updateTracks()
@@ -150,13 +137,10 @@ public final class OfflineDB {
 	init(defaults: UserDefaults = .standard) {
 		self.defaults = defaults
 
-		// Counters used before tracks were derived, which could drift and keep files forever
 		defaults.removeObject(forKey: "OfflineDB:Tracks")
 
-		// A payload that is present but cannot be decoded is not a missing one: its
-		// section reads as empty while its tracks are still on disk. Both facts are
-		// recorded, because they decide whether the sync may treat the files of the
-		// unread sections as unwanted.
+		// A payload that is present but cannot be decoded is not a missing one: its section reads
+		// as empty while its tracks are still on disk, so it is no sign its files are unwanted.
 		var storedPayloadPresent = false
 		var storedPayloadUnreadable = false
 		func stored<T: Decodable>(_ type: T.Type, forKey key: String) -> T? {
@@ -180,7 +164,6 @@ public final class OfflineDB {
 		hasStoredState = storedPayloadPresent
 		self.storedPayloadUnreadable = storedPayloadUnreadable
 
-		// Removals used to leave these behind
 		let albums = self.albums
 		let playlists = self.playlists
 		self.albumTracks = self.albumTracks.filter { albums.contains($0.key) }
@@ -200,19 +183,14 @@ public final class OfflineDB {
 		playlistTracks = [:]
 	}
 
-	/// Whether any offline payload was stored, readable or not. Set when the database is
-	/// read or written, so an empty wanted set after a save is genuinely empty rather
-	/// than lost.
+	/// Set on read or write, so an empty wanted set after a save is genuinely empty.
 	private(set) var hasStoredState = false
 
-	/// Whether a stored payload could not be decoded. Such a section reads as empty
-	/// while its tracks are still on disk, so the wanted set is unknown rather than
-	/// empty and the sync keeps the files it cannot account for.
+	/// A section that could not be decoded reads as empty while its tracks are on disk.
 	private(set) var storedPayloadUnreadable = false
 
 	private func save() {
-		// Once anything is written, the stored state is ours: an empty database after
-		// this point means the wanted set really is empty, not that it was lost.
+		// Once anything is written, an empty database means the wanted set really is empty.
 		hasStoredState = true
 		let trackAddedDatesData = try? JSONEncoder().encode(trackAddedDates)
 		defaults.set(trackAddedDatesData, forKey: "OfflineDB:TrackAddedDates")
@@ -246,11 +224,8 @@ public final class Offline {
 	@MainActor
 	public var uiRefreshFunc: () -> Void = {}
 
-	/// Where the offline database and the two offline preferences are read and
-	/// written. The app keeps the standard defaults; a test points it at its own
-	/// suite so parallel test classes do not share one store. It is read when the
-	/// database is first touched rather than here, so redirecting it right after
-	/// the session is built takes effect.
+	/// Read when the database is first touched, so redirecting it right after the session is
+	/// built takes effect.
 	var defaults: UserDefaults = .standard
 
 	public var saveFavoritesOffline: Bool {
@@ -263,49 +238,36 @@ public final class Offline {
 		set { defaults.set(newValue, forKey: "offlinePreferDolbyAtmos") }
 	}
 
-	/// The file markers, all middle path components: Dolby Atmos files are named
-	/// "<track ID>.atmos.m4a", decrypted hi-res stereo files "<track ID>.hires.flac",
-	/// and stereo files "<track ID>.<audio quality>.<extension>".
+	/// Middle path components: "<track ID>.atmos.m4a", "<track ID>.hires.flac",
+	/// "<track ID>.<audio quality>.<extension>".
 	private let dolbyAtmosFileMarker = "atmos"
 	private let hiResStereoFileMarker = "hires"
 
-	/// What a file on disk holds. The quality is nil for m4a files stored before it was part of the name.
+	/// What a file on disk holds; nil quality for m4a files stored before it was in the name.
 	private enum FileVariant: Equatable, Hashable {
 		case dolbyAtmos
 		case hiResStereo
 		case stereo(AudioQuality?)
 	}
 
-	/// Built on first use rather than in `init`, so the launch work below can run in
-	/// a task and a test can redirect `defaults` before the database reads it.
+	/// Built on first use, so the launch task and a redirect of `defaults` both land first.
 	private lazy var db = OfflineDB(defaults: defaults)
 	private var hasStarted = false
-	/// The disk lookup's first answer, resolved off the main actor at launch. Cleared
-	/// once the files change, so a later lookup re-reads them.
+	/// The disk lookup's first answer; cleared when the files change, so a later lookup re-reads.
 	private var launchDiskDates: [Int: Date]?
 	private var hydrationAttemptedAlbumIds: Set<Int> = []
 	private let offlineLibraryRoot: URL?
 
-	/// Resolves the stream a sync downloads for a track. The app leaves it nil and
-	/// uses the track's own stream; tests set it to force a download failure that
-	/// would otherwise need a live Tidal account.
+	/// Test seam: the app leaves it nil and uses the track's own stream.
 	var resolveOfflineStream: ((Track) async -> AudioStream?)?
 
-	/// Test seam for the hi-res branch, the counterpart of `resolveOfflineStream`:
-	/// returns an encrypted source and its wrapped key so a test can drive the
-	/// download-and-decrypt path without a live Tidal account. The app leaves it nil.
+	/// Test seam for the hi-res branch: an encrypted source and its wrapped key.
 	var resolveHiResOfflineStream: ((Track) async -> AcceptedHiResManifest?)?
 
-	/// Test seam for the DASH branch, again the counterpart of `resolveOfflineStream`:
-	/// returns the manifest a sync would assemble, so a test can drive the
-	/// segment-fetch path against `file://` segments without a live Tidal account.
-	/// The app leaves it nil and asks the session.
+	/// Test seam for the DASH branch: the manifest a sync would assemble.
 	var resolveOfflineDashManifest: ((Track) async -> DashAudioManifest?)?
 
-	/// Test seam: seeds the wanted set through the favourite source the app derives
-	/// it from, so a later `updateTracks()` (triggered by any database change during
-	/// a sync) re-derives the same set instead of clearing a set seeded directly.
-	/// The app never calls this.
+	/// Test seam: seeds the wanted set through the favourite source the app derives it from.
 	func setOfflineTracksForTesting(_ tracks: [Track]) {
 		db.setFavoriteTracks(to: tracks)
 		startSync()
@@ -316,7 +278,6 @@ public final class Offline {
 		self.downloadStatus = downloadStatus
 		self.offlineLibraryRoot = offlineLibraryRoot
 
-		// Create main folder if it doesn't exist
 		do {
 			var path = try offlineBaseURL()
 			path.appendPathComponent(mainPath)
@@ -328,16 +289,12 @@ public final class Offline {
 			displayError(title: "Offline: Error while creating Offline management class", content: "Error: \(error)")
 		}
 
-		// Installing the disk lookup lets the db rebuild a lost "added to offline"
-		// date from the files it already has, instead of stamping "now" on them.
-		// Deferred out of `init`: the lookup is a directory listing plus a stat per
-		// file, which must not run on the main actor before the first frame.
+		// Deferred out of `init`: the listing and stat must not run on the main actor before the
+		// first frame.
 		Task { await self.start() }
 	}
 
-	/// One-time launch work, run in a task so neither `App.init` nor the first frame
-	/// pays for the database build or its disk lookup. Deferring it also lets a test
-	/// point `defaults` at its own store first.
+	/// One-time launch work, run in a task so the first frame does not pay for the database build.
 	private func start() async {
 		guard !hasStarted else { return }
 		hasStarted = true
@@ -345,8 +302,7 @@ public final class Offline {
 			startSync()
 			return
 		}
-		// Resolved off the main actor and kept as the lookup's first answer: the
-		// listing exists to rebuild a date the database lost at launch.
+		// Resolved off the main actor; the listing exists to rebuild a date the database lost.
 		launchDiskDates = await Self.downloadDates(in: directory)
 		db.downloadDatesForTracksOnDisk = { [weak self] in
 			guard let self else { return [:] }
@@ -356,16 +312,13 @@ public final class Offline {
 			// The files changed since launch, so re-read them.
 			return self.downloadDatesByTrackId()
 		}
-		// A sync the caller already asked for (a test seeding the wanted set) covers
-		// the launch too; scheduling a second one would double the launch work.
+		// A sync the caller already asked for covers the launch; a second would double the work.
 		if syncTask == nil {
 			startSync()
 		}
 	}
 
-	/// The folder that contains the offline library. `nil` root (the app) is the
-	/// user's Music folder; tests pass a temporary directory so the background
-	/// sync never touches the developer's real library.
+	/// `nil` root (the app) is the user's Music folder; tests pass a temporary directory.
 	private func offlineBaseURL() throws -> URL {
 		if let offlineLibraryRoot {
 			return offlineLibraryRoot
@@ -376,10 +329,7 @@ public final class Offline {
 										   create: false)
 	}
 
-	/// Resolves a path inside the offline library. Without `offlineLibraryRoot`
-	/// this is the historical `<Music>/TidalSwift Offline Library` path; with one
-	/// the supplied root replaces the Music folder, keeping `mainPath` as the
-	/// final folder so the layout matches.
+	/// With `offlineLibraryRoot`, the root replaces the Music folder.
 	private func offlinePath(parentFolder: String?, name: String, pathExtension: String?) -> URL? {
 		guard let offlineLibraryRoot else {
 			return buildPath(baseLocation: .music, parentFolder: parentFolder, name: name, pathExtension: pathExtension)
@@ -413,7 +363,7 @@ public final class Offline {
 		return AudioStream(url: url, pathExtension: url.pathExtension, isDolbyAtmos: variant(of: url, track: track) == .dolbyAtmos)
 	}
 
-	/// Changing it replaces offline files in other qualities on the next sync
+	/// Replaces offline files in other qualities on the next sync
 	public func setAudioQuality(to audioQuality: AudioQuality) {
 		guard audioQuality != session.config.offlineAudioQuality else { return }
 		session.config.offlineAudioQuality = audioQuality
@@ -421,16 +371,14 @@ public final class Offline {
 		startSync()
 	}
 
-	/// Changing it replaces offline files of tracks with Dolby Atmos on the next sync
+	/// Replaces the offline files of tracks with Dolby Atmos on the next sync
 	public func setPreferDolbyAtmos(to preferDolbyAtmos: Bool) {
 		guard preferDolbyAtmos != self.preferDolbyAtmos else { return }
 		self.preferDolbyAtmos = preferDolbyAtmos
 		startSync()
 	}
 
-	/// Same choice as streaming, so offline playback sounds the same. At the FLAC tiers
-	/// the hi-res stereo route upgrades the stereo wish when the session can use it; the
-	/// Atmos preference still wins, so its meaning is unchanged.
+	/// Same choice as streaming; at the FLAC tiers the hi-res stereo route upgrades the wish.
 	private func wantedVariant(of track: Track) -> FileVariant {
 		if track.hasDolbyAtmos && (preferDolbyAtmos || !track.hasStereo) {
 			return .dolbyAtmos
@@ -441,20 +389,13 @@ public final class Offline {
 		return .stereo(session.config.offlineAudioQuality)
 	}
 
-	/// Every variant on disk that counts as satisfying the wish for this track.
+	/// Every variant on disk that satisfies the wish for this track.
 	///
-	/// Tidal decides which rendition a track is served in, not us. An Atmos-capable
-	/// track that also declares stereo is refused by `streamUrl` at every tier and
-	/// answered by the manifest instead, which serves the Atmos rendition even with
-	/// the Atmos preference off (see `Track.audioStream`). With the preference off
-	/// such a track is therefore wanted in either rendition: a file matching either
-	/// must be neither re-downloaded nor pruned as a leftover. This is not
-	/// sloppiness — `wantedVariant` above is only the rendition the sync prefers,
-	/// while this set is what it accepts.
+	/// Tidal decides the rendition, not us: an Atmos-capable track that also declares stereo
+	/// is refused by `streamUrl` at every tier and answered with the Atmos rendition even
+	/// with the preference off (see `Track.audioStream`), so either file must count.
 	private func acceptableVariants(of track: Track) -> Set<FileVariant> {
 		var variants: Set<FileVariant> = [wantedVariant(of: track)]
-		// A dual-format track with the Atmos preference off may still be served Atmos
-		// when Tidal refuses its stereo rendition, so either file satisfies the wish.
 		if track.hasDolbyAtmos && track.hasStereo && !preferDolbyAtmos {
 			variants.insert(.dolbyAtmos)
 		}
@@ -481,11 +422,8 @@ public final class Offline {
 		stream.isDolbyAtmos ? .dolbyAtmos : .stereo(session.config.offlineAudioQuality)
 	}
 
-	/// Resolves and downloads one wanted track, returning whether a file was written.
-	/// The hi-res stereo route comes first when the policy says so; what lands on disk
-	/// from it is decrypted, never the encrypted stream. A tier whose `streamUrl` is
-	/// refused falls back to the DASH assembly, which is a plain AAC file when it
-	/// succeeds and no file at all when it fails.
+	/// What it lands on disk is decrypted, never the encrypted stream; a refused tier falls
+	/// back to DASH.
 	private func downloadOfflineTrack(_ track: Track, existingFiles: [URL]) async -> Bool {
 		print("Offline: Downloading \(track.title)")
 		guard let source = await downloadSource(for: track) else {
@@ -524,10 +462,7 @@ public final class Offline {
 		return true
 	}
 
-	/// The source a sync downloads a track from. The hi-res stereo route comes first
-	/// when the policy says so; DASH is the fallback for the tiers whose `streamUrl` is
-	/// refused, only when nothing else resolved, so an Atmos or hi-res rendition still
-	/// wins.
+	/// DASH is the fallback only when nothing else resolved, so an Atmos or hi-res rendition wins.
 	private func downloadSource(for track: Track) async -> OfflineDownloadSource? {
 		var source: OfflineDownloadSource?
 		if HiResStreaming.usesHiResStereo(for: track, session: session, quality: session.config.offlineAudioQuality, preferDolbyAtmos: preferDolbyAtmos),
@@ -538,15 +473,11 @@ public final class Offline {
 		} else {
 			source = await track.audioStream(session: session, audioQuality: session.config.offlineAudioQuality, preferDolbyAtmos: preferDolbyAtmos).map(OfflineDownloadSource.stream)
 		}
-		// DASH is the fallback for the tiers whose `streamUrl` is refused: only when
-		// nothing else resolved, so an Atmos or hi-res rendition still wins.
 		if source != nil { return source }
 		return await resolveDashSource(for: track).map(OfflineDownloadSource.dash)
 	}
 
-	/// Reports a track whose source could not be resolved. A cancelled sync gives up
-	/// quietly: reporting each remaining track as a failed download would toast on a
-	/// deliberate "remove all offline content".
+	/// A cancelled sync gives up quietly, so "remove all offline content" does not toast.
 	private func reportMissingDownloadSource(for track: Track, existingFiles: [URL]) {
 		if Task.isCancelled { return }
 		if !existingFiles.isEmpty {
@@ -557,8 +488,6 @@ public final class Offline {
 		}
 	}
 
-	/// Writes a resolved source to disk: a decrypted FLAC, an assembled DASH file or a
-	/// plain download, depending on which route produced it.
 	private func write(_ source: OfflineDownloadSource, to path: URL) async throws {
 		switch source {
 		case .hiRes(let manifest):
@@ -609,8 +538,7 @@ public final class Offline {
 		}
 	}
 
-	/// The hi-res source for a sync. In production the session resolves it; a test
-	/// substitutes `resolveHiResOfflineStream` so the encrypted fixture needs no account.
+	/// A test substitutes `resolveHiResOfflineStream`, so the encrypted fixture needs no account.
 	private func resolveHiResSource(for track: Track) async -> AcceptedHiResManifest? {
 		if let resolveHiResOfflineStream {
 			return await resolveHiResOfflineStream(track)
@@ -621,11 +549,9 @@ public final class Offline {
 		return manifest
 	}
 
-	/// The DASH source for a sync, only for the stereo tiers Tidal serves as DASH.
-	/// The manifest is assembled into a local file; in production the session resolves
-	/// it, while a test substitutes `resolveOfflineDashManifest` so the fixture needs
-	/// no account. A test that substituted `resolveOfflineStream` must not hit the
-	/// network here either.
+	/// Only the stereo tiers Tidal serves as DASH. A test substitutes
+	/// `resolveOfflineDashManifest`, and one that substituted `resolveOfflineStream` must not
+	/// hit the network here either.
 	private func resolveDashSource(for track: Track) async -> DashAudioManifest? {
 		guard case .stereo(let quality) = wantedVariant(of: track), let quality, quality == .medium || quality == .low else {
 			return nil
@@ -637,7 +563,7 @@ public final class Offline {
 		return await session.dashAudioManifest(trackId: track.id, audioQuality: quality)
 	}
 
-	// The following always show the goal state (planned), i.e., after all downloads have finished
+	// These always show the goal state (planned), after all downloads have finished
 	public func numberOfOfflineTracks() async -> Int {
 		db.tracks.count
 	}
@@ -645,8 +571,7 @@ public final class Offline {
 		Array(db.tracks)
 	}
 
-	/// When the track was first added to offline. Downloads from before dates
-	/// were recorded have none.
+	/// Downloads from before dates were recorded have none.
 	public func addedDate(forTrackId trackId: Int) -> Date? {
 		db.trackAddedDates[trackId]
 	}
@@ -658,16 +583,12 @@ public final class Offline {
 		db.albums
 	}
 
-	/// Returns the stored albums, rehydrating any that were saved without full
-	/// metadata.
+	/// Returns the stored albums, refetching any saved without full metadata.
 	///
-	/// Albums added from a page or search response only carry `{id, title,
-	/// cover, releaseDate}`, which leaves the Collection card without an artist
-	/// and the context menu without its streaming actions. Each incomplete
-	/// entry is refetched and the repair is persisted. A failed fetch keeps the
-	/// stored entry, so a download is never dropped. The default skips ids
-	/// already attempted this session (used by frequent reloads); `retryFailed`
-	/// attempts them again, so a fresh screen entry can repair a failure.
+	/// Albums from a page or search response carry only `{id, title, cover, releaseDate}`,
+	/// which leaves the Collection card without an artist and the context menu without its
+	/// streaming actions. A failed fetch keeps the stored entry; attempted ids are skipped
+	/// unless `retryFailed`.
 	public func completeOfflineAlbums(retryFailed: Bool = false) async -> [Album] {
 		var albums = db.albums
 		var didChange = false
@@ -697,22 +618,20 @@ public final class Offline {
 
 	// MARK: - Track
 
-	/// Pins a single track offline, independent of favourites, albums and playlists.
 	public func add(track: Track) async {
 		db.addStandaloneOfflineTrack(track)
 		startSync()
 	}
 
-	/// Unpins a single track. It stays offline if a favourite, album or playlist still contains it.
+	/// The track stays offline if a favourite, album or playlist still contains it.
 	public func remove(track: Track) async {
 		db.removeStandaloneOfflineTrack(track)
 		deleteFilesNoLongerWanted([track.id])
 		startSync()
 	}
 
-	// Actual state
 
-	/// Files on disk by track ID, whatever their extension, so files stay usable after the offline quality changes
+	/// Files on disk by track ID, any extension, so files stay usable after the quality changes
 	private func localFilesByTrackId() -> [Int: [URL]]? {
 		do {
 			guard let path = offlinePath(parentFolder: nil, name: mainPath, pathExtension: nil) else {
@@ -737,11 +656,7 @@ public final class Offline {
 		localFilesByTrackId().map { Array($0.keys) }
 	}
 
-	/// The download date of every offline file, by track ID, for rebuilding an
-	/// "added to offline" date that was lost. A file's creation date is when the
-	/// download wrote it, so it stays the same across launches; a re-download can
-	/// leave a second file behind, so the earliest date per track is when it first
-	/// became offline.
+	/// A file's creation date is when the download wrote it and survives relaunches.
 	private func downloadDatesByTrackId() -> [Int: Date] {
 		guard let files = localFilesByTrackId() else { return [:] }
 		var dates: [Int: Date] = [:]
@@ -756,8 +671,7 @@ public final class Offline {
 		return dates
 	}
 
-	/// The same lookup, off the main actor, for the launch path: the directory
-	/// listing and per-file stat must not run before the first frame.
+	/// The same lookup off the main actor, for the launch path.
 	@concurrent
 	private nonisolated static func downloadDates(in directory: URL) async -> [Int: Date] {
 		let urls = (try? FileManager.default.contentsOfDirectory(
@@ -800,7 +714,6 @@ public final class Offline {
 	private var syncAgain = false
 
 	private func sync() async {
-		// Preparations (e.g. setting syncRunning) happen in startSync func beforehand
 
 		print("Offline: --- Starting Sync ---")
 
@@ -820,10 +733,9 @@ public final class Offline {
 		let plan = syncPlan(dbTracks: dbTracks, localFiles: localFiles)
 
 		// Download first, so nothing is deleted before its replacement is on disk.
-		// A track whose download fails keeps the file it already has.
 		for track in plan.toAdd {
-			// `removeAll()` cancels this sync. The rest of the pass would resolve every
-			// remaining track only to report each cancellation as a failed download.
+			// `removeAll()` cancels this sync; the rest of the pass would resolve every
+			// remaining track only to report a failed download.
 			if Task.isCancelled { break }
 			_ = await downloadOfflineTrack(track, existingFiles: localFiles[track.id] ?? [])
 		}
@@ -841,17 +753,15 @@ public final class Offline {
 		}
 	}
 
-	/// What one sync pass has to do: the tracks whose files left the wanted set, the
-	/// tracks that need a file written, and the files a re-download has made stale.
+	/// One pass: what to remove, what to download, and the files a re-download made stale.
 	private struct SyncPlan {
 		var toRemove: [Int] = []
 		var toAdd: [Track] = []
 		var leftoverFiles: [URL] = []
 	}
 
-	/// Diffs the wanted set against the files on disk. A wanted track keeps at most one
-	/// file, the one matching an acceptable variant; anything else is either a
-	/// replacement to download or a stale file to prune once that replacement lands.
+	/// A wanted track keeps at most one file, matching an acceptable variant; the rest is a
+	/// replacement or a stale file to prune.
 	private func syncPlan(dbTracks: [Track], localFiles: [Int: [URL]]) -> SyncPlan {
 		var plan = SyncPlan()
 		for trackId in localFiles.keys where !dbTracks.contains(where: { $0.id == trackId }) {
@@ -862,9 +772,8 @@ public final class Offline {
 				plan.toAdd.append(track)
 				continue
 			}
-			// Replace the file once the offline quality or Dolby Atmos preference
-			// changed. Any acceptable variant counts as already satisfying the
-			// wish; the rest are leftovers once a replacement is on disk.
+			// Any acceptable variant already satisfies the wish; the rest are leftovers once a
+			// replacement is on disk.
 			let acceptable = acceptableVariants(of: track)
 			if let matchingFile = files.first(where: { acceptable.contains(variant(of: $0, track: track)) }) {
 				plan.leftoverFiles += files.filter { $0 != matchingFile }
@@ -875,8 +784,7 @@ public final class Offline {
 		return plan
 	}
 
-	/// Prunes the variants a successful re-download made stale, so one file per track
-	/// remains once its replacement is safely on disk.
+	/// Prunes the variants a successful re-download made stale, so one file per track remains.
 	private func removeLeftoverFiles(_ files: [URL]) {
 		for file in files {
 			if Task.isCancelled { break }
@@ -891,9 +799,8 @@ public final class Offline {
 
 	/// A wanted set that could not be read in full next to files on disk is not
 	/// "nothing is wanted any more": it is a database that never loaded or was lost.
-	/// `removeAll()` clears the database and deletes the files it names itself, so a
-	/// deliberate removal never depends on this inference. A single lost logout wipe
-	/// cost a 22-file library, so the guard stays.
+	/// `removeAll()` clears the database and deletes its files itself, so a deliberate
+	/// removal never depends on this inference. A lost logout wipe cost a 22-file library.
 	private func keptTrackIdsWhenDatabaseUnreadable(_ toRemove: [Int]) -> [Int] {
 		let databaseUnreadable = !db.hasStoredState || db.storedPayloadUnreadable
 		guard databaseUnreadable, !toRemove.isEmpty else { return toRemove }
@@ -940,10 +847,8 @@ public final class Offline {
 		syncTask = Task { await sync() }
 	}
 
-	/// Test seam: waits for the sync `init` starts in a Task to finish, so a test
-	/// can assert on the resulting files instead of racing the background sync.
-	/// Bounded, and returns whether a sync started: a launch path that never reaches
-	/// `startSync` must fail the test rather than hang it on the main actor.
+	/// Test seam: waits for the sync `init` starts, so a test can assert on the files instead
+	/// of racing it.
 	@discardableResult
 	func awaitOngoingSync(timeout: TimeInterval = 5) async -> Bool {
 		// `syncTask` is only set once the launch task reaches `startSync`.
@@ -972,8 +877,7 @@ public final class Offline {
 		let files = localFilesByTrackId() ?? [:]
 		Task {
 			db.clear()
-			// Delete here rather than leaving it to the sync: an empty database no longer
-			// means "delete what is on disk", so the removal has to be explicit.
+			// An empty database no longer means "delete what is on disk".
 			for (_, trackFiles) in files {
 				for file in trackFiles {
 					try? FileManager.default.removeItem(at: file)
@@ -984,19 +888,13 @@ public final class Offline {
 		}
 	}
 
-	/// Deletes the stored files of tracks that have left the wanted set for good. A
-	/// track another source still wants keeps its file: removing it from one album does
-	/// not take it out of a playlist that also holds it. Deleting it here would be undone
-	/// by the next sync downloading it again, so the removal would look like it did
-	/// nothing.
+	/// A track another source still wants keeps its file, or the next sync would download it again.
 	private func deleteFilesNoLongerWanted(_ trackIds: [Int]) {
 		let wanted = db.tracks
 		deleteFiles(for: trackIds.filter { id in !wanted.contains { $0.id == id } })
 	}
 
-	/// Deletes every stored file of the given tracks. The deliberate removal paths use
-	/// this so they do not depend on the sync inferring a removal from the database
-	/// diff — an empty database is not treated as "delete everything".
+	/// The deliberate removal paths use this, not the sync's database-diff inference.
 	private func deleteFiles(for trackIds: [Int]) {
 		guard !trackIds.isEmpty, let localFiles = localFilesByTrackId() else { return }
 		for trackId in trackIds {
@@ -1019,10 +917,8 @@ public final class Offline {
 	private var favTracksSyncAgain = false
 
 	private func syncFavoriteTracks() async {
-		// Preparations (e.g. setting favTracksSyncRunning) happen in startFavoriteTracksSync func beforehand
 
-		// A cancelled sync stops cleanly and leaves the stored set alone: `removeAll()`
-		// owns the removal and the files, so continuing would only report failures.
+		// A cancelled sync leaves the stored set alone: `removeAll()` owns the removal.
 		if Task.isCancelled {
 			favTracksSyncAgain = false
 			favTracksSyncRunning = false
@@ -1040,9 +936,7 @@ public final class Offline {
 		}
 
 		var tracks = loaded
-		// Turned off while loading, e.g. by removing everything. The files of the tracks
-		// that leave the set are deleted here, because the sync no longer infers a
-		// removal from a shrinking set.
+		// Turned off while loading, e.g. by removing everything.
 		if !saveFavoritesOffline {
 			deleteFilesNoLongerWanted(db.favoriteTracks.map(\.id))
 			tracks = []
@@ -1050,7 +944,6 @@ public final class Offline {
 		db.setFavoriteTracks(to: tracks)
 		print("Offline: Favorite Tracks synchronized")
 
-		// Outro
 		if favTracksSyncAgain {
 			favTracksSyncAgain = false
 			await syncFavoriteTracks()
@@ -1060,8 +953,7 @@ public final class Offline {
 		}
 	}
 
-	/// The favourite tracks a sync should keep offline, or nil when the request failed.
-	/// An empty array is a genuinely empty set, not a failure.
+	/// nil means the request failed; an empty array is a genuinely empty set.
 	private func favoritesForSync() async -> [Track]? {
 		guard saveFavoritesOffline else { return [] }
 		guard let favTracks = await session.favorites?.tracks() else { return nil }
@@ -1095,14 +987,12 @@ public final class Offline {
 		db.albumTracks[album]
 	}
 
-	// Probably no need to do async, as it's only a single quick call to the Tidal API
 	public func add(album: Album) async {
 		if db.albums.contains(album) {
 			print("Offline: Album \(album.title) is offline already. This suggests a bug.")
 			return
 		}
 		// Albums from pages and search results arrive without `artists`/`streamReady`.
-		// Store the full record so the Collection card and context menu work.
 		var albumToStore = album
 		if album.streamReady == nil || album.artists == nil {
 			if let complete = await session.album(albumId: album.id) {
@@ -1118,8 +1008,8 @@ public final class Offline {
 	}
 
 	public func remove(album: Album) async {
-		// The track ids have to be read before the database forgets them: the sync no
-		// longer treats "not in the database" as "delete", so the removal is explicit.
+		// The ids are read before the database forgets them: the sync no longer treats "not in
+		// the database" as "delete".
 		let trackIds = (db.albumTracks[album] ?? []).map(\.id)
 		db.remove(album)
 		db.setTracks(for: album, to: nil)
@@ -1141,19 +1031,16 @@ public final class Offline {
 	}
 
 	private func syncPlaylists() async {
-		// Preparations (e.g. setting playlistSyncRunning) happen in syncPlaylist func beforehand
 
 		print("Offline: --- Sync Playlist ---")
 
-		// A cancelled sync stops cleanly rather than fetching every playlist it still
-		// has queued; `removeAll()` empties the queue itself.
+		// A cancelled sync stops rather than fetching every queued playlist.
 		if Task.isCancelled {
 			playlistSyncRunning = false
 			print("Offline: --- Sync Playlists cancelled ---")
 			return
 		}
 
-		// Prepare
 		if playlistsToSync.isEmpty {
 			print("Offline: No more Playlists to sync.")
 			print("Offline: --- Sync Playlists finished ---")
@@ -1166,7 +1053,6 @@ public final class Offline {
 		print("Offline: Sync Playlist: \(playlist.title)")
 		await syncPlaylistTracks(playlist)
 
-		// Outro
 		if !playlistsToSync.isEmpty {
 			print("Offline: Another Playlist to Sync")
 			await syncPlaylists()
@@ -1177,8 +1063,7 @@ public final class Offline {
 		}
 	}
 
-	/// Refreshes one playlist's stored tracks from Tidal. A playlist removed while
-	/// loading has its stored tracks cleared; a failed request keeps what is there.
+	/// A playlist removed while loading has its tracks cleared; a failed request keeps them.
 	private func syncPlaylistTracks(_ playlist: Playlist) async {
 		guard db.playlists.contains(playlist) else {
 			print("Offline: Playlist isn't marked to be offline, so deleting offline tracks, if there are any")
@@ -1186,8 +1071,7 @@ public final class Offline {
 			return
 		}
 		guard let tracks = await session.playlistTracks(playlistId: playlist.id) else {
-			// Keep the stored tracks and carry on with the other playlists.
-			// A cancelled request is not a failure: the sync was asked to stop.
+			// Keep the stored tracks; a cancelled request is not a failure.
 			if !Task.isCancelled {
 				displayError(title: "Offline: Error while synchronizing Playlist Tracks", content: "Couldn't load playlist tracks from Tidal API.")
 			}
@@ -1225,7 +1109,6 @@ public final class Offline {
 		startSync()
 	}
 
-	// Useful at startup to check for changes in all Offline Playlists
 	public func syncAllOfflinePlaylistsAndFavoriteTracks() async {
 		for playlist in db.playlists {
 			syncPlaylist(playlist)

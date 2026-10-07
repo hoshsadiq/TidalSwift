@@ -10,17 +10,13 @@ import Foundation
 
 /// An item a Tidal web or app link points to.
 public enum TidalLink: Equatable, Sendable {
-	/// A `tidal.com/.../track/<id>` or `tidal://track/<id>` link.
 	case track(id: Int)
-	/// An `album/<id>` link.
 	case album(id: Int)
-	/// An `artist/<id>` link.
 	case artist(id: Int)
-	/// A `playlist/<uuid>` link.
 	case playlist(uuid: String)
 
-	/// Parses links like `https://tidal.com/browse/album/123`, `https://listen.tidal.com/track/123/u`,
-	/// `http://www.tidal.com/playlist/<uuid>` or `tidal://artist/123`. The scheme may be left out.
+	/// Parses `https://tidal.com/browse/album/123`, `https://listen.tidal.com/track/123/u`
+	/// or `tidal://artist/123`; the scheme may be left out.
 	public init?(string: String) {
 		var string = string.trimmingCharacters(in: .whitespacesAndNewlines)
 		if !string.contains("://") {
