@@ -31,10 +31,8 @@ extension Session {
 	}
 
 	public func saveSession() {
-		// A token is what makes this a session, so a logged-out save writes nothing.
-		// This runs from `saveState` on quit and on every scene-phase change, and
-		// writing here is what put a stale "Session Information" back after a logout
-		// and made the next launch report a session with no token behind it.
+		// A token is what makes this a session, and this runs from `saveState` on quit and on
+		// every scene-phase change; writing without one put a stale "Session Information" back.
 		guard !config.refreshToken.isEmpty else { return }
 		guard let countryCode = countryCode,
 			  let userId = userId else {
@@ -65,12 +63,10 @@ extension Session {
 		UserDefaults.standard.set(persistentInformation, forKey: "Config Information")
 	}
 
-	/// The only keys a logout owns: what `saveConfig` and `saveSession` write.
-	/// Everything else in the app's UserDefaults domain — the `OfflineDB:*`
-	/// database and the offline preferences — says which audio files the offline
-	/// library holds. `Offline.init` deletes every file missing from that database
-	/// at launch, so removing the whole persistent domain here emptied the
-	/// library on the next start.
+	/// The only keys a logout owns. The rest of the app's UserDefaults domain — the
+	/// `OfflineDB:*` database and the offline preferences — says which files the offline
+	/// library holds, and `Offline.init` deletes every file missing from it at launch, so a
+	/// logout that removed the whole domain emptied the library.
 	private static let sessionKeys = ["Config Information", "Session Information"]
 
 	public func deletePersistentInformation() {

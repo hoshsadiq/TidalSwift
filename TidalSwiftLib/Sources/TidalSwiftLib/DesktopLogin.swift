@@ -9,25 +9,15 @@
 import Foundation
 import CryptoKit
 
-/// PKCE mechanics for the official desktop client's login. Holds no session or
-/// UI state, so every step (verifier, challenge, authorize URL, callback
-/// parsing) can be tested without opening a browser. The one network step, the
-/// code exchange, is deliberately not unit-tested; the suite has no seam for it.
+/// PKCE mechanics for the official desktop client's login; no session or UI state.
 public enum DesktopLogin {
 
-	/// One case per step, so a failure is never swallowed and never ambiguous.
 	public enum LoginError: LocalizedError {
-		/// Tidal denied the authorization and sent `error`/`error_description`.
 		case authorizationDenied(error: String, description: String?)
-		/// The callback URL is not a well-formed `tidal://login/auth` redirect.
 		case invalidCallback
-		/// No callback arrived before the login gave up waiting.
 		case timeout
-		/// The token endpoint refused the exchange.
 		case exchangeFailed(description: String?)
-		/// The request never reached Tidal.
 		case network(underlying: Error)
-		/// Tidal answered in a format this app cannot read.
 		case unexpectedResponse
 
 		public var errorDescription: String? {
@@ -50,14 +40,12 @@ public enum DesktopLogin {
 
 	// MARK: - PKCE
 
-	/// A code verifier is 43–128 characters from the RFC 7636 unreserved set.
-	/// 32 random bytes base64url-encoded give exactly 43 characters.
+	/// 32 random bytes base64url-encoded give the 43 characters RFC 7636 allows.
 	public static func generateCodeVerifier() -> String {
 		let bytes = Data((0..<32).map { _ in UInt8.random(in: .min ... .max) })
 		return base64URLEncode(bytes)
 	}
 
-	/// `base64url(sha256(verifier))`, with the padding stripped.
 	public static func codeChallenge(for verifier: String) -> String {
 		let digest = SHA256.hash(data: Data(verifier.utf8))
 		return base64URLEncode(Data(digest))
@@ -74,9 +62,8 @@ public enum DesktopLogin {
 
 	public static func authorizeURL(codeChallenge: String) -> URL {
 		var components = URLComponents(string: AuthInformation.DesktopAuthorizeLocation)!
-		// The client unique key belongs here as well as on the exchange, which is what
-		// the official client does: captured from its own flow. Without it the code
-		// comes back bound to another client and the exchange is refused.
+		// The client unique key belongs here as well as on the exchange, which is what the
+		// official client does; without it the code comes back bound to another client.
 		components.queryItems = [
 			URLQueryItem(name: "client_id", value: AuthInformation.DesktopClientID),
 			URLQueryItem(name: "client_unique_key", value: clientUniqueKey()),
@@ -91,8 +78,7 @@ public enum DesktopLogin {
 
 	// MARK: - Callback parsing
 
-	/// Extracts the `code` from a `tidal://login/auth` callback, or throws the
-	/// denial Tidal sent. Rejects anything that is not exactly that redirect.
+	/// Extracts the `code` from a `tidal://login/auth` callback, or throws the denial Tidal sent.
 	public static func authorizationCode(from callbackURL: URL) throws -> String {
 		guard callbackURL.scheme?.lowercased() == "tidal",
 			  callbackURL.host()?.lowercased() == "login",
@@ -114,9 +100,7 @@ public enum DesktopLogin {
 
 	// MARK: - Code exchange
 
-	/// Tidal binds the session to a client unique key, which the official app sends
-	/// on the code exchange; captured from its own request. A stable value is kept
-	/// per install because the server treats it as identifying this client.
+	/// Kept stable per install, because Tidal treats it as identifying this client.
 	static func clientUniqueKey(defaults: UserDefaults = .standard) -> String {
 		if let existing = defaults.string(forKey: AuthInformation.DesktopUniqueKeyDefaultsKey) {
 			return existing
@@ -126,9 +110,7 @@ public enum DesktopLogin {
 		return key
 	}
 
-	/// Exchanges the authorization code for a token. The desktop client is
-	/// public (PKCE), so no client secret is sent. Returns the same token type
-	/// the device-code flow uses.
+	/// The desktop client is public (PKCE), so no client secret is sent.
 	static func exchangeAuthorizationCode(code: String, verifier: String) async throws -> TokenSuccessResponse {
 		let url = URL(string: AuthInformation.DesktopTokenLocation)!
 		let parameters: [String: String] = [
