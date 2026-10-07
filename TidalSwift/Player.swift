@@ -22,18 +22,15 @@ class Player {
 
 	private var previousValue: Float = 1.0
 	private var failedItems = 0
-	// Incremented on every item change, so outdated async loads can be discarded
+	// Incremented on every item change, so outdated async loads can be discarded.
 	private var itemLoadID = 0
-	// KVO on the current item's `status`, invalidated when the next item is installed.
 	private var itemStatusObservation: NSKeyValueObservation?
 
 
 	private(set) var nextAudioQuality: AudioQuality
 	private(set) var preferDolbyAtmos: Bool
-	/// Whether the stream that plays is the locally decrypted hi-res rendition, and
-	/// its bit depth, read from the file. Plain, not observable, but written just
-	/// before `playbackInfo.resolvedStream`, so the view that re-renders on that
-	/// write reads the new value.
+	/// Plain, not observable: written just before `playbackInfo.resolvedStream` so the view
+	/// re-rendering on that write sees it.
 	private(set) var isPlayingHiResStereo = false
 	private(set) var currentHiResBitDepth: Int?
 
@@ -43,7 +40,6 @@ class Player {
 		self.preferDolbyAtmos = preferDolbyAtmos
 		self.autoplayAfterAddNow = autoplayAfterAddNow
 
-		// A cache that grew while the app was closed is bounded before it is read.
 		HiResStreaming.pruneCache()
 
 		timeObserverToken = avPlayer.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1, preferredTimescale: 1), queue: nil) { [weak self] _ in
@@ -62,7 +58,6 @@ class Player {
 
 	// MARK: Prefetching
 
-	/// Prepares the tracks after the current one in the queue so they start instantly.
 	/// Lazy because its closures read this player's live settings.
 	private lazy var prefetcher = HiResStreaming.makePrefetcher(
 		for: session,
@@ -71,10 +66,6 @@ class Player {
 		self?.shouldPrefetch(track) ?? false
 	}
 
-	/// Whether a local-file route is the one that plays first for `track`, which is
-	/// when preparing it in advance is worth the bandwidth: the decrypted FLAC route at
-	/// `Max`/`Lossless`, or the DASH route at `High`/`Low`. The direct-stream route
-	/// streams, so nothing is prepared for it.
 	private func shouldPrefetch(_ track: Track) -> Bool {
 		HiResStreamingPolicy.usesLocalFile(
 			sessionHasHiResStereoAccess: session.hasHiResStereoAccess,
@@ -89,8 +80,6 @@ class Player {
 		prefetcher.queueChanged(queue: queueInfo.queue.map(\.track), currentIndex: queueInfo.currentIndex)
 	}
 
-	/// Stops preparing upcoming tracks. Called on quit so a teardown does not leave a
-	/// download in flight.
 	func stopPrefetching() {
 		prefetcher.stop()
 	}
@@ -105,10 +94,7 @@ class Player {
 
 	// MARK: Observers
 
-	/// Applies a volume or shuffle change to the underlying player. Each observer
-	/// re-arms itself: `withObservationTracking` fires `onChange` only once, before the
-	/// new value is written, so the handler runs on the next main-actor turn with the
-	/// new value already in place.
+	/// `withObservationTracking` fires `onChange` once only, so each observer re-arms itself.
 	private func observeVolume() {
 		withObservationTracking {
 			_ = playbackInfo.volume
@@ -182,7 +168,6 @@ class Player {
 
 	func previous() {
 		guard !queueInfo.queue.isEmpty else { return }
-		// Restarting the current track (or already at the first) is not a skip.
 		if avPlayer.currentTime().seconds < 3 && queueInfo.currentIndex > 0 {
 			prefetcher.trackSkipped()
 		}
@@ -211,15 +196,13 @@ class Player {
 		}
 	}
 
-	/// A user pressing next: counts towards the browsing guard that stops preparing
-	/// tracks in advance.
+	/// A user pressing next: counts towards the browsing guard that stops preparing early.
 	func next() {
 		prefetcher.trackSkipped()
 		advance(resumeAfterSet: playbackInfo.playing)
 	}
 
-	/// Moves to the next track without counting as a manual skip (auto-advance and
-	/// skipping past unplayable tracks).
+	/// Moves on without counting as a manual skip (auto-advance, unplayable tracks).
 	private func advance(resumeAfterSet: Bool, visited: Int = 0) {
 		if playbackInfo.repeatState == .single {
 			seek(to: 0)
@@ -283,9 +266,8 @@ class Player {
 			return
 		}
 		let seconds = percentage * currentItem.duration.seconds
-		// A timescale of 1 rounds sub-second targets to whole seconds, which
-		// drops a tapped lyric line up to half a second early. Seek at media
-		// resolution so the target is preserved.
+		// A timescale of 1 rounds sub-second targets to whole seconds, dropping a tapped
+		// lyric line early; seek at media resolution so the target is preserved.
 		avPlayer.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
 	}
 
@@ -301,8 +283,7 @@ class Player {
 	}
 
 	private func avSetItemAsync(from track: Track, loadID: Int, resumeAfterSet: Bool? = nil) async {
-		// Loading is async, so a newer request can arrive while this one is in flight.
-		// Discard the stale load instead of replacing the newer item's playback.
+		// A newer request can arrive while this one is in flight; discard the stale load.
 		guard loadID == itemLoadID else {
 			return
 		}
@@ -323,8 +304,6 @@ class Player {
 
 		let item = AVPlayerItem(url: url)
 		installCurrentItem(item)
-		// The periodic observer only refreshes once a second; reset eagerly so a
-		// new track can't briefly highlight a line at the previous track's time.
 		playbackInfo.playbackPosition = 0
 
 		if shouldResume {
@@ -333,11 +312,8 @@ class Player {
 	}
 
 	/// Resolves the URL that plays `track` — the offline copy first, then the policy's
-	/// online routes — and publishes the resolved stream. Returns nil when the load is
-	/// stale or no route produced a stream, and skips the track in the latter case.
-	///
-	/// A rendition fetch can suspend for the whole download, so the stale-load check at
-	/// the top has to repeat in each path that publishes a result.
+	/// online routes — and publishes the resolved stream. A rendition fetch can suspend
+	/// for a download, so the stale-load check repeats in every publishing path.
 	private func resolveStreamURL(for track: Track, loadID: Int, resumeAfterSet: Bool) async -> URL? {
 		isPlayingHiResStereo = false
 
@@ -360,8 +336,6 @@ class Player {
 			quality: nextAudioQuality,
 			preferDolbyAtmos: preferDolbyAtmos
 		) {
-			// The policy orders the routes and the first one that produces a stream wins;
-			// a hi-res result is a local decrypted file, a standard one is today's path.
 			let source = stream.isHiResStereo ? "hi-res" : "online"
 			print("Play \(track.title) from \(source) URL: \(stream.url)")
 			print("[PLAYBACK] avSetItem(): resolved URL - title: \(track.title), quality: \(stream.isHiResStereo ? "hi-res stereo" : "\(stream.quality)"), source: \(source)")
@@ -390,8 +364,6 @@ class Player {
 		return nil
 	}
 
-	/// A track that cannot play: counts the failure, then stops the queue once every
-	/// track has failed or moves on to the next one.
 	private func skipFailedItem(resumeAfterSet: Bool) {
 		failedItems += 1
 		if failedItems == queueInfo.queue.count {
@@ -403,11 +375,8 @@ class Player {
 		}
 	}
 
-	/// Installs `item` as the current one and observes its end and failure.
-	///
-	/// A failed or stalled item posts no end notification, so the status is observed
-	/// directly. The identity check in the callback drops a late failure for an item
-	/// the user has since replaced.
+	/// A failed or stalled item posts no end notification, so its status is observed
+	/// directly; the identity check drops a late failure for an item since replaced.
 	private func installCurrentItem(_ item: AVPlayerItem) {
 		NotificationCenter.default.removeObserver(self, name: NSNotification.Name.AVPlayerItemDidPlayToEndTime, object: avPlayer.currentItem)
 		NotificationCenter.default.removeObserver(self, name: NSNotification.Name.AVPlayerItemFailedToPlayToEndTime, object: avPlayer.currentItem)
@@ -430,9 +399,8 @@ class Player {
 		advance(resumeAfterSet: playbackInfo.playing)
 	}
 
-	/// The item failed after playback started (the stream dropped, the decoder gave
-	/// up). `AVPlayerItemDidPlayToEndTime` is not posted in that case, so without this
-	/// the queue would sit on an item that will never play.
+	/// The item failed after playback started. `AVPlayerItemDidPlayToEndTime` is not
+	/// posted then, so without this the queue would sit on an item that never plays.
 	@objc func playerItemFailedToPlayToEndTime(sender: Notification) {
 		guard let item = sender.object as? AVPlayerItem, item === avPlayer.currentItem else { return }
 		let description = (sender.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error)
@@ -440,8 +408,6 @@ class Player {
 		playerItemFailed(reason: "AVPlayerItemFailedToPlayToEndTime", errorDescription: description)
 	}
 
-	/// A loaded item that cannot play. Advances the way a refused stream does, so a
-	/// track that fails at play time does not leave the UI believing it is playing.
 	private func playerItemFailed(reason: String, errorDescription: String?) {
 		let track = queueInfo.currentItem?.track
 		print("[PLAYBACK] item failed - title: \(track?.title ?? "?"), id: \(track.map { String($0.id) } ?? "?"), reason: \(reason), error: \(errorDescription ?? "none"), failedItems: \(failedItems), queueCount: \(queueInfo.queue.count)")
@@ -609,8 +575,8 @@ class Player {
 		if atIndex < queueInfo.currentIndex {
 			queueInfo.currentIndex -= 1
 		}
-		// Removing the current (possibly last) track can leave currentIndex at or
-		// past the new end; clamp so the queue lookup below can't trap.
+		// Removing the current track can leave currentIndex past the new end; clamp it so
+		// the queue lookup below can't trap.
 		if queueInfo.currentIndex >= queueInfo.queue.count {
 			queueInfo.currentIndex = max(0, queueInfo.queue.count - 1)
 		}
@@ -669,8 +635,6 @@ class Player {
 		return r
 	}
 
-	/// Current playback position in seconds, or 0 while no item is loaded or the
-	/// player reports a non-finite time.
 	private func currentPlaybackPosition() -> Double {
 		let seconds = avPlayer.currentTime().seconds
 		return seconds.isFinite ? seconds : 0
@@ -727,11 +691,10 @@ class Player {
 			return ""
 		}
 		let track = queueInfo.queue[queueInfo.currentIndex].track
-		// Describe the stream that plays, not what the track could offer: Tidal
-		// reports Atmos tracks as `audioQuality: .low`, and an Atmos track plays
-		// stereo when the preference is off. Resolution is async, so the stored
-		// stream still belongs to the previous track until this one resolves;
-		// say nothing then rather than borrow the previous track's label.
+		// Describe the stream that plays, not what the track could offer: Tidal reports
+		// Atmos tracks as `audioQuality: .low`, and such a track plays stereo when the
+		// preference is off. Resolution is async, so a stored stream for another track
+		// means this one has not resolved yet — say nothing rather than mislabel it.
 		guard let stream = playbackInfo.resolvedStream, stream.trackId == track.id else {
 			return ""
 		}
@@ -751,9 +714,7 @@ class Player {
 	}
 
 	/// The direct `streamUrl` fallback answers a HI_RES_LOSSLESS request with the
-	/// lossless 16 Bit / 44,1 kHz file, so a Max request that lands here is labelled
-	/// as High. The desktop hi-res route reports its own bit depth and sample rate
-	/// above and never reaches this clamp. See `AudioQuality.max`.
+	/// lossless 16-bit file, so a Max request that lands here is labelled High.
 	private static func clampedQuality(_ resolved: AudioQuality, advertised: AudioQuality) -> AudioQuality {
 		var quality = resolved
 		if quality == .max {
@@ -768,8 +729,6 @@ class Player {
 		return quality
 	}
 
-	/// 44100 reads as "44.1kHz", 48000 as "48kHz" — the same shape the other tiers
-	/// use, so the badge reads consistently whichever route played.
 	private static func formattedSampleRate(_ sampleRate: Int) -> String {
 		let kilohertz = Double(sampleRate) / 1000
 		if kilohertz == kilohertz.rounded() {
@@ -787,9 +746,7 @@ class Player {
 		case .high:
 			return "16-bit 44.1kHz"
 		case .max:
-			// The Max tier's advertised specification, never shown: `currentQualityString`
-			// clamps `.max` to `.high` above, and the decrypted hi-res rendition is labelled
-			// from its stream's own bit depth and sample rate.
+			// Never shown: `currentQualityString` clamps `.max` to `.high` above.
 			return "24-bit 192kHz"
 		}
 	}

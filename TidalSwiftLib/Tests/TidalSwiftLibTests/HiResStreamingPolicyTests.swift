@@ -6,13 +6,9 @@
 import XCTest
 @testable import TidalSwiftLib
 
-/// Pins the route policy: which path is tried, and in what order. The rule is
-/// capability × preference × Atmos preference × track capabilities × quality, so
-/// every combination is asserted rather than a representative few.
-///
-/// Tidal's own desktop route leads at every tier; the direct-stream path is the
-/// fallback it falls through to. Only the Atmos preference deliberately chooses the
-/// direct-stream path, because Atmos is served there and nowhere else.
+/// Pins the route policy: which path is tried, and in what order. Tidal's desktop route leads
+/// at every tier with the direct-stream path as its fallback; only the Atmos preference picks
+/// the direct-stream path, because Atmos is served there and nowhere else.
 @MainActor
 final class HiResStreamingPolicyTests: XCTestCase {
 	/// The rule, restated independently of the implementation, so a change to either
@@ -38,8 +34,6 @@ final class HiResStreamingPolicyTests: XCTestCase {
 		}
 	}
 
-	/// Every combination of the inputs, asserting both the route order and which route
-	/// plays first.
 	func testEveryCombinationProducesTheExpectedRouteOrder() {
 		for capable in [true, false] {
 				for preferAtmos in [true, false] {
@@ -94,8 +88,7 @@ final class HiResStreamingPolicyTests: XCTestCase {
 			}
 		}
 
-	/// Tidal's route leads at every tier when the session can use it: the decrypted
-	/// FLAC rendition at Max and Lossless, the assembled DASH file at High and Low.
+	/// The decrypted FLAC prevails at Max and Lossless, the assembled DASH at High and Low.
 	func testEveryTierStartsWithTidalsRoute() {
 		for quality in [AudioQuality.low, .medium, .high, .max] {
 			let routes = HiResStreamingPolicy.routes(
@@ -107,8 +100,6 @@ final class HiResStreamingPolicyTests: XCTestCase {
 		}
 	}
 
-	/// Max: the decrypted FLAC rendition is the only way to 24-bit, so it leads with
-	/// the direct-stream path as the fallback.
 	func testMaxStartsWithTheDesktopRoute() {
 		XCTAssertEqual(
 			HiResStreamingPolicy.routes(
@@ -119,9 +110,7 @@ final class HiResStreamingPolicyTests: XCTestCase {
 		)
 	}
 
-	/// Lossless also leads with Tidal's route: the decrypted 16-bit rendition is
-	/// prepared into the cache, which is what keeps it instant. The direct-stream path
-	/// is only the fallback.
+	/// The decrypted 16-bit rendition is prepared into the cache, which keeps it instant.
 	func testLosslessStereoStartsWithTheDesktopRoute() {
 		let routes = HiResStreamingPolicy.routes(
 			sessionHasHiResStereoAccess: true, preferDolbyAtmos: false,
@@ -131,8 +120,6 @@ final class HiResStreamingPolicyTests: XCTestCase {
 		XCTAssertEqual(routes, [.hiResStereo, .directStream])
 	}
 
-	/// A dual-format track behaves the same at Lossless: Tidal's route leads, the
-	/// direct stream falls back.
 	func testLosslessDualFormatTrackStartsWithTheDesktopRoute() {
 		let routes = HiResStreamingPolicy.routes(
 			sessionHasHiResStereoAccess: true, preferDolbyAtmos: false,
@@ -142,8 +129,6 @@ final class HiResStreamingPolicyTests: XCTestCase {
 		XCTAssertEqual(routes, [.hiResStereo, .directStream])
 	}
 
-	/// …and the Atmos preference overrules that, because Atmos is only served by the
-	/// direct-stream path.
 	func testLosslessDualFormatTrackPrefersAtmosWhenAsked() {
 		XCTAssertEqual(
 			HiResStreamingPolicy.routes(
@@ -154,7 +139,6 @@ final class HiResStreamingPolicyTests: XCTestCase {
 		)
 	}
 
-	/// The Atmos preference wins outright, and it is served by the direct-stream route.
 	func testAtmosPreferenceWinsEvenAtMax() {
 		for quality in [AudioQuality.low, .medium, .high, .max] {
 			XCTAssertEqual(
@@ -168,7 +152,6 @@ final class HiResStreamingPolicyTests: XCTestCase {
 		}
 	}
 
-	/// Below Lossless the assembled AAC file leads; the direct stream falls back.
 	func testBelowLosslessStartsWithTheDashRoute() {
 		for quality in [AudioQuality.low, .medium] {
 			XCTAssertEqual(
@@ -182,9 +165,8 @@ final class HiResStreamingPolicyTests: XCTestCase {
 		}
 	}
 
-	/// Tidal's route needs the capability and a stereo rendition. Either missing keeps
-	/// the direct-stream path alone, so a session that cannot use Tidal's route never
-	/// tries it.
+	/// Tidal's route needs the capability and a stereo rendition; either missing keeps the
+	/// direct-stream path alone.
 	func testTidalsRouteNeedsCapabilityAndStereo() {
 		for quality in [AudioQuality.low, .medium, .high, .max] {
 			XCTAssertEqual(
@@ -206,9 +188,7 @@ final class HiResStreamingPolicyTests: XCTestCase {
 		}
 	}
 
-	/// A dual-format track at High/Low still leads with DASH when the Atmos preference
-	/// is off: the assembled AAC is a stereo rendition, so the extra Atmos mode does
-	/// not change the order.
+	/// The assembled AAC is a stereo rendition, so the extra Atmos mode does not change it.
 	func testDashRouteLeadsForADualFormatTrackWithoutTheAtmosPreference() {
 		XCTAssertEqual(
 			HiResStreamingPolicy.routes(
@@ -219,8 +199,6 @@ final class HiResStreamingPolicyTests: XCTestCase {
 		)
 	}
 
-	/// A session without the capability keeps the direct-stream path only. The quality
-	/// selection is the only switch left: there is no separate toggle.
 	func testWithoutCapabilityOnlyTheDirectStreamRoute() {
 		XCTAssertEqual(
 			HiResStreamingPolicy.routes(
@@ -231,8 +209,6 @@ final class HiResStreamingPolicyTests: XCTestCase {
 		)
 	}
 
-	/// An Atmos-only track has no stereo rendition, so Tidal's route can never be the
-	/// first choice.
 	func testAtmosOnlyTrackNeverStartsWithTidalsRoute() {
 		XCTAssertEqual(
 			HiResStreamingPolicy.routes(
@@ -245,8 +221,6 @@ final class HiResStreamingPolicyTests: XCTestCase {
 
 	// MARK: - Resolver
 
-	/// Given a `.dash` producer that yields a file, the resolver returns it and stops —
-	/// the direct-stream route is never asked.
 	func testDashRouteIsResolvedToItsLocalFile() async {
 		let local = URL(fileURLWithPath: "/tmp/dash.aac.m4a")
 		var directStreamAsked = false
@@ -263,8 +237,6 @@ final class HiResStreamingPolicyTests: XCTestCase {
 		XCTAssertFalse(directStreamAsked, "a resolved route must stop the walk")
 	}
 
-	/// Given a `.dash` producer that fails, the resolver falls through to the
-	/// direct-stream route exactly as it does for the hi-res route.
 	func testFailedDashFallsThroughToTheDirectStreamRoute() async {
 		let direct = URL(fileURLWithPath: "/tmp/direct.flac")
 		let resolver = PlaybackRouteResolver(
@@ -278,7 +250,6 @@ final class HiResStreamingPolicyTests: XCTestCase {
 		XCTAssertEqual(resolved?.url, direct)
 	}
 
-	/// Every route failing leaves no stream, so the caller skips the track.
 	func testAllRoutesFailingResolvesNothing() async {
 		let resolver = PlaybackRouteResolver(hiResStereo: { nil }, dash: { nil }, directStream: { nil })
 		let resolved = await resolver.resolve(routes: [.dash, .directStream])

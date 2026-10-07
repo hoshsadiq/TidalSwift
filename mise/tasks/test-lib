@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 #MISE description="Run the TidalSwiftLib test suite"
-# CI's library job calls this, so a package regression fails the pull request rather
-# than only showing up locally.
+# CI's library job calls this, so a package regression fails the pull request.
 set -Eeuo pipefail
 
 # shellcheck source=mise/tasks/_lib.sh

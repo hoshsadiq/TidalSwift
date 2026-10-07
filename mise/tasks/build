@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 #MISE description="Build TidalSwift.app (unsigned)"
 #MISE depends=["generate"]
-# Builds the app the same way everywhere: unsigned, into the shared DerivedData
-# directory that `app` and `verify-universal` read from.
+# Builds the app the same way everywhere: unsigned, into the shared DerivedData directory.
 set -Eeuo pipefail
 
 # shellcheck source=mise/tasks/_lib.sh

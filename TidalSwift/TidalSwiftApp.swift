@@ -33,12 +33,10 @@ struct TidalSwiftApp: App {
 			)
 			.environment(appModel)
 			.environment(appModel.toastCenter)
-			// Without this, the `tidal://login/auth` callback opens a second window:
-			// when no open scene declares that it handles the event, SwiftUI creates a
-			// new scene for it. `allowing: ["*"]` declares that this scene handles any
-			// URL the app receives, so the callback lands in the window that is already
-			// open and the login sheet there completes in place. The sets are matched
-			// against the URL's `absoluteString`, and `*` matches anything.
+			// Without this the `tidal://login/auth` callback opens a second window: with no
+			// scene declared to handle the event, SwiftUI creates one, so the callback would
+			// land in a new window rather than the open one. `allowing: ["*"]` makes this
+			// scene take any URL.
 			.handlesExternalEvents(preferring: [], allowing: ["*"])
 			.onAppear {
 				#if canImport(AppKit)
@@ -56,10 +54,8 @@ struct TidalSwiftApp: App {
 					appModel.saveState()
 				}
 			}
-			// The desktop login's `tidal://login/auth` callback. SwiftUI's
-			// `.onOpenURL` is the receiver because the app has no AppDelegate
-			// open-URL handler, and the URL must reach the shared `LoginInfo`
-			// that paused waiting for it. URLs with no pending login are ignored.
+			// The URL must reach the shared `LoginInfo` that paused waiting for it;
+			// SwiftUI's `.onOpenURL` is the only receiver the app has.
 			.onOpenURL { url in
 				appModel.loginInfo.receive(callbackURL: url)
 			}
@@ -77,8 +73,7 @@ struct TidalSwiftApp: App {
 }
 
 #if canImport(AppKit)
-/// Copy and Paste travel up the responder chain and land here only when nothing
-/// focused handles them, so a text field keeps its own copy and paste.
+/// Reached only when nothing focused handles it, so a text field keeps its own copy and paste.
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 	weak var appModel: TidalSwiftAppModel?
 
@@ -104,31 +99,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 	}
 }
 
-/// The app's side of the `tidal://` route: it reads who currently handles the scheme
-/// from LaunchServices and carries out the registration half of
-/// `TidalLinkHandlingPolicy`. The rule itself lives in the library; this only makes
-/// the LaunchServices calls.
+/// The app's side of the `tidal://` route: it makes the LaunchServices calls and
+/// carries out the registration half of `TidalLinkHandlingPolicy`.
 enum TidalLinkRegistration {
-	/// The official TIDAL desktop app registers the same `tidal` scheme. Handing the
-	/// scheme back targets it by bundle id, with the standard install location as a
-	/// last resort.
+	/// The official TIDAL desktop app registers the same scheme; handing it back
+	/// targets this bundle id.
 	static let officialTidalBundleID = "com.tidal.desktop"
 	static let officialTidalApplicationPath = "/Applications/TIDAL.app"
 
-	/// Who macOS would hand a `tidal://` link to right now.
-	///
-	/// Every copy of this app shares one bundle id, so the id alone cannot tell a
-	/// stale copy from the running one. Only the running copy can deliver the
-	/// callback into this process, so the resolved path decides: a handler at any
-	/// other path — including one whose bundle has since been deleted — counts as
-	/// another app, which makes the app reclaim the scheme for itself instead of
-	/// leaving the link pointing at a copy that can vanish mid-session.
+	/// Every copy of this app shares one bundle id, so only a handler whose resolved path
+	/// is this bundle counts as ours; anything else makes the app reclaim the scheme,
+	/// rather than leave links pointing at a copy that can vanish mid-session.
 	static func currentHandler() -> TidalLinkHandlingPolicy.SchemeHandler {
 		guard let handler = currentHandlerApplicationURL() else {
 			return .nobody
 		}
-		// Symlinks resolved on both sides: the path macOS reports is whatever was
-		// registered, which may reach the same bundle by another route.
+		// The registered path may reach this bundle by another route, so resolve symlinks.
 		let handlerPath = handler.resolvingSymlinksInPath().standardizedFileURL
 		let thisPath = Bundle.main.bundleURL.resolvingSymlinksInPath().standardizedFileURL
 		let isThisBundle = handlerPath == thisPath
@@ -136,14 +122,11 @@ enum TidalLinkRegistration {
 		return isThisBundle ? .thisApp : .anotherApp
 	}
 
-	/// The bundle macOS would hand a `tidal://` link to right now, or nil when no
-	/// installed app claims the scheme. Used by `currentHandler` and by the
-	/// `[LOGIN]` line that names the path at launch.
+	/// The bundle macOS would hand a `tidal://` link to, or nil when none claims it.
 	static func currentHandlerApplicationURL() -> URL? {
 		NSWorkspace.shared.urlForApplication(toOpen: tidalLinkProbeURL)
 	}
 
-	/// A handler in words, for the `[LOGIN]` console lines.
 	static func logDescription(of handler: TidalLinkHandlingPolicy.SchemeHandler) -> String {
 		switch handler {
 		case .thisApp:
@@ -155,7 +138,6 @@ enum TidalLinkRegistration {
 		}
 	}
 
-	/// What the current preference asks for, given who holds the scheme.
 	static func currentRegistration() -> TidalLinkHandlingPolicy.Registration {
 		TidalLinkHandlingPolicy.registration(
 			enabled: TidalLinkHandlingPreferences.isEnabled,
@@ -163,13 +145,8 @@ enum TidalLinkRegistration {
 		)
 	}
 
-	/// Carries a registration out and reports whether the system accepted it.
-	///
-	/// The system may ask the user for consent before changing a handler, and calls
-	/// the completion handler only afterwards, so a claim is a request that can be
-	/// declined rather than a guaranteed change; a failure is printed, not swallowed.
-	/// A release is skipped when the official app is not installed, because there is
-	/// nothing to hand the scheme to.
+	/// The system can ask for consent and calls the completion handler only afterwards,
+	/// so a claim is a request that can be declined, not a guaranteed change.
 	@discardableResult
 	static func apply(_ registration: TidalLinkHandlingPolicy.Registration) async -> Bool {
 		switch registration {
@@ -183,13 +160,10 @@ enum TidalLinkRegistration {
 		}
 	}
 
-	/// Applies whatever the current preference asks for. Used at launch and when the
-	/// Preferences toggle changes.
 	static func applyCurrentRegistration() async {
 		await apply(currentRegistration())
 	}
 
-	/// The scheme alone decides who the handler is, so the specific link does not matter.
 	private static var tidalLinkProbeURL: URL {
 		URL(string: "tidal://login/auth")!
 	}
@@ -225,8 +199,6 @@ final class TidalSwiftAppModel {
 	var sortingState: SortingState
 	var playlistEditingValues = PlaylistEditingValues()
 	let loginInfo = LoginInfo()
-	/// Owns the app's single toast overlay; shared with `ContentView` through the
-	/// environment so library errors routed via `displayErrorHandler` land here.
 	let toastCenter = ToastCenter()
 
 	private var didStart = false
@@ -237,48 +209,39 @@ final class TidalSwiftAppModel {
 	private var playbackHistoryViewController: NSWindowController?
 	private var miniplayerWindowController: MiniplayerWindowController?
 	private var spaceKeyMonitor: Any?
-	/// The app's main content window. Captured when the miniplayer opens so it can be
-	/// hidden/shown for mutual exclusivity with the miniplayer.
+	/// The app's main content window, hidden while the miniplayer is shown.
 	private var mainWindow: NSWindow?
-	/// Observer for the main window becoming key (e.g., via Dock click), which should
-	/// close the miniplayer to maintain mutual exclusivity.
+	/// Closes the miniplayer when the main window becomes key again.
 	private var mainWindowKeyObserver: NSObjectProtocol?
 	#endif
 
 	// MARK: Cancellables
 
-	// No public MPNowPlayingInfo constants exist for shuffle/repeat in MediaPlayer.
-	// Best-effort keys; the system may ignore them. Shuffle/repeat state is
-	// primarily driven via MPRemoteCommandCenter in NowPlayingController.
+	// No public MPNowPlayingInfo constants exist for shuffle/repeat in MediaPlayer;
+	// these are best-effort keys the system may ignore.
 	private static let nowPlayingShuffleKey = "MPNowPlayingInfoPropertyShuffle"
 	private static let nowPlayingRepeatKey = "MPNowPlayingInfoPropertyRepeat"
 
-	/// UserDefaults key for the Preferences toggle that lets quality exceed the
-	/// subscription cap. Shared with the view's `@AppStorage` so there is one spelling.
+	/// Shared with the view's `@AppStorage` so there is one spelling.
 	static let ignoreSubscriptionLimitsKey = "ignoreSubscriptionLimits"
 
 	@ObservationIgnored private var saveTask: Task<Void, Never>?
-	/// Timestamp of the last Now Playing elapsed-time update. The player's time
-	/// observer fires many times a second; this gates it back to the one-second
-	/// cadence the previous Combine `.throttle` imposed.
+	/// Gates the Now Playing elapsed-time write to one a second.
 	@ObservationIgnored private var lastNowPlayingFractionUpdate = Date.distantPast
 
 	var trackIsFavorite = false
 	var albumIsFavorite = false
 	var showQueuePanel = false
-	/// Whether the floating miniplayer window is currently open. Drives the
-	/// drawer button's tint; kept in sync by the window's close callback.
+	/// Drives the drawer button's tint; kept in sync by the window's close callback.
 	var isMiniplayerOpen = false
 	private(set) var audioQuality: AudioQuality
-	/// Highest quality the account's subscription allows, from `/users/{id}/subscription`.
 	private(set) var highestSoundQuality: AudioQuality?
 
 	var hasCurrentTrack: Bool {
 		!player.queueInfo.queue.isEmpty
 	}
 
-	/// A toast holds two short lines; anything longer loses its tail on screen, so
-	/// the full text goes to the console and the title is shown alone instead.
+	/// A toast holds two short lines; longer text goes to the console and the title alone.
 	private static let toastMessageLimit = 120
 
 	// MARK: Lifecycle
@@ -286,9 +249,7 @@ final class TidalSwiftAppModel {
 	init() {
 		session = Session(config: nil)
 
-		// The player's own Atmos preference. It was one shared toggle until now, so an
-		// existing value under the offline key seeds the playback side on first launch
-		// rather than resetting it to off.
+		// An existing value under the offline key seeds the playback side on first launch.
 		let preferDolbyAtmos: Bool
 		if UserDefaults.standard.object(forKey: "preferDolbyAtmos") != nil {
 			preferDolbyAtmos = UserDefaults.standard.bool(forKey: "preferDolbyAtmos")
@@ -314,13 +275,10 @@ final class TidalSwiftAppModel {
 		viewState = ViewState(session: session, cache: cache)
 		sortingState = SortingState()
 
-		// Installed here, not later, so an error raised as soon as the app calls into
-		// the library (login, token refresh, the offline sync) already reaches the toast.
+		// Installed before any library call, so its errors reach the toast from the start.
 		installDisplayErrorHandler()
 	}
 
-	/// Routes library errors (`displayError`) to the app's toast centre. The session
-	/// and the toast centre both exist by the end of `init`.
 	private func installDisplayErrorHandler() {
 		displayErrorHandler = { [toastCenter = self.toastCenter] title, content in
 			let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -418,18 +376,15 @@ final class TidalSwiftAppModel {
 
 	private func quitIfLastWindow(closing closingWindow: NSWindow?) {
 		guard !isTerminating else { return }
-		// The closing window still counts as visible while the notification is
-		// being delivered, so ignore it and look for any other visible one
+		// The closing window still counts as visible, so ignore it and look for another.
 		let hasOtherVisibleWindow = NSApp.windows.contains { $0.isVisible && $0 !== closingWindow }
 		if !hasOtherVisibleWindow {
 			quit()
 		}
 	}
 
-	// Menu-bar Space shortcuts are unreliable on macOS: focused scroll views consume
-	// Space for page-scrolling before the menu bar matches key equivalents. This monitor
-	// intercepts Space first; consuming the event also prevents double-toggle via the
-	// Play/Pause menu item's .keyboardShortcut(.space).
+	// Menu-bar Space shortcuts are unreliable: focused scroll views consume Space for
+	// page-scrolling first, so this monitor intercepts it before the menu bar does.
 	private func registerSpaceKeyMonitor() {
 		guard spaceKeyMonitor == nil else { return }
 		spaceKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -447,11 +402,9 @@ final class TidalSwiftAppModel {
 		}
 	}
 
-	/// Claims tidal:// at launch when the preference asks for it, so the browser
-	/// login's callback reaches this app without the user registering it by hand.
-	/// The handler and its path are logged because a stale copy of the app that
-	/// still claims the scheme can only be told apart from the running app by its
-	/// path, and that is the usual reason a callback never arrives.
+	/// Claims tidal:// at launch when the preference asks for it, so the browser login's
+	/// callback reaches this app. The handler and its path are logged because a stale
+	/// copy that still claims the scheme is the usual reason a callback never arrives.
 	private func registerTidalLinkHandlerAtLaunch() {
 		Task {
 			let before = TidalLinkRegistration.currentHandler()
@@ -614,7 +567,6 @@ final class TidalSwiftAppModel {
 			viewState.forwardStack = decodeViewArray(from: data)
 		}
 
-		// Land on the Music view when there is no persisted non-base view to restore.
 		if !viewState.stack.contains(where: { !$0.isBase() }) {
 			viewState.stack = [TidalSwiftView(viewType: .music)]
 			viewState.forwardStack.removeAll()
@@ -636,10 +588,7 @@ final class TidalSwiftAppModel {
 		}
 	}
 
-	/// Decodes a persisted view array one entry at a time. A single entry whose
-	/// `viewType` no longer exists — a page that was removed, for example — fails
-	/// the whole-array decode and would otherwise discard the entire stack,
-	/// forward stack or history.
+	/// One entry at a time: a single unknown `viewType` would otherwise discard the stack.
 	private func decodeViewArray(from data: Data) -> [TidalSwiftView] {
 		guard let rawEntries = try? JSONSerialization.jsonObject(with: data) as? [Any] else {
 			return []
@@ -754,10 +703,7 @@ final class TidalSwiftAppModel {
 		startSaveLoop()
 	}
 
-	/// Observes a Now Playing input and re-arms after every change. Each helper
-	/// re-registers itself because `withObservationTracking` fires `onChange` only
-	/// once, before the new value is written; the handler therefore runs on the
-	/// next main-actor turn, with the new value in place.
+	/// Each helper re-registers itself: `withObservationTracking` fires `onChange` once only.
 	private func setupNowPlayingCancellables() {
 		observeNowPlayingPlaying()
 		observeNowPlayingFraction()
@@ -853,8 +799,7 @@ final class TidalSwiftAppModel {
 		}
 	}
 
-	/// Writes the elapsed playback time to the Now Playing centre at most once a
-	/// second, matching the previous Combine `.throttle` on `fraction`.
+	/// Writes the elapsed time at most once a second, matching the old `.throttle`.
 	private func updateNowPlayingElapsedTime() {
 		let now = Date()
 		guard now.timeIntervalSince(lastNowPlayingFractionUpdate) >= 1 else { return }
@@ -869,8 +814,7 @@ final class TidalSwiftAppModel {
 
 	// MARK: Saving
 
-	/// Saves unsaved changes every 10 seconds, and only then: nothing is written
-	/// up front, matching the previous 10-second timer publisher's first fire.
+	/// Saves every 10 seconds; nothing is written up front, matching the old timer.
 	private func startSaveLoop() {
 		saveTask = Task { [weak self] in
 			while !Task.isCancelled {
@@ -935,8 +879,7 @@ final class TidalSwiftAppModel {
 					alert.runModal()
 				}
 			} catch {
-				// No release yet, or no network: GitHub answers "Not Found" rather than JSON,
-				// which the update check reports as a decoding failure. Nothing to act on.
+				// No release yet or no network: GitHub's "Not Found" reads as a decoding failure.
 				if error is DecodingError {
 					print("Update check: no usable release feed yet")
 				} else {
@@ -996,8 +939,7 @@ final class TidalSwiftAppModel {
 		}
 	}
 
-	/// Flips the current track's favorite state, keeping the row in the list and only
-	/// updating its heart.
+	/// Flips the favorite state, keeping the row in the list and only updating its heart.
 	func toggleCurrentTrackFavorite() {
 		let queue = player.queueInfo.queue
 		let currentIndex = player.queueInfo.currentIndex
@@ -1109,12 +1051,8 @@ final class TidalSwiftAppModel {
 		self.audioQuality == audioQuality
 	}
 
-	/// Whether the subscription allows this tier. The rule lives in
-	/// `AudioQualityPolicy` so it can be tested without a view or a session. An
-	/// unknown subscription (fetch failed or not logged in yet) allows everything,
-	/// so options are never hidden on a guess. The "Ignore subscription limits"
-	/// preference bypasses the cap so a tier above the subscription becomes
-	/// selectable.
+	/// The rule lives in `AudioQualityPolicy` so it can be tested without a view or a
+	/// session; an unknown subscription allows everything, and the override bypasses the cap.
 	func isAudioQualityAvailable(_ quality: AudioQuality) -> Bool {
 		AudioQualityPolicy.isAvailable(
 			quality,
@@ -1123,10 +1061,8 @@ final class TidalSwiftAppModel {
 		)
 	}
 
-	/// Fetches the subscription's cap, which drives the disabled quality rows.
-	/// Deliberately does not rewrite `audioQuality`: a chosen tier must never be
-	/// changed behind the user's back. A tier Tidal refuses degrades gracefully in
-	/// `bestAudioUrl`, which walks the ladder downward.
+	/// Fetches the cap that drives the disabled rows. Deliberately does not rewrite
+	/// `audioQuality`: a chosen tier must never change behind the user's back.
 	func loadHighestSoundQuality() async {
 		guard let highest = await session.subscriptionInfo()?.highestSoundQuality else { return }
 		highestSoundQuality = highest
@@ -1162,10 +1098,8 @@ final class TidalSwiftAppModel {
 		}
 	}
 
-	/// Ends the session. `removeDownloads` decides what happens to the offline
-	/// library: by default it is left completely alone, and only an explicit
-	/// choice deletes the files. The offline decision is made before
-	/// `session.logout()`, so it does not depend on the session still being valid.
+	/// `removeDownloads` decides what happens to the offline library: by default it is
+	/// left alone, and the decision is made before `session.logout()`.
 	func logout(removeDownloads: Bool = false) {
 		if removeDownloads {
 			session.helpers.offline.removeAll()

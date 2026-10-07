@@ -7,8 +7,7 @@ import XCTest
 @testable import TidalSwiftLib
 
 /// Pins the Track → AudioTags mapping. The writers are tested against hand-built
-/// `AudioTags`, so a wrong album artist, explicit flag or cover mapping is invisible
-/// there; the mapping is the part that decides what the tags say.
+/// `AudioTags`, so a wrong album artist, explicit flag or cover mapping is invisible there.
 @MainActor
 final class MetadataTagsTests: XCTestCase {
 	private func artist(_ name: String, id: Int = 1) -> Artist {

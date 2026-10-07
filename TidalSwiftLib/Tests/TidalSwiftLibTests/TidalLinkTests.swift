@@ -6,9 +6,8 @@
 import XCTest
 @testable import TidalSwiftLib
 
-/// Pins the parsing a pasted or shared Tidal link goes through: which item a link
-/// names, and when a link is rejected. Nothing else exercises this path, so a wrong
-/// type or id would only show up as the app opening the wrong screen.
+/// Pins the parsing a pasted or shared Tidal link goes through: which item a link names,
+/// and when a link is rejected.
 @MainActor
 final class TidalLinkTests: XCTestCase {
 	private let playlistId = "01234567-89ab-cdef-0123-456789abcdef"
@@ -39,8 +38,6 @@ final class TidalLinkTests: XCTestCase {
 		XCTAssertEqual(TidalLink(string: "  https://tidal.com/browse/album/123\n"), .album(id: 123))
 	}
 
-	/// A link naming two items opens the last one, so the album/track share links open
-	/// the track.
 	func testTheLastItemWins() {
 		XCTAssertEqual(TidalLink(string: "https://tidal.com/browse/album/123/track/456"), .track(id: 456))
 	}

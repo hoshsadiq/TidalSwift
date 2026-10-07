@@ -35,14 +35,11 @@ private struct PlaybackPreferencesTab: View {
 	/// Read through the library's key so the player sees the same value without new wiring.
 	@AppStorage(HiResStreamingPreferences.prefetchDepthKey) private var prefetchDepth = HiResStreamingPreferences.defaultPrefetchDepth
 	@AppStorage(HiResStreamingPreferences.cacheSizeBytesKey) private var cacheSizeBytes = HiResStreamingPreferences.defaultCacheBytes
-	/// Shown in the cache row; read once when the tab appears.
 	@State private var cacheUsageBytes = 0
 	@AppStorage(TidalSwiftAppModel.ignoreSubscriptionLimitsKey) private var ignoreSubscriptionLimits = false
-	/// The offline rows read `session.config`, which is not observable, so a changed
-	/// value has to be mirrored here or the selection circle would not move.
+	/// `session.config` is not observable, so mirror its offline quality here.
 	@State private var offlineQuality: AudioQuality?
-	/// Which target the Quality section edits. Streaming is what a user usually changes,
-	/// so it is the default; the choice survives tab switches while Preferences is open.
+	/// Streaming is what a user usually changes, so it is the default.
 	@State private var qualityTarget: QualityTarget = .playback
 
 	var body: some View {
@@ -82,8 +79,7 @@ private struct PlaybackPreferencesTab: View {
 						isOn: Binding(
 							get: { offlinePreferDolbyAtmos },
 							set: { newValue in
-								// Offline owns the stored value; set it before the local write so its
-								// change guard still sees the old value and runs the resync.
+								// Set offline first so its change guard still sees the old value and resyncs.
 								appModel.session.helpers.offline.setPreferDolbyAtmos(to: newValue)
 								offlinePreferDolbyAtmos = newValue
 							}
@@ -183,8 +179,7 @@ private struct PlaybackPreferencesTab: View {
 		}
 	}
 
-	/// What the depth control does, in plain words. 0 is a state worth naming rather
-	/// than leaving the user to infer from a number.
+	/// 0 is a state worth naming rather than leaving the user to infer from a number.
 	private static func prefetchDepthLabel(_ depth: Int) -> String {
 		switch depth {
 		case 0: return "Off"
@@ -193,8 +188,6 @@ private struct PlaybackPreferencesTab: View {
 		}
 	}
 
-	/// The cache budget as a whole number of gigabytes, so the field reads as a size
-	/// rather than a byte count. The stored value stays in bytes.
 	private var cacheSizeGB: Binding<Int> {
 		Binding(
 			get: { max(1, cacheSizeBytes / (1024 * 1024 * 1024)) },
@@ -202,8 +195,6 @@ private struct PlaybackPreferencesTab: View {
 		)
 	}
 
-	/// A whole number of gigabytes, so the usage line does not read as spurious
-	/// precision.
 	private static func gigabyteCount(_ bytes: Int) -> String {
 		let gigabytes = Double(bytes) / Double(1024 * 1024 * 1024)
 		if gigabytes >= 1 {
@@ -213,15 +204,13 @@ private struct PlaybackPreferencesTab: View {
 	}
 }
 
-/// The two targets the Quality section can edit.
 private enum QualityTarget: Hashable {
 	case playback
 	case offline
 }
 
-/// The Atmos preference for one target. Playback and offline each carry their own,
-/// so a user can stream stereo while storing Atmos or the reverse. The help line says
-/// what the preference can actually change, which is not the same for both.
+/// The Atmos preference for one target. Playback and offline each carry their own, so a
+/// user can stream stereo while storing Atmos or the reverse.
 private struct DolbyAtmosToggle: View {
 	@Binding var isOn: Bool
 	let help: String
@@ -238,9 +227,8 @@ private struct DolbyAtmosToggle: View {
 	}
 }
 
-/// The quality tiers, shared by the streaming and offline pickers so both look and
-/// behave the same. Every tier stays visible; one the subscription does not allow is
-/// greyed and unselectable unless the "Ignore subscription limits" preference is on.
+/// The quality tiers, shared by the streaming and offline pickers so both behave the
+/// same. Every tier stays visible; one the subscription does not allow is greyed.
 private struct AudioQualityRows: View {
 	let selection: AudioQuality
 	let isAvailable: (AudioQuality) -> Bool
@@ -271,8 +259,7 @@ private struct AudioQualityRows: View {
 			}
 			.buttonStyle(.plain)
 
-			// Disabled per option, so a subscription that allows 96 kbps but not 320 kbps
-			// still shows one selectable and one greyed row.
+			// Greyed per option: a 320 kbps cap still shows the 96 kbps row selectable.
 			Picker("", selection: Binding<AudioQuality>(
 				get: {
 					(selection == .low || selection == .medium) ? selection : .medium
@@ -297,7 +284,6 @@ private struct AudioQualityRows: View {
 		qualityRow(title: "Max", subtitle: "Up to 24-bit, 192 kHz", quality: .max)
 	}
 
-	/// One plain radio row for a tier that has no per-value picker.
 	@ViewBuilder
 	private func qualityRow(title: String, subtitle: String, quality: AudioQuality) -> some View {
 		let isSelected = selection == quality

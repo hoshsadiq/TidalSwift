@@ -13,31 +13,24 @@ import TidalSwiftLib
 @Observable final class LoginInfo {
 	var showModal = false
 
-	/// Asks what to do with the downloaded files before logging out. The app model
-	/// sets it from the Account menu; `ContentView` presents the dialog.
+	/// Asks what to do with downloaded files before logging out; `ContentView` presents it.
 	var showLogoutConfirmation = false
 
-	/// The system-browser login waits here for the `tidal://login/auth` callback. It
-	/// lives on this app-wide object, not in the view, because the URL arrives
-	/// through the scene's `.onOpenURL`, which cannot reach the view's state.
+	/// Lives here, not in the view, because the URL arrives through the scene's `.onOpenURL`.
 	@ObservationIgnored var pendingDesktopLogin: PendingDesktopLogin?
 
-	/// Resumes the pending desktop-login wait. Ignored when no login is waiting,
-	/// so unrelated `tidal://` links are harmless.
+	/// Ignored when no login is waiting, so unrelated `tidal://` links are harmless.
 	func receive(callbackURL: URL) {
-		// The callback carries the authorization code in its query, so only the route
-		// is logged, never the whole URL.
+		// The callback carries the authorization code in its query, so log only the route.
 		let route = "\(callbackURL.scheme ?? "?")://\(callbackURL.host() ?? "")\(callbackURL.path)"
 		print("[LOGIN] callback arrived at \(route), waiting for a login: \(pendingDesktopLogin != nil)")
 		pendingDesktopLogin?.resume(returning: callbackURL)
 	}
 }
 
-/// One login attempt's wait for its browser callback. Each attempt
-/// owns its own instance, so a cancelled attempt cannot resume the continuation of
-/// the attempt that replaced it. The lock makes the resume safe to call from
-/// the task-cancellation handler, and a result that arrives before `wait` is
-/// remembered rather than dropped.
+/// One login attempt's wait for its browser callback. Each attempt owns its own
+/// instance, so a cancelled attempt cannot resume the continuation of the one that
+/// replaced it, and a result that arrives before `wait` is remembered.
 nonisolated final class PendingDesktopLogin: @unchecked Sendable {
 	private let lock = NSLock()
 	private var continuation: CheckedContinuation<URL, Error>?
@@ -78,16 +71,12 @@ nonisolated final class PendingDesktopLogin: @unchecked Sendable {
 	}
 }
 
-/// How long the system-browser login waits for its callback before giving up.
 private let desktopLoginTimeout: TimeInterval = 300
 
-/// What the login sheet is doing. One value at a time, so the sheet never offers
-/// two methods at once.
+/// One value at a time, so the sheet never offers two methods at once.
 private enum LoginPhase {
 	case idle
-	/// Tidal's page is open in the browser, waiting for its `tidal://` callback.
 	case systemBrowser
-	/// Tidal's device-code flow is running.
 	case deviceCode
 }
 
@@ -157,8 +146,6 @@ struct LoginView: View {
 		.padding()
 	}
 
-	/// The re-open button and countdown for the methods that send the user to a
-	/// browser page of their own.
 	@ViewBuilder
 	private var pendingBrowser: some View {
 		if let pendingLoginUrl {
@@ -186,7 +173,7 @@ struct LoginView: View {
 		}
 	}
 
-	/// Starts the login chain from the top. A second press restarts it.
+	/// Starts the login chain from the top; a second press restarts it.
 	func startLogin() {
 		authorizationTask?.cancel()
 		loginNotice = nil
@@ -196,11 +183,8 @@ struct LoginView: View {
 		authorizationTask = Task { await runLoginChain() }
 	}
 
-	/// Runs the login chain, one method at a time in `LoginRoutePolicy`'s order: the
-	/// browser while its `tidal://` callback can reach this app — which is what the
-	/// `handleTidalLinks` preference decides — then the device code. The chain starts
-	/// at the device code when that callback cannot return, stops at the method that
-	/// completes the login, and stops at a cancel.
+	/// Runs the chain in `LoginRoutePolicy`'s order: the browser while its `tidal://`
+	/// callback can reach this app, then the device code, stopping at a cancel.
 	private func runLoginChain() async {
 		let decision = TidalLinkHandlingPolicy.decide(
 			enabled: handleTidalLinks,
@@ -208,14 +192,11 @@ struct LoginView: View {
 		)
 		print("[LOGIN] starting chain: handleTidalLinks=\(handleTidalLinks), route=\(decision.route), registration=\(decision.registration)")
 		let registrationAccepted = await TidalLinkRegistration.apply(decision.registration)
-		// The claim's own result is authoritative: `setDefaultApplication` invokes its
-		// completion handler after the user has answered any consent prompt, so an
-		// error-free return means the scheme is ours. The handler is then read back as
-		// a second opinion, not as the decision — reading it immediately after the
-		// change can still describe the previous state, and treating that as "another
-		// app" would send the login to a device code while the browser would have
-		// worked. Using the browser when either signal says so is safe: a callback that
-		// never arrives still falls through to the device code.
+		// The claim's own result is authoritative: `setDefaultApplication` calls its
+		// completion handler after any consent prompt, so an error-free return means the
+		// scheme is ours. The handler read back right afterwards can still describe the
+		// previous state, so it is a second opinion; using the browser when either signal
+		// says so is safe, since a missing callback falls through to the device code.
 		let handlerAfterRegistration = TidalLinkRegistration.currentHandler()
 		print("[LOGIN] registration accepted: \(registrationAccepted), tidal:// handler now: \(TidalLinkRegistration.logDescription(of: handlerAfterRegistration))")
 		let systemBrowserAvailable = decision.route == .browser
@@ -241,11 +222,7 @@ struct LoginView: View {
 		}
 	}
 
-	/// Runs the browser login: opens the authorize URL in the default browser and waits
-	/// for the `tidal://login/auth` callback that `.onOpenURL` delivers.
-	///
-	/// Returns nil when the login completed, and the reason it did not otherwise; the
-	/// sheet's line for that reason is set here too.
+	/// Returns nil when the login completed, and the reason it did not otherwise.
 	private func runSystemBrowserLogin() async -> LoginRoutePolicy.End? {
 		let verifier = DesktopLogin.generateCodeVerifier()
 		let url = DesktopLogin.authorizeURL(codeChallenge: DesktopLogin.codeChallenge(for: verifier))
@@ -279,8 +256,6 @@ struct LoginView: View {
 		}
 	}
 
-	/// Runs Tidal's device-code flow, the last method. Its page is Tidal's, so it
-	/// keeps its own wording.
 	private func runDeviceLogin() async {
 		print("[LOGIN] starting device-code login")
 		for await state in session.startAuthorization() {
@@ -313,11 +288,8 @@ struct LoginView: View {
 		viewState.push(view: TidalSwiftView(viewType: .collectionTracks))
 	}
 
-	/// Waits for `pending`'s callback, or fails with a timeout so the screen can
-	/// offer the device-code fallback instead of spinning forever.
-	///
-	/// The desktop login's timeout is the final fallback for when the `tidal://`
-	/// callback cannot reach this app.
+	/// The timeout is the final fallback for when the `tidal://` callback cannot reach
+	/// this app, so the sheet can offer the device code instead of spinning forever.
 	private func waitForDesktopCallback(_ pending: PendingDesktopLogin) async throws -> URL {
 		do {
 			return try await withThrowingTaskGroup(of: URL.self) { group in

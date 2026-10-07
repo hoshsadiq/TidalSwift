@@ -6,9 +6,8 @@
 import XCTest
 @testable import TidalSwiftLib
 
-/// Pins the login route and what it asks of the `tidal://` registration. The rule
-/// is preference × who currently handles the scheme, so every combination is
-/// asserted rather than a representative few.
+/// Pins the login route and the registration it asks for, across every preference and
+/// handler combination.
 final class TidalLinkHandlingPolicyTests: XCTestCase {
 
 	/// The rule, restated independently of the implementation, so a change to
@@ -23,7 +22,6 @@ final class TidalLinkHandlingPolicyTests: XCTestCase {
 		return .init(route: .browser, registration: handler == .thisApp ? .none : .claim)
 	}
 
-	/// The whole table: on and off against each possible handler.
 	func testDecisionTableForEveryPreferenceAndHandler() {
 		let handlers: [TidalLinkHandlingPolicy.SchemeHandler] = [.thisApp, .anotherApp, .nobody]
 		for enabled in [true, false] {
@@ -37,7 +35,6 @@ final class TidalLinkHandlingPolicyTests: XCTestCase {
 		}
 	}
 
-	/// On: the browser login runs, and the scheme is claimed unless we already hold it.
 	func testEnabledRunsBrowserLoginAndClaimsWhenNotAlreadyHeld() {
 		XCTAssertEqual(
 			TidalLinkHandlingPolicy.decide(enabled: true, handler: .thisApp),
@@ -53,8 +50,6 @@ final class TidalLinkHandlingPolicyTests: XCTestCase {
 		)
 	}
 
-	/// Off: no browser and no 300 s wait; a scheme we hold is handed back, and one
-	/// we do not hold is left for its owner.
 	func testDisabledRunsDeviceLoginAndReleasesOnlyWhatWeHold() {
 		XCTAssertEqual(
 			TidalLinkHandlingPolicy.decide(enabled: false, handler: .thisApp),
@@ -70,8 +65,6 @@ final class TidalLinkHandlingPolicyTests: XCTestCase {
 		)
 	}
 
-	/// Switching the preference on asks for the scheme to be claimed; switching it
-	/// off asks for it to be handed back.
 	func testTogglingAsksForClaimOrRelease() {
 		XCTAssertEqual(TidalLinkHandlingPolicy.registration(enabled: true, handler: .anotherApp), .claim)
 		XCTAssertEqual(TidalLinkHandlingPolicy.registration(enabled: true, handler: .nobody), .claim)

@@ -6,10 +6,8 @@
 import XCTest
 @testable import TidalSwiftLib
 
-/// Pins what the offline sync keeps: which sources put a track in the wanted
-/// set, that a date leaves with the track, and which file name a quality or
-/// Atmos choice asks for. Everything runs against the temporary library root
-/// from `TemporaryOfflineLibrary`, never the real folder or the network.
+/// Pins what the offline sync keeps: which sources put a track in the wanted set, that a date
+/// leaves with the track, and which file name a quality or Atmos choice asks for.
 @MainActor
 final class OfflineWantedSetTests: XCTestCase {
 	private nonisolated let offlineLibrary = TemporaryOfflineLibrary(label: "OfflineWantedSet")
@@ -21,8 +19,6 @@ final class OfflineWantedSetTests: XCTestCase {
 
 	// MARK: - Removing a source
 
-	/// A track stored through an offline album must leave the wanted set, and
-	/// take its added date with it, once the album is removed.
 	func testRemovingAnOfflineAlbumDropsItsTrackAndDate() async {
 		let track = makeTrack(id: 641_000_001)
 		persistAlbums([track.album], tracks: [track.album: [track]])
@@ -43,7 +39,6 @@ final class OfflineWantedSetTests: XCTestCase {
 		XCTAssertNil(offline.addedDate(forTrackId: track.id), "the date must leave with the track")
 	}
 
-	/// The same rule for a track stored only through an offline playlist.
 	func testRemovingAnOfflinePlaylistDropsItsTrackAndDate() async {
 		let track = makeTrack(id: 641_000_002)
 		let playlist = makePlaylist(uuid: "offline-wanted-set-playlist")
@@ -67,9 +62,8 @@ final class OfflineWantedSetTests: XCTestCase {
 
 	// MARK: - Favourites
 
-	/// A favourite only reaches the wanted set when the save-favourites-offline
-	/// preference has let the sync store it. With the preference on, the stored
-	/// favourite contributes like any other source.
+	/// A favourite only reaches the wanted set when the save-favourites-offline preference
+	/// let the sync store it.
 	func testStoredFavouriteIsPartOfTheWantedSet() async {
 		let track = makeTrack(id: 641_000_003)
 		persistFavorites([track])
@@ -82,8 +76,6 @@ final class OfflineWantedSetTests: XCTestCase {
 		XCTAssertTrue(wanted, "a stored favourite must be wanted")
 	}
 
-	/// With the preference off, the favourite sync clears the stored favourites,
-	/// so the track and its date leave the wanted set.
 	func testTurningSaveFavoritesOfflineOffDropsFavouritesFromTheWantedSet() async {
 		let track = makeTrack(id: 641_000_004)
 		offlineLibrary.defaults.set(false, forKey: "SaveFavoritesOffline")
@@ -106,8 +98,6 @@ final class OfflineWantedSetTests: XCTestCase {
 
 	// MARK: - Two sources
 
-	/// A track that is both pinned and a favourite survives removing either one
-	/// source, because the other still holds it.
 	func testPinnedFavouriteSurvivesRemovingOneSource() async {
 		let track = makeTrack(id: 641_000_005)
 		persistFavorites([track])
@@ -128,11 +118,9 @@ final class OfflineWantedSetTests: XCTestCase {
 		XCTAssertNotNil(offline.addedDate(forTrackId: track.id), "the date must survive removing one of two sources")
 	}
 
-	/// The same rule, on disk: a track another source still wants keeps its file. The
-	/// removal used to delete by track id alone, which the next sync then downloaded
-	/// again, so "Remove from offline" on a favourite looked like it did nothing. The
-	/// assertion is on the downloads rather than on the file, because the file comes
-	/// back either way: the bug shows up as a second download of the same track.
+	/// On disk, a track another source still wants keeps its file. The assertion is on the
+	/// downloads rather than the file, because the file comes back either way: the bug shows up
+	/// as a second download of the same track.
 	func testRemovingOneSourceDoesNotDownloadTheTrackAgain() async throws {
 		let trackId = 641_000_011
 		let track = makeTrack(id: trackId)
@@ -161,8 +149,8 @@ final class OfflineWantedSetTests: XCTestCase {
 
 	// MARK: - File variant
 
-	/// The file name a sync asks for follows the offline quality and the Atmos
-	/// preference, so flipping the Atmos preference replaces the stored file.
+	/// The file name follows the offline quality and the Atmos preference, so flipping the
+	/// Atmos preference replaces the stored file.
 	func testAtmosPreferenceChangesTheWantedFileName() async throws {
 		let trackId = 641_000_006
 		let track = makeTrack(id: trackId, audioModes: [.stereo, .dolbyAtmos])
@@ -200,8 +188,7 @@ final class OfflineWantedSetTests: XCTestCase {
 		var value = 0
 	}
 
-	/// Polls a MainActor condition while letting the sync tasks run. Bounded so a
-	/// broken sync fails the test instead of hanging it.
+	/// Bounded so a broken sync fails the test instead of hanging it.
 	private func waitUntil(timeout: TimeInterval = 5, _ condition: @MainActor () async -> Bool) async -> Bool {
 		let deadline = Date().addingTimeInterval(timeout)
 		while Date() < deadline {
