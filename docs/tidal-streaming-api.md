@@ -112,6 +112,8 @@ On branch `Dolby-Atmos`:
 
 Goal: bring Low 96, Low 320 and Max back for streaming by playing the openapi HLS manifest the way the official app does, through Apple's FairPlay support in AVFoundation.
 
+One measurement changes the shape of this plan: this app's own session receives that playlist with no key line and no `drmData`, so the FairPlay steps are needed by other clients, not by us. See the 2026-10-06 sections at the end.
+
 ### Scope and limits
 
 - **Streaming only.** Content stays encrypted. The keys are handled by the system's protected playback path, and TidalSwift never sees decrypted audio. Downloads and offline sync keep using the unencrypted v1 streams (High FLAC and Atmos). Hi-Res, Low 96 and Low 320 can't be downloaded, and decrypting them is out of scope.
@@ -173,4 +175,50 @@ The `OLD_AES` payload is AES-128-CTR encrypted, with the key wrapped in the mani
 
 The `HIGH` / `LOW` DASH manifest is documented as `cenc` by its namespace alone; it carries no `ContentProtection`, no `pssh`, no `senc`, and no `sinf`. The segments are plain fragmented AAC and play once assembled (`DashAudio`). The `cenc` declaration is vestigial.
 
-The `cuk` claim is what marks a session as the desktop client. It arrives when the login sends `client_unique_key` on both the authorize request and the token exchange, as the official app does. Our login now does that (`DesktopLogin`).
+The `cuk` claim is necessary for the desktop client's session but not sufficient on its own. It arrives when the login sends `client_unique_key` on both the authorize request and the token exchange, as the official app does, and our login now does that (`DesktopLogin`). It does not make a session the desktop client: a device-code session (`cid` 3003) that sent `client_unique_key` on both requests carried a `cuk` claim, and the same `playbackinfo` call still answered `LOW` / `DOLBY_ATMOS`. The client id decides, as the 2026-10-06 section below measures.
+
+## The client identity is what gates playback, not the `cuk` (measured 2026-10-06)
+
+The paragraph above claimed `cuk` marks a session as the desktop client. Four combinations of token and `X-Tidal-Token` header say otherwise. One request, `https://desktop.tidal.com/v1/tracks/433645363/playbackinfo?audioquality=HI_RES_LOSSLESS&playbackmode=STREAM&assetpresentation=FULL&deviceType=BROWSER&platform=WEB&locale=en_US&countryCode=US`, same account throughout:
+
+| Token | `X-Tidal-Token` | Answer |
+|---|---|---|
+| device client (`cid` 3003), fresh `cuk` in the token | device client | `LOW`, `DOLBY_ATMOS` |
+| device client (`cid` 3003), fresh `cuk` in the token | desktop client | `LOW`, `DOLBY_ATMOS` |
+| desktop client (`cid` 7785) | device client | `STEREO`, 24 Bit, FLAC |
+| desktop client (`cid` 7785) | desktop client | `STEREO`, 24 Bit, FLAC |
+
+The header makes no difference. The client the token belongs to decides, and `cuk` alone does not move a session up: the device token carried one and was still answered two tiers below the account's own `LOSSLESS` cap, silently rather than with an error.
+
+The `redirect_uri` is fixed for the same reason. It has to match a value registered for the client, and the token exchange sends it again, so it cannot be chosen freely. Authorizing the desktop client with `redirect_uri=tidal-swift://login/auth` is refused: the browser shows "Something went wrong. Please try again." and no code is issued. Changing it back to `tidal://login/auth` works. A client of our own could own a scheme like `tidal-swift://`, but that client is not the desktop client, and by the table above it would not be served 24 Bit over this endpoint. Owning the login scheme and keeping hi-res stereo through the v1 host are mutually exclusive.
+
+## The openapi manifest carries no DRM for this app's session (measured 2026-10-06)
+
+The openapi section above, and the "Official iOS app" capture under it, describe the HLS manifest with `#EXT-X-SESSION-KEY` and `drmData`. That is what a phone-client session receives. This app's own desktop-client session receives the same playlist with no key line at all, which is why the plan below is heavier than it needs to be for us.
+
+Request, with this app's token and no `X-Tidal-Token` or `client_unique_key`:
+
+```
+GET https://openapi.tidal.com/v2/trackManifests/{id}
+    ?manifestType=HLS&uriScheme=HTTPS&usage=PLAYBACK
+    &formats=FLAC_HIRES,FLAC,AACLC,HEAACV1&adaptive=true
+```
+
+`adaptive=true` is required, and without it the endpoint answers 400 `MISSING_REQUIRED_PARAMETER`. Enum values are upper case (`uriScheme=DATA` or `HTTPS`, `usage=PLAYBACK`, `formats=FLAC_HIRES`); lower case is rejected, `flacHires` with `INVALID_VALUE_TYPE` and `playback` with `INVALID_ENUM_VALUE`.
+
+`attributes.formats` lists every tier that was asked for, `attributes.drmData` is absent, and `attributes.uri` is a master playlist on `im-fa.manifest.tidal.com` with four variants for a 24 Bit track:
+
+| Variant | Codec | Bandwidth |
+|---|---|---|
+| 96 kbps | `mp4a.40.5` | 98,183 |
+| 320 kbps | `mp4a.40.2` | 324,274 |
+| Lossless | `fLaC` | 889,723 |
+| Max | `fLaC` | 1,596,037 |
+
+That playlist contains no `EXT-X-KEY` and no `EXT-X-SESSION-KEY` line, so the segments are not encrypted and no FairPlay step is involved. A standalone AVFoundation program confirmed it: AVPlayer loads the master playlist and plays the highest variant directly, the audio track reports codec `flac` at 44,100 Hz with 2 channels, and a seek to 200 s landed at 202.6 s and carried on playing. Nothing is downloaded, decrypted or cached by us for that to work.
+
+The same request with a device-client token is answered differently: `drmData` with `drmSystem: FAIRPLAY`, `licenseUrl: https://fp.fa.tidal.com/license`, `certificateUrl: https://fp.fa.tidal.com/certificate`, and a `SAMPLE-AES` session key using `com.apple.streamingkeydelivery`. That is the case the plan below and the SDK's `FairPlayLicenseFetcher` handle, with the certificate fetched once and a server playback context posted per track.
+
+What this means for this app: streaming needs none of the current machinery. The download, the AES-128-CTR decrypt (`AudioDecryption`), the whole-file cache, the prefetch and the DASH assembly (`DashAudio`) exist to serve playback, and for a desktop-client session the endpoint hands over a playlist AVPlayer can play and seek as it is. It is not implemented, and the offline path would still need a route of its own: either Apple's `AVAssetDownloadURLSession` for HLS downloads, or the existing download path kept for offline only.
+
+Two smaller consequences to settle when it is: the quality badge cannot read bit depth from a FLAC-in-fMP4 format description (`bitsPerChannel` comes back 0), so it would have to label from the chosen variant rather than from the decoded file; and TIDAL's developer documentation still states that the SDK's Player module is the only allowed way for third parties to play TIDAL content, which is a compliance question rather than a technical one.
