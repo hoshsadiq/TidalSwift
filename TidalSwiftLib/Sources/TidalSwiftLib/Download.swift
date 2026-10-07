@@ -61,9 +61,7 @@ public class Download {
 		"\(video.trackNumber) \(video.title) - \(video.artists.formArtistString())"
 	}
 
-	/// `audioQuality` is explicit because this app keeps two qualities: the one the user
-	/// picked for playback, and a separate one for offline sync. A manual download
-	/// follows the playback choice; sync uses `config.offlineAudioQuality`.
+	/// `audioQuality` is explicit because this app keeps two qualities: playback and offline sync.
 	public func download(track: Track, parentFolder: String = "", audioQuality: AudioQuality) async -> Bool {
 		downloadStatus.startTask()
 		defer { downloadStatus.finishTask() }
@@ -71,11 +69,8 @@ public class Download {
 		let filename = formFileName(track)
 		print("Downloading: \(filename)")
 
-		// The hi-res stereo route when the session can use it, the requested quality is a
-		// FLAC tier and the Atmos preference does not ask for the other rendition: the
-		// encrypted rendition is downloaded and decrypted, so the file on disk is a
-		// playable FLAC and never the encrypted stream. At Medium/Low the route is DASH
-		// instead, which the branch below assembles.
+		// At a FLAC tier the encrypted rendition is downloaded and decrypted, so the file
+		// on disk is a playable FLAC. At Medium/Low the branch below assembles the DASH.
 		if HiResStreaming.usesHiResStereo(
 			for: track,
 			session: session,
@@ -88,9 +83,8 @@ public class Download {
 			}
 		}
 
-		// At High/Low `streamUrl` is refused and the desktop endpoint answers an
-		// unencrypted AAC DASH manifest instead. A track that wants Atmos keeps it,
-		// so the assembly only fills the plain stereo tiers.
+		// At High/Low `streamUrl` is refused; the desktop endpoint answers an unencrypted
+		// AAC DASH manifest, which fills only the plain stereo tiers.
 		let wantsAtmos = track.hasDolbyAtmos && (session.helpers.offline.preferDolbyAtmos || !track.hasStereo)
 		if audioQuality == .medium || audioQuality == .low, track.hasStereo, !wantsAtmos,
 		   let manifest = await session.dashAudioManifest(trackId: track.id, audioQuality: audioQuality) {
@@ -107,9 +101,7 @@ public class Download {
 		}
 	}
 
-	/// Builds the path under the downloads folder, writes the track's audio there and
-	/// tags it. Every route ends here, so the path failure, the download failure and
-	/// the finished line are written once instead of three times.
+	/// Builds the path under the downloads folder, writes the track's audio there and tags it.
 	private func save(
 		_ track: Track,
 		named filename: String,
@@ -160,7 +152,6 @@ public class Download {
 		} catch {
 			return false
 		}
-//		metadataHandler.setMetadata(for: video, at: path)
 		// TODO: Metadata for Videos
 	}
 
@@ -204,7 +195,6 @@ public class Download {
 }
 
 /// Sanitizes a single path component derived from untrusted API data (e.g. a title).
-/// Removes path separators, `..` sequences, leading dots and control characters.
 private func sanitizedPathComponent(_ component: String) -> String {
 	var sanitized = component
 		.replacingOccurrences(of: "/", with: ":")
@@ -215,8 +205,7 @@ private func sanitizedPathComponent(_ component: String) -> String {
 	return sanitized
 }
 
-/// Sanitizes a parent folder path. `/` separators between components are kept,
-/// but every component is sanitized individually, so `..` can't escape the root.
+/// Sanitizes a parent folder path, component by component, so `..` can't escape the root.
 private func sanitizedParentFolder(_ parentFolder: String) -> String {
 	parentFolder
 		.split(separator: "/", omittingEmptySubsequences: true)
@@ -227,16 +216,6 @@ private func sanitizedParentFolder(_ parentFolder: String) -> String {
 
 func buildPath(baseLocation: DownloadLocation, parentFolder: String?, name: String, pathExtension: String?) -> URL? {
 
-//	if !parentFolder.isEmpty {
-//		if URL(string: parentFolder) == nil {
-//			displayError(title: "Download Error", content: "Target Path '\(targetPath)' is not valid")
-//			return nil
-//		}
-//	}
-//	if URL(string: name) == nil {
-//		displayError(title: "Download Error", content: "Name '\(name)' is not valid")
-//		return nil
-//	}
 	// TODO: Doesn't work as intended, because URL doesn't allow whitespace, but should
 
 	var path: URL

@@ -6,27 +6,17 @@
 import AVFoundation
 import Foundation
 
-/// Why a DASH audio manifest could not be read or assembled. Every case is a
-/// refusal: a DASH source either produces a complete, playable file or fails
-/// loudly, never a truncated one that plays a few seconds and stops.
+/// Why a DASH audio manifest could not be read or assembled. Every case is a refusal:
+/// a DASH source either produces a complete, playable file or fails loudly.
 public nonisolated enum DashAudioError: Error, Equatable, Sendable {
-	/// The MPD is not well-formed XML.
 	case malformedManifest
-	/// No `<SegmentTemplate>` was found in the document.
 	case missingSegmentTemplate
-	/// A `<SegmentTemplate>` has no usable `initialization` URL.
 	case missingInitializationURL
-	/// A `<SegmentTemplate>` has no `media` template.
 	case missingMediaTemplate
-	/// The `media` template is not a `$Number$` form this app can expand.
 	case unsupportedSegmentTemplate
-	/// The manifest has no `<SegmentTimeline>` to count segments from.
 	case missingSegmentTimeline
-	/// A segment or the initialization could not be fetched within its timeout or
-	/// after retrying. Only the host is kept: a segment URL carries its own token,
-	/// and an error value travels into whatever prints it.
+	/// Only the host is kept, since a segment URL carries its own token.
 	case fetchFailed(host: String)
-	/// The destination could not be written.
 	case writeFailed(underlying: Error)
 
 	public static func == (lhs: DashAudioError, rhs: DashAudioError) -> Bool {
@@ -48,23 +38,14 @@ public nonisolated enum DashAudioError: Error, Equatable, Sendable {
 	}
 }
 
-/// A parsed `SegmentTemplate`-based DASH audio manifest: where the initialization
-/// and media segments live and how many there are.
-///
-/// Tidal's High/Low `playbackinfo` answers with one of these (measured 2026-10-05):
-/// an `audio/mp4` AAC representation whose segments are plain, unencrypted fMP4.
-/// Only the attribute form Tidal ships is understood; anything else is refused
-/// rather than guessed at.
+/// A parsed `SegmentTemplate`-based DASH audio manifest. Tidal's High/Low
+/// `playbackinfo` answers with one of these: an `audio/mp4` AAC representation whose
+/// segments are plain, unencrypted fMP4, in the attribute form Tidal ships.
 public nonisolated struct DashAudioManifest: Equatable, Sendable {
-	/// The fixed URL of the initialization segment.
 	public let initializationURL: URL
-	/// The media template, holding a `$Number$` placeholder.
 	public let mediaTemplate: String
-	/// The number of the first media segment.
 	public let startNumber: Int
-	/// The number of media segments, from the `<SegmentTimeline>`.
 	public let segmentCount: Int
-	/// The timeline timescale, when the manifest reports one.
 	public let timescale: Int?
 
 	public init(initializationURL: URL, mediaTemplate: String, startNumber: Int, segmentCount: Int, timescale: Int?) {
@@ -83,7 +64,6 @@ public nonisolated struct DashAudioManifest: Equatable, Sendable {
 		try self.init(mpd: data)
 	}
 
-	/// Parses an MPD document into the one representation this app can assemble.
 	public init(mpd: Data) throws {
 		let delegate = DashMPDParserDelegate()
 		let parser = XMLParser(data: mpd)
@@ -109,14 +89,12 @@ public nonisolated struct DashAudioManifest: Equatable, Sendable {
 		self.timescale = template.attributes["timescale"].flatMap(Int.init)
 	}
 
-	/// The URL of media segment `number` (starting at `startNumber`).
 	public func mediaURL(forNumber number: Int) -> URL? {
 		URL(string: mediaTemplate.replacingOccurrences(of: "$Number$", with: String(number)))?.upgradedToHTTPS
 	}
 }
 
-/// Reads an `<SegmentTemplate>` element out of an MPD. Kept separate from the
-/// value type so the parse can be exercised with the raw XML alone.
+/// Reads an `<SegmentTemplate>` element out of an MPD, kept separate so the parse can be tested alone.
 private nonisolated final class DashMPDParserDelegate: NSObject, XMLParserDelegate {
 	struct Template {
 		let attributes: [String: String]
@@ -162,43 +140,35 @@ private nonisolated final class DashMPDParserDelegate: NSObject, XMLParserDelega
 	}
 }
 
-/// Fetches and assembles the media segments of a DASH audio manifest into one
-/// file the player can read.
+/// Fetches and assembles the media segments of a DASH audio manifest into one file.
 public nonisolated enum DashAudio {
-	/// Fetches one resource. The default reads `file://` URLs directly and uses
-	/// `URLSession` otherwise; tests substitute a closure so no network is needed
-	/// and the order of the assembled segments can be pinned.
+	/// Fetches one resource. The default reads `file://` URLs directly, `URLSession`
+	/// otherwise; tests substitute a closure so no network is needed.
 	public typealias SegmentFetcher = @Sendable (URL) async throws -> Data
 
-	/// Segments fetched at once. The CDN is cheap to hit but not free, and four
-	/// keeps the many small requests from stalling behind each other.
+	/// Segments fetched at once; four keeps the small requests from stalling each other.
 	static let maxConcurrentFetches = 4
-	/// A transient CDN failure is retried, but a persistent one is reported rather
-	/// than consumed as a shorter file.
+	/// A transient CDN failure is retried, a persistent one is reported not truncated.
 	static let maxFetchAttempts = 3
 	static let retryBackoff: [Duration] = [.milliseconds(200), .milliseconds(400)]
-	/// The longest one segment may take, retries and backoff included. URLSession
-	/// bounds a single attempt; this bounds the sequence, so a stalled CDN cannot
-	/// hold an assembly — and the prefetch behind a skipped track — for minutes.
+	/// The longest one segment may take, retries and backoff included, so a stalled CDN
+	/// cannot hold an assembly for minutes.
 	static let segmentFetchTimeout: Duration = .seconds(30)
 
-	/// Downloads the initialization segment plus every media segment and writes
-	/// them to `destination` in order, using the default fetcher.
+	/// Downloads every segment and writes them to `destination` in order.
 	public static func assemble(_ manifest: DashAudioManifest, to destination: URL) async throws {
 		// The desktop identity lives on the main actor and a track has around 30
-		// segments, so it is read once here rather than once per segment.
+		// segments, so it is read once here.
 		let userAgent = await MainActor.run { AuthInformation.tidalClientUserAgent }
 		try await assemble(manifest, to: destination, fetch: defaultFetch(userAgent: userAgent))
 	}
 
-	/// Downloads the initialization segment plus every media segment and writes
-	/// them to `destination` in order.
+	/// Downloads the initialization segment plus every media segment and writes them
+	/// to `destination` in order. Nothing is written until every segment has been
+	/// fetched, so a failure leaves no output file at all.
 	///
-	/// Nothing is written until every segment has been fetched, so a failure
-	/// leaves no output file at all: a partial AAC file is worse than an error.
-	/// `fetch` is injectable so a test can stand a local directory in for the CDN.
 	/// `@concurrent` because the concatenation and the atomic write are synchronous
-	/// file IO — around 9 MB per track — and every call site is main-actor.
+	/// file IO and every call site is main-actor.
 	@concurrent
 	public static func assemble(
 		_ manifest: DashAudioManifest,
@@ -208,8 +178,7 @@ public nonisolated enum DashAudio {
 		try await assemble(manifest, to: destination, fetch: fetch, timeout: segmentFetchTimeout)
 	}
 
-	/// As above, with the fetch bound exposed so a test can shrink it rather than
-	/// wait it out.
+	/// As above, with the fetch bound exposed so a test can shrink it.
 	@concurrent
 	static func assemble(
 		_ manifest: DashAudioManifest,
@@ -235,16 +204,14 @@ public nonisolated enum DashAudio {
 		}
 	}
 
-	/// The error for a resource that could not be fetched. Only the host survives:
-	/// the segment URLs carry their own tokens and an error value reaches a printed line.
+	/// The error for a resource that could not be fetched; only the host survives.
 	static func fetchFailure(for url: URL) -> DashAudioError {
 		DashAudioError.fetchFailed(host: url.host ?? "unknown")
 	}
 
 	/// The default fetcher: a local read for `file://`, a plain GET presenting
-	/// `userAgent` otherwise. The desktop UA keeps the request from presenting as
-	/// this app, the same identity rule the rest of the client follows. The CDN
-	/// segment URLs carry their own token and need no auth header.
+	/// `userAgent` otherwise. The CDN segment URLs carry their own token and need no
+	/// auth header.
 	static func defaultFetch(userAgent: String) -> SegmentFetcher {
 		{ url in
 			if url.isFileURL {
@@ -260,8 +227,7 @@ public nonisolated enum DashAudio {
 		}
 	}
 
-	/// Fetches the segments in bounded batches, preserving order. A single failed
-	/// segment aborts the whole group before anything is written.
+	/// Fetches the segments in bounded batches, preserving order.
 	private static func fetchSegments(
 		numbers: [Int],
 		manifest: DashAudioManifest,
@@ -276,8 +242,7 @@ public nonisolated enum DashAudio {
 		var results = [Data?](repeating: nil, count: numbers.count)
 		var batchStart = 0
 		while batchStart < numbers.count {
-			// A cancelled assembly stops between batches rather than starting the
-			// next one with children that fail on their first check.
+			// A cancelled assembly stops between batches rather than starting the next.
 			try Task.checkCancellation()
 			let batchEnd = min(batchStart + maxConcurrentFetches, numbers.count)
 			let batch = batchStart ..< batchEnd
@@ -288,8 +253,7 @@ public nonisolated enum DashAudio {
 					}
 					group.addTask { (index, try await fetchWithRetry(url, fetch: fetch, timeout: timeout)) }
 				}
-				// Collected by index, so the group's completion order never reorders
-				// the segments.
+				// Collected by index, so the group's completion order never reorders them.
 				for try await (index, data) in group {
 					results[index] = data
 				}
@@ -303,9 +267,7 @@ public nonisolated enum DashAudio {
 	}
 
 	/// Fetches `url`, retrying a transient failure while `timeout` has not passed.
-	/// Cancellation is propagated, not retried: the backoff sleep returns instantly
-	/// when cancelled, so a retry here would spin through every remaining attempt
-	/// instead of letting a cancelled assembly stop.
+	/// Cancellation is propagated, not retried.
 	private static func fetchWithRetry(_ url: URL, fetch: @escaping SegmentFetcher, timeout: Duration) async throws -> Data {
 		let deadline = ContinuousClock.now.advanced(by: timeout)
 		var lastError: Error = DashAudio.fetchFailure(for: url)
@@ -329,8 +291,7 @@ public nonisolated enum DashAudio {
 	}
 
 	/// Fetches one segment and fails it when `deadline` passes first. The loser of the
-	/// race is cancelled, which also ends an in-flight request; without this a stalled
-	/// CDN rides URLSession's own per-attempt timeout on every attempt.
+	/// race is cancelled, which also ends an in-flight request.
 	private static func fetchBefore(
 		_ deadline: ContinuousClock.Instant,
 		url: URL,
@@ -356,16 +317,9 @@ public nonisolated struct DashPlayback: Equatable, Sendable {
 }
 
 extension DashAudio {
-	/// A playable local file for a High/Low track, or nil when the tier is not a
-	/// DASH tier or the assembly fails — in which case the caller keeps today's
-	/// path.
-	///
-	/// Mirrors `HiResStreaming.playbackFile`: the assembled file is cached, so a
-	/// replay does not re-fetch every segment, and the download indicator is reused
-	/// while the segments download. The file lives in the same cache directory as the
-	/// decrypted hi-res files and is bounded by the same budget, so the settings
-	/// screen's one number is the truth. Main-actor isolated because it reads the
-	/// session and its download status.
+	/// A playable local file for a High/Low track, or nil when the tier is not a DASH
+	/// tier or the assembly fails. Main-actor isolated because it reads the session and
+	/// its download status.
 	@MainActor
 	public static func playbackFile(for track: Track, session: Session, preferredQuality: AudioQuality) async -> DashPlayback? {
 		guard preferredQuality == .medium || preferredQuality == .low else { return nil }
@@ -391,8 +345,7 @@ extension DashAudio {
 		}
 	}
 
-	/// The format of a local stream, read from the file itself so the badge
-	/// describes the audio rather than the request.
+	/// The format of a local stream, read from the file itself.
 	static func describe(_ url: URL) -> DashPlayback {
 		var sampleRate: Int?
 		if let file = try? AVAudioFile(forReading: url) {

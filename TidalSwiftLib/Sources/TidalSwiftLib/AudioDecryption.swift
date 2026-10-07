@@ -10,43 +10,24 @@ import Foundation
 enum AudioDecryptionError: Swift.Error, Equatable {
 	/// The base64 `keyId` could not be decoded, or its length does not describe an IV plus a whole number of AES blocks.
 	case malformedKeyId(String)
-	/// The master-key step did not return enough plaintext to hold a content key and nonce.
 	case keyUnwrapFailed
 	/// An AES key had the wrong length for the operation (128-bit for the stream, 256-bit for the master key).
 	case invalidKeyLength(Int)
-	/// The nonce was not the 8 bytes the Tidal counter reserves for it.
 	case invalidNonceLength(Int)
-	/// CommonCrypto refused the operation.
 	case cryptoFailed(Int32)
-	/// The decrypted bytes were empty, too short, or did not begin with the FLAC marker, so
-	/// they were discarded instead of left where a later existence-only cache hit would
-	/// serve the truncated file as a finished stream.
+	/// The decrypted bytes were not a FLAC stream, so they were discarded instead of left
+	/// where a later existence-only cache hit would serve them as a finished stream.
 	case notFLAC
 }
 
 /// Removes Tidal's legacy content encryption (`OLD_AES`) so a downloaded file becomes
-/// a playable FLAC.
+/// a playable FLAC. The content key and nonce arrive inside a base64 `keyId`, encrypted
+/// with a fixed master key that every third-party Tidal client ships; the file itself is
+/// that content key used as AES-128-CTR, with an 8-byte nonce and a big-endian counter.
 ///
-/// Tidal never hands out the content key directly. `playbackinfo` returns a base64
-/// `keyId`; inside it are a random 16-byte content key and its 8-byte nonce, themselves
-/// encrypted with a single fixed master key. That master key ships in every third-party
-/// Tidal client and is public only because those tools published it — it is not a secret
-/// in this codebase.
-///
-/// Format of the decoded `keyId`:
-/// - `token[0..<16]` is the random IV of the outer AES-256-CBC layer.
-/// - `token[16...]` is a whole number of AES blocks: the 24 bytes `contentKey || nonce`,
-///   PKCS7-padded to 32. The padding is ignored, not unpadded.
-///
-/// The downloaded file is that content key used as AES-128-CTR. The 128-bit counter is
-/// `nonce` (8 bytes) followed by a big-endian counter that starts at zero and increments
-/// once per 16-byte block to the end of the file.
-///
-/// This is DRM circumvention: the service encrypted the bytes on purpose and this type
-/// removes that encryption. Whoever ships it should make that call deliberately.
+/// This is DRM circumvention: whoever ships it should make that call deliberately.
 nonisolated enum AudioDecryption {
-	/// The fixed key (base64) that unwraps the content key — the "master key" of the
-	/// third-party Tidal tools. Public knowledge, not a secret here.
+	/// The fixed key (base64) that unwraps the content key; public knowledge, not a secret here.
 	static let unwrapKeyBase64 = "UIlTTEMmmLfGowo/UC60x2H45W6MdGgTRfo/umg4754="
 
 	private static let blockLength = 16
@@ -58,16 +39,10 @@ nonisolated enum AudioDecryption {
 	private static let chunkLength = 1 << 16
 	/// The four bytes that begin every FLAC stream.
 	private static let flacMagic = Data("fLaC".utf8)
-	/// The shortest FLAC prefix: the marker, the STREAMINFO metadata block header (4 bytes)
-	/// and its fixed 34-byte body. Anything shorter cannot be a FLAC stream.
+	/// The shortest FLAC prefix: the marker plus the fixed STREAMINFO block.
 	private static let minimumFLACLength = 42
 
 	/// Unwraps a base64 `keyId` into the content key and its nonce.
-	///
-	/// Throws ``AudioDecryptionError/malformedKeyId(_:)`` when the token is not base64, is
-	/// too short to hold an IV plus a full unwrapped key, or leaves a partial AES block
-	/// after the IV. Throws ``AudioDecryptionError/keyUnwrapFailed`` when the master-key
-	/// step returns too little plaintext.
 	static func unwrapKeyId(_ keyId: String) throws -> (key: Data, nonce: Data) {
 		guard let token = Data(base64Encoded: keyId) else {
 			throw AudioDecryptionError.malformedKeyId("not base64")
@@ -93,33 +68,25 @@ nonisolated enum AudioDecryption {
 		)
 	}
 
-	/// Decrypts an in-memory buffer with an already-unwrapped key and nonce.
 	static func decrypt(_ ciphertext: Data, key: Data, nonce: Data) throws -> Data {
 		try ctrApply(ciphertext, key: key, nonce: nonce, startingBlockIndex: 0)
 	}
 
-	/// Unwraps `keyId` and decrypts an in-memory buffer with it.
 	static func decrypt(_ ciphertext: Data, keyId: String) throws -> Data {
 		let (key, nonce) = try unwrapKeyId(keyId)
 		return try decrypt(ciphertext, key: key, nonce: nonce)
 	}
 
-	/// Unwraps `keyId` and decrypts the file at `source` into `destination`.
 	static func decrypt(fileAt source: URL, to destination: URL, keyId: String) throws {
 		let (key, nonce) = try unwrapKeyId(keyId)
 		try decrypt(fileAt: source, to: destination, key: key, nonce: nonce)
 	}
 
-	/// Decrypts the file at `source` into `destination` with an already-unwrapped key and nonce.
+	/// Decrypts the file at `source` into `destination` with an already-unwrapped key and
+	/// nonce, in blocks so a 30 MB file never sits in memory whole.
 	///
-	/// Reads and writes in blocks so a 30 MB file never has to sit in memory whole. The
-	/// counter keeps running across reads, so chunk boundaries are invisible to the output.
-	///
-	/// The bytes land in a temporary sibling of `destination` and are moved onto it only
-	/// after they verify as FLAC. A kill, a cancel or a full disk midway therefore leaves
-	/// nothing at `destination`, instead of a truncated file that a later existence-only
-	/// cache hit would serve as a finished stream forever. Cancellation is checked once per
-	/// block, so a cancelled task throws `CancellationError` and the temporary file goes away.
+	/// The bytes land in a temporary sibling and are moved onto `destination` only after
+	/// they verify as FLAC, so a kill or a full disk midway leaves nothing behind.
 	static func decrypt(fileAt source: URL, to destination: URL, key: Data, nonce: Data) throws {
 		let temporary = destination
 			.deletingLastPathComponent()
@@ -161,8 +128,7 @@ nonisolated enum AudioDecryption {
 		}
 	}
 
-	/// Moves the verified temporary file onto `destination` in one step, replacing any file
-	/// already there rather than appending to it.
+	/// Moves the verified temporary file onto `destination`, replacing any file there.
 	private static func install(_ temporary: URL, at destination: URL) throws {
 		if FileManager.default.fileExists(atPath: destination.path) {
 			_ = try FileManager.default.replaceItemAt(destination, withItemAt: temporary)

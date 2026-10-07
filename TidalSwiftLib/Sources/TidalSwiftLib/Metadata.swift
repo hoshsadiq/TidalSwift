@@ -18,7 +18,6 @@ nonisolated struct AudioTags {
 	var trackTotal: Int?
 	var discNumber: Int
 	var discTotal: Int?
-	/// Formatted as `yyyy-MM-dd`
 	var releaseDate: String?
 	var copyright: String?
 	var isrc: String?
@@ -34,7 +33,6 @@ class Metadata {
 		self.session = session
 	}
 
-	/// Only works for FLAC & M4A/MP4
 	func setMetadata(for track: Track, at path: URL) async {
 		let tags = await tags(for: track)
 		do {
@@ -57,9 +55,7 @@ class Metadata {
 		return Metadata.tags(for: track, album: album, cover: cover)
 	}
 
-	/// Maps a track — plus the full album record when one could be fetched — to the tags
-	/// the writers consume. Split from the fetch so the mapping itself (album artist,
-	/// explicit flag, cover) can be exercised without a session.
+	/// Maps a track and the album record to the tags the writers consume.
 	static func tags(for track: Track, album: Album?, cover: Data?) -> AudioTags {
 		var title = track.title
 		if let version = track.version {

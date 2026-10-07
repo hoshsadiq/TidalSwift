@@ -11,10 +11,8 @@ import ImageIO
 import UniformTypeIdentifiers
 
 /// Writes tags as a Vorbis comment and the cover as a picture block.
-///
-/// Format: `fLaC` marker, metadata blocks, audio frames (https://www.rfc-editor.org/rfc/rfc9639).
-/// Existing tag, picture and padding blocks are replaced, all others (e.g. stream info and seek table) are kept.
-/// The file is rewritten, as there is no room to insert blocks in place.
+/// Existing tag, picture and padding blocks are replaced; the file is rewritten, as there
+/// is no room to insert blocks in place. Format: https://www.rfc-editor.org/rfc/rfc9639.
 nonisolated enum FLACTagWriter {
 	private enum WriteError: Error {
 		case notFLAC

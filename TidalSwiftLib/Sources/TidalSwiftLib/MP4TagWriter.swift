@@ -10,7 +10,6 @@ import Foundation
 import AVFoundation
 
 /// Writes tags as iTunes metadata via a passthrough export, so the audio isn't re-encoded.
-///
 /// The file is rewritten, as AVFoundation can't edit metadata in place.
 nonisolated enum MP4TagWriter {
 	private enum WriteError: Error {
