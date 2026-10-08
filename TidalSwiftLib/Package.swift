@@ -6,7 +6,7 @@ import PackageDescription
 let package = Package(
     name: "TidalSwiftLib",
 	platforms: [
-		.macOS(.v13),
+		.macOS(.v14),
 		.iOS(.v16)
 	],
     products: [
@@ -16,15 +16,12 @@ let package = Package(
             targets: ["TidalSwiftLib"]
         ),
     ],
-	dependencies: [
-		.package(url: "https://github.com/NCrusher74/SwiftTagger.git", from: "1.7.0"),
-	],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
         .target(
             name: "TidalSwiftLib",
-			dependencies: ["SwiftTagger", "LRCParser"],
+			dependencies: ["LRCParser"],
 			swiftSettings: [
 				.defaultIsolation(MainActor.self),
 				.enableUpcomingFeature("InferIsolatedConformances"),

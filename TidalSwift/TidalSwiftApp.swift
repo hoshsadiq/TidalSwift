@@ -7,16 +7,19 @@
 //
 
 import SwiftUI
-import Combine
 import AppKit
 import MediaPlayer
+import Observation
 import TidalSwiftLib
 import UpdateNotification
 
 @main
 struct TidalSwiftApp: App {
-	@StateObject private var appModel = TidalSwiftAppModel()
+	@State private var appModel = TidalSwiftAppModel()
 	@Environment(\.scenePhase) private var scenePhase
+	#if canImport(AppKit)
+	@NSApplicationDelegateAdaptor private var appDelegate: AppDelegate
+	#endif
 
 	var body: some Scene {
 		WindowGroup("TidalSwift") {
@@ -28,8 +31,17 @@ struct TidalSwiftApp: App {
 				session: appModel.session,
 				player: appModel.player
 			)
-			.environmentObject(appModel)
+			.environment(appModel)
+			.environment(appModel.toastCenter)
+			// Without this the `tidal://login/auth` callback opens a second window: with no
+			// scene declared to handle the event, SwiftUI creates one, so the callback would
+			// land in a new window rather than the open one. `allowing: ["*"]` makes this
+			// scene take any URL.
+			.handlesExternalEvents(preferring: [], allowing: ["*"])
 			.onAppear {
+				#if canImport(AppKit)
+				appDelegate.appModel = appModel
+				#endif
 				appModel.startupIfNeeded()
 			}
 			#if canImport(AppKit)
@@ -42,6 +54,11 @@ struct TidalSwiftApp: App {
 					appModel.saveState()
 				}
 			}
+			// The URL must reach the shared `LoginInfo` that paused waiting for it;
+			// SwiftUI's `.onOpenURL` is the only receiver the app has.
+			.onOpenURL { url in
+				appModel.loginInfo.receive(callbackURL: url)
+			}
 		}
 		.commands {
 			TidalSwiftCommands(appModel: appModel)
@@ -49,13 +66,130 @@ struct TidalSwiftApp: App {
 		#if os(macOS)
 		Settings {
 			PreferencesView()
-				.environmentObject(appModel)
+				.environment(appModel)
 		}
 		#endif
 	}
 }
 
-final class TidalSwiftAppModel: ObservableObject {
+#if canImport(AppKit)
+/// Reached only when nothing focused handles it, so a text field keeps its own copy and paste.
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
+	weak var appModel: TidalSwiftAppModel?
+
+	@objc func copy(_ sender: Any?) {
+		guard let url = appModel?.viewState.currentShareUrl else { return }
+		Pasteboard.copy(string: url.absoluteString)
+	}
+
+	@objc func paste(_ sender: Any?) {
+		guard let link = Pasteboard.tidalLink() else { return }
+		appModel?.viewState.open(link)
+	}
+
+	func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+		switch menuItem.action {
+		case #selector(copy(_:)):
+			appModel?.viewState.currentShareUrl != nil
+		case #selector(paste(_:)):
+			Pasteboard.tidalLink() != nil
+		default:
+			true
+		}
+	}
+}
+
+/// The app's side of the `tidal://` route: it makes the LaunchServices calls and
+/// carries out the registration half of `TidalLinkHandlingPolicy`.
+enum TidalLinkRegistration {
+	/// The official TIDAL desktop app registers the same scheme; handing it back
+	/// targets this bundle id.
+	static let officialTidalBundleID = "com.tidal.desktop"
+	static let officialTidalApplicationPath = "/Applications/TIDAL.app"
+
+	/// Every copy of this app shares one bundle id, so only a handler whose resolved path
+	/// is this bundle counts as ours; anything else makes the app reclaim the scheme,
+	/// rather than leave links pointing at a copy that can vanish mid-session.
+	static func currentHandler() -> TidalLinkHandlingPolicy.SchemeHandler {
+		guard let handler = currentHandlerApplicationURL() else {
+			return .nobody
+		}
+		// The registered path may reach this bundle by another route, so resolve symlinks.
+		let handlerPath = handler.resolvingSymlinksInPath().standardizedFileURL
+		let thisPath = Bundle.main.bundleURL.resolvingSymlinksInPath().standardizedFileURL
+		let isThisBundle = handlerPath == thisPath
+			&& Bundle(url: handler)?.bundleIdentifier == Bundle.main.bundleIdentifier
+		return isThisBundle ? .thisApp : .anotherApp
+	}
+
+	/// The bundle macOS would hand a `tidal://` link to, or nil when none claims it.
+	static func currentHandlerApplicationURL() -> URL? {
+		NSWorkspace.shared.urlForApplication(toOpen: tidalLinkProbeURL)
+	}
+
+	static func logDescription(of handler: TidalLinkHandlingPolicy.SchemeHandler) -> String {
+		switch handler {
+		case .thisApp:
+			return "this app"
+		case .anotherApp:
+			return "another app"
+		case .nobody:
+			return "nobody"
+		}
+	}
+
+	static func currentRegistration() -> TidalLinkHandlingPolicy.Registration {
+		TidalLinkHandlingPolicy.registration(
+			enabled: TidalLinkHandlingPreferences.isEnabled,
+			handler: currentHandler()
+		)
+	}
+
+	/// The system can ask for consent and calls the completion handler only afterwards,
+	/// so a claim is a request that can be declined, not a guaranteed change.
+	@discardableResult
+	static func apply(_ registration: TidalLinkHandlingPolicy.Registration) async -> Bool {
+		switch registration {
+		case .none:
+			return true
+		case .claim:
+			return await setDefaultHandler(to: Bundle.main.bundleURL)
+		case .release:
+			guard let officialApp = officialTidalApplicationURL() else { return false }
+			return await setDefaultHandler(to: officialApp)
+		}
+	}
+
+	static func applyCurrentRegistration() async {
+		await apply(currentRegistration())
+	}
+
+	private static var tidalLinkProbeURL: URL {
+		URL(string: "tidal://login/auth")!
+	}
+
+	private static func officialTidalApplicationURL() -> URL? {
+		if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: officialTidalBundleID) {
+			return url
+		}
+		let path = URL(fileURLWithPath: officialTidalApplicationPath)
+		return FileManager.default.fileExists(atPath: path.path) ? path : nil
+	}
+
+	private static func setDefaultHandler(to applicationURL: URL) async -> Bool {
+		do {
+			try await NSWorkspace.shared.setDefaultApplication(at: applicationURL, toOpenURLsWithScheme: "tidal")
+			return true
+		} catch {
+			print("Changing the tidal:// handler failed: \(error)")
+			return false
+		}
+	}
+}
+#endif
+
+@Observable
+final class TidalSwiftAppModel {
 	let updateNotification = UpdateNotification(feedUrl: URL(string: "https://github.com/hoshsadiq/TidalSwift/releases/latest/download/TidalSwift.json")!)
 
 	let session: Session
@@ -65,6 +199,7 @@ final class TidalSwiftAppModel: ObservableObject {
 	var sortingState: SortingState
 	var playlistEditingValues = PlaylistEditingValues()
 	let loginInfo = LoginInfo()
+	let toastCenter = ToastCenter()
 
 	private var didStart = false
 	private var isTerminating = false
@@ -73,87 +208,59 @@ final class TidalSwiftAppModel: ObservableObject {
 	private var viewHistoryViewController: NSWindowController?
 	private var playbackHistoryViewController: NSWindowController?
 	private var miniplayerWindowController: MiniplayerWindowController?
-	private var windowCloseObserver: NSObjectProtocol?
 	private var spaceKeyMonitor: Any?
-	/// The app's main content window. Captured when the miniplayer opens so it can be
-	/// hidden/shown for mutual exclusivity with the miniplayer.
+	/// The app's main content window, hidden while the miniplayer is shown.
 	private var mainWindow: NSWindow?
-	/// Observer for the main window becoming key (e.g., via Dock click), which should
-	/// close the miniplayer to maintain mutual exclusivity.
+	/// Closes the miniplayer when the main window becomes key again.
 	private var mainWindowKeyObserver: NSObjectProtocol?
 	#endif
 
 	// MARK: Cancellables
 
-	// No public MPNowPlayingInfo constants exist for shuffle/repeat in MediaPlayer.
-	// Best-effort keys; the system may ignore them. Shuffle/repeat state is
-	// primarily driven via MPRemoteCommandCenter in NowPlayingController.
+	// No public MPNowPlayingInfo constants exist for shuffle/repeat in MediaPlayer;
+	// these are best-effort keys the system may ignore.
 	private static let nowPlayingShuffleKey = "MPNowPlayingInfoPropertyShuffle"
 	private static let nowPlayingRepeatKey = "MPNowPlayingInfoPropertyRepeat"
 
-	var timerCancellable: AnyCancellable?
-	var savePlaybackInfoOnNextTick = false
-	var saveViewStateOnNextTick = false
-	var saveSortingStateOnNextTick = false
-	var uiRefreshCancellable: AnyCancellable?
+	/// Shared with the view's `@AppStorage` so there is one spelling.
+	static let ignoreSubscriptionLimitsKey = "ignoreSubscriptionLimits"
 
-	var shuffleCancellable: AnyCancellable?
-	var repeatCancellable: AnyCancellable?
-	var pauseAfterCancellable: AnyCancellable?
-	var queueCancellable: AnyCancellable?
-	var currentIndexCancellable: AnyCancellable?
-	var volumeCancellable: AnyCancellable?
-	var activePanelCancellable: AnyCancellable?
-	var viewStackCancellable: AnyCancellable?
-	var viewStateObjectWillChangeCancellable: AnyCancellable?
-	var npPlayingCancellable: AnyCancellable?
-	var npFractionCancellable: AnyCancellable?
-	var npShuffleCancellable: AnyCancellable?
-	var npRepeatCancellable: AnyCancellable?
-	var npQueueCancellable: AnyCancellable?
-	var npCurrentIndexCancellable: AnyCancellable?
+	@ObservationIgnored private var saveTask: Task<Void, Never>?
+	/// Gates the Now Playing elapsed-time write to one a second.
+	@ObservationIgnored private var lastNowPlayingFractionUpdate = Date.distantPast
 
-	// SortingState
-	var favoritePlaylistSortingCancellable: AnyCancellable?
-	var favoritePlaylistReversedCancellable: AnyCancellable?
-	var favoriteAlbumSortingCancellable: AnyCancellable?
-	var favoriteAlbumReversedCancellable: AnyCancellable?
-	var favoriteTrackSortingCancellable: AnyCancellable?
-	var favoriteTrackReversedCancellable: AnyCancellable?
-	var favoriteVideoSortingCancellable: AnyCancellable?
-	var favoriteVideoReversedCancellable: AnyCancellable?
-	var favoriteArtistSortingCancellable: AnyCancellable?
-	var favoriteArtistReversedCancellable: AnyCancellable?
-
-	var offlinePlaylistSortingCancellable: AnyCancellable?
-	var offlinePlaylistReversedCancellable: AnyCancellable?
-	var offlineAlbumSortingCancellable: AnyCancellable?
-	var offlineAlbumReversedCancellable: AnyCancellable?
-	var offlineTrackSortingCancellable: AnyCancellable?
-	var offlineTrackReversedCancellable: AnyCancellable?
-
-	@Published var trackIsFavorite = false
-	@Published var albumIsFavorite = false
-	@Published var showQueuePanel = false
-	/// Whether the floating miniplayer window is currently open. Drives the
-	/// drawer button's tint; kept in sync by the window's close callback.
-	@Published var isMiniplayerOpen = false
-	@Published private(set) var audioQuality: AudioQuality
-	/// Highest quality the account's subscription allows, from `/users/{id}/subscription`.
-	@Published private(set) var highestSoundQuality: AudioQuality?
+	var trackIsFavorite = false
+	var albumIsFavorite = false
+	var showQueuePanel = false
+	/// Drives the drawer button's tint; kept in sync by the window's close callback.
+	var isMiniplayerOpen = false
+	private(set) var audioQuality: AudioQuality
+	private(set) var highestSoundQuality: AudioQuality?
 
 	var hasCurrentTrack: Bool {
 		!player.queueInfo.queue.isEmpty
 	}
 
+	/// A toast holds two short lines; longer text goes to the console and the title alone.
+	private static let toastMessageLimit = 120
+
+	// MARK: Lifecycle
+
 	init() {
 		session = Session(config: nil)
 
+		// An existing value under the offline key seeds the playback side on first launch.
+		let preferDolbyAtmos: Bool
+		if UserDefaults.standard.object(forKey: "preferDolbyAtmos") != nil {
+			preferDolbyAtmos = UserDefaults.standard.bool(forKey: "preferDolbyAtmos")
+		} else {
+			preferDolbyAtmos = session.helpers.offline.preferDolbyAtmos
+		}
 		if let audioQualityString = UserDefaults.standard.string(forKey: "audioQuality"),
 		   let audioQuality = AudioQuality(rawValue: audioQualityString) {
-			player = Player(session: session, audioQuality: audioQuality)
+			player = Player(session: session, audioQuality: audioQuality, preferDolbyAtmos: preferDolbyAtmos)
 		} else {
-			player = Player(session: session, audioQuality: .high)
+			player = Player(session: session, audioQuality: .high, preferDolbyAtmos: preferDolbyAtmos)
 		}
 		nowPlayingController = NowPlayingController(player: player, session: session)
 		audioQuality = player.nextAudioQuality
@@ -167,7 +274,25 @@ final class TidalSwiftAppModel: ObservableObject {
 
 		viewState = ViewState(session: session, cache: cache)
 		sortingState = SortingState()
+
+		// Installed before any library call, so its errors reach the toast from the start.
+		installDisplayErrorHandler()
 	}
+
+	private func installDisplayErrorHandler() {
+		displayErrorHandler = { [toastCenter = self.toastCenter] title, content in
+			let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
+			let message = trimmedContent.isEmpty ? title : "\(title) — \(trimmedContent)"
+			if message.count > Self.toastMessageLimit {
+				print("\(title). \(content)")
+				toastCenter.show(title)
+			} else {
+				toastCenter.show(message)
+			}
+		}
+	}
+
+	// MARK: Startup
 
 	func startupIfNeeded() {
 		guard !didStart else { return }
@@ -181,7 +306,7 @@ final class TidalSwiftAppModel: ObservableObject {
 		}
 
 		let loggedIn = session.loadSession()
-		print("Login Succesful: \(loggedIn)")
+		print("Login Successful: \(loggedIn)")
 		loginInfo.showModal = !loggedIn
 
 		if loggedIn {
@@ -199,7 +324,7 @@ final class TidalSwiftAppModel: ObservableObject {
 		initSecondaryWindows()
 		registerCloseLastWindowBehavior()
 		registerSpaceKeyMonitor()
-
+		registerTidalLinkHandlerAtLaunch()
 		updateCheck(showNoUpdatesAlert: false)
 		#endif
 
@@ -209,13 +334,11 @@ final class TidalSwiftAppModel: ObservableObject {
 	}
 
 	#if canImport(AppKit)
+	// MARK: Termination
+
 	func prepareForTermination() {
 		guard !isTerminating else { return }
 		isTerminating = true
-		if let windowCloseObserver {
-			NotificationCenter.default.removeObserver(windowCloseObserver)
-			self.windowCloseObserver = nil
-		}
 		if let spaceKeyMonitor {
 			NSEvent.removeMonitor(spaceKeyMonitor)
 			self.spaceKeyMonitor = nil
@@ -225,6 +348,7 @@ final class TidalSwiftAppModel: ObservableObject {
 			self.mainWindowKeyObserver = nil
 		}
 		nowPlayingController.teardown()
+		player.stopPrefetching()
 		NowPlayingInfoBuilder.clear()
 		cancelCancellables()
 		closeModals()
@@ -237,24 +361,30 @@ final class TidalSwiftAppModel: ObservableObject {
 	}
 
 	private func registerCloseLastWindowBehavior() {
-		windowCloseObserver = NotificationCenter.default.addObserver(
+		_ = NotificationCenter.default.addObserver(
 			forName: NSWindow.willCloseNotification,
 			object: nil,
 			queue: .main
-		) { [weak self] _ in
-			guard let self else { return }
-			DispatchQueue.main.async {
-				if !self.isTerminating && !NSApp.windows.contains(where: { $0.isVisible }) {
-					self.quit()
-				}
+		) { [weak self] notification in
+			let closingWindow = notification.object as? NSWindow
+			// Safe because the observer asks for delivery on the main queue
+			MainActor.assumeIsolated {
+				self?.quitIfLastWindow(closing: closingWindow)
 			}
 		}
 	}
 
-	// Menu-bar Space shortcuts are unreliable on macOS: focused scroll views consume
-	// Space for page-scrolling before the menu bar matches key equivalents. This monitor
-	// intercepts Space first; consuming the event also prevents double-toggle via the
-	// Play/Pause menu item's .keyboardShortcut(.space).
+	private func quitIfLastWindow(closing closingWindow: NSWindow?) {
+		guard !isTerminating else { return }
+		// The closing window still counts as visible, so ignore it and look for another.
+		let hasOtherVisibleWindow = NSApp.windows.contains { $0.isVisible && $0 !== closingWindow }
+		if !hasOtherVisibleWindow {
+			quit()
+		}
+	}
+
+	// Menu-bar Space shortcuts are unreliable: focused scroll views consume Space for
+	// page-scrolling first, so this monitor intercepts it before the menu bar does.
 	private func registerSpaceKeyMonitor() {
 		guard spaceKeyMonitor == nil else { return }
 		spaceKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -272,19 +402,35 @@ final class TidalSwiftAppModel: ObservableObject {
 		}
 	}
 
+	/// Claims tidal:// at launch when the preference asks for it, so the browser login's
+	/// callback reaches this app. The handler and its path are logged because a stale
+	/// copy that still claims the scheme is the usual reason a callback never arrives.
+	private func registerTidalLinkHandlerAtLaunch() {
+		Task {
+			let before = TidalLinkRegistration.currentHandler()
+			let beforePath = TidalLinkRegistration.currentHandlerApplicationURL()?.path ?? "none"
+			await TidalLinkRegistration.applyCurrentRegistration()
+			let after = TidalLinkRegistration.currentHandler()
+			print("[LOGIN] tidal:// handler at launch: \(TidalLinkRegistration.logDescription(of: before)) at \(beforePath); after registering: \(TidalLinkRegistration.logDescription(of: after))")
+			if after != .thisApp {
+				print("[LOGIN] tidal:// is not handled by this app, so a browser login's callback cannot return here; the sheet will fall back to a device code")
+			}
+		}
+	}
+
 	// MARK: Secondary Windows
 
 	func initSecondaryWindows() {
 		viewHistoryViewController = ResizableWindowControllerFactory.create(rootView:
 			ViewHistoryView()
-				.environmentObject(viewState)
+				.environment(viewState)
 		)
 		viewHistoryViewController?.window?.title = "View History"
 
 		playbackHistoryViewController = ResizableWindowControllerFactory.create(
 			rootView: PlaybackHistoryView(session: session, player: player)
-				.environmentObject(viewState)
-				.environmentObject(player.queueInfo)
+				.environment(viewState)
+				.environment(player.queueInfo)
 		)
 		playbackHistoryViewController?.window?.title = "Playback History"
 
@@ -421,7 +567,6 @@ final class TidalSwiftAppModel: ObservableObject {
 			viewState.forwardStack = decodeViewArray(from: data)
 		}
 
-		// Land on the Music view when there is no persisted non-base view to restore.
 		if !viewState.stack.contains(where: { !$0.isBase() }) {
 			viewState.stack = [TidalSwiftView(viewType: .music)]
 			viewState.forwardStack.removeAll()
@@ -443,10 +588,7 @@ final class TidalSwiftAppModel: ObservableObject {
 		}
 	}
 
-	/// Decodes a persisted view array one entry at a time. A single entry whose
-	/// `viewType` no longer exists — a page that was removed, for example — fails
-	/// the whole-array decode and would otherwise discard the entire stack,
-	/// forward stack or history.
+	/// One entry at a time: a single unknown `viewType` would otherwise discard the stack.
 	private func decodeViewArray(from data: Data) -> [TidalSwiftView] {
 		guard let rawEntries = try? JSONSerialization.jsonObject(with: data) as? [Any] else {
 			return []
@@ -475,6 +617,7 @@ final class TidalSwiftAppModel: ObservableObject {
 		let playbackInfoData = try? JSONEncoder().encode(codablePI)
 		UserDefaults.standard.set(playbackInfoData, forKey: "PlaybackInfo")
 		UserDefaults.standard.set(player.nextAudioQuality.rawValue, forKey: "audioQuality")
+		UserDefaults.standard.set(player.preferDolbyAtmos, forKey: "preferDolbyAtmos")
 	}
 
 	func saveViewState() {
@@ -533,6 +676,8 @@ final class TidalSwiftAppModel: ObservableObject {
 		playlistEditingValues.showEditModal = false
 	}
 
+	// MARK: Now Playing
+
 	private func updateNowPlayingForTrackChange() {
 		let queue = player.queueInfo.queue
 		let currentIndex = player.queueInfo.currentIndex
@@ -554,181 +699,153 @@ final class TidalSwiftAppModel: ObservableObject {
 	}
 
 	func initCancellables() {
-		setupUIRefreshCancellables()
-		setupPlaybackInfoCancellables()
-		setupQueueCancellables()
-		setupViewStateCancellables()
-		setupFavoriteSortingCancellables()
-		setupOfflineSortingCancellables()
 		setupNowPlayingCancellables()
-		setupTimerCancellable()
+		startSaveLoop()
 	}
 
-	private func setupUIRefreshCancellables() {
-		uiRefreshCancellable = Publishers.Merge(player.playbackInfo.objectWillChange, player.queueInfo.objectWillChange)
-			.sink { [weak self] _ in
-				self?.objectWillChange.send()
-			}
-	}
-
-	private func setupPlaybackInfoCancellables() {
-		shuffleCancellable = player.playbackInfo.$shuffle.receive(on: DispatchQueue.main).sink { [weak self] _ in
-			self?.savePlaybackInfoOnNextTick = true
-		}
-		repeatCancellable = player.playbackInfo.$repeatState.receive(on: DispatchQueue.main).sink { [weak self] _ in
-			self?.savePlaybackInfoOnNextTick = true
-		}
-		pauseAfterCancellable = player.playbackInfo.$pauseAfter.receive(on: DispatchQueue.main).sink { [weak self] _ in
-			self?.savePlaybackInfoOnNextTick = true
-		}
-		volumeCancellable = player.playbackInfo.$volume.receive(on: DispatchQueue.main).sink { [weak self] _ in
-			self?.savePlaybackInfoOnNextTick = true
-		}
-		activePanelCancellable = player.playbackInfo.$activePanel.receive(on: DispatchQueue.main).sink { [weak self] _ in
-			self?.savePlaybackInfoOnNextTick = true
-		}
-	}
-
-	private func setupQueueCancellables() {
-		queueCancellable = player.queueInfo.$queue.receive(on: DispatchQueue.main).sink { [weak self] _ in
-			self?.savePlaybackInfoOnNextTick = true
-			self?.refreshFavoriteState()
-		}
-		currentIndexCancellable = player.queueInfo.$currentIndex.receive(on: DispatchQueue.main).sink { [weak self] _ in
-			self?.savePlaybackInfoOnNextTick = true
-			self?.refreshFavoriteState()
-		}
-	}
-
-	private func setupViewStateCancellables() {
-		viewStackCancellable = viewState.$stack.receive(on: DispatchQueue.main).sink { [weak self] _ in
-			self?.saveViewStateOnNextTick = true
-		}
-		viewStateObjectWillChangeCancellable = viewState.objectWillChange.sink { [weak self] _ in
-			self?.objectWillChange.send()
-		}
-	}
-
-	private func setupFavoriteSortingCancellables() {
-		favoritePlaylistSortingCancellable = sortingState.$favoritePlaylistSorting.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
-		favoritePlaylistReversedCancellable = sortingState.$favoritePlaylistReversed.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
-		favoriteAlbumSortingCancellable = sortingState.$favoriteAlbumSorting.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
-		favoriteAlbumReversedCancellable = sortingState.$favoriteAlbumReversed.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
-		favoriteTrackSortingCancellable = sortingState.$favoriteTrackSorting.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
-		favoriteTrackReversedCancellable = sortingState.$favoriteTrackReversed.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
-		favoriteVideoSortingCancellable = sortingState.$favoriteVideoSorting.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
-		favoriteVideoReversedCancellable = sortingState.$favoriteVideoReversed.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
-		favoriteArtistSortingCancellable = sortingState.$favoriteArtistSorting.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
-		favoriteArtistReversedCancellable = sortingState.$favoriteArtistReversed.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
-	}
-
-	private func setupOfflineSortingCancellables() {
-		offlinePlaylistSortingCancellable = sortingState.$offlinePlaylistSorting.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
-		offlinePlaylistReversedCancellable = sortingState.$offlinePlaylistReversed.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
-		offlineAlbumSortingCancellable = sortingState.$offlineAlbumSorting.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
-		offlineAlbumReversedCancellable = sortingState.$offlineAlbumReversed.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
-		offlineTrackSortingCancellable = sortingState.$offlineTrackSorting.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
-		offlineTrackReversedCancellable = sortingState.$offlineTrackReversed.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.saveSortingStateOnNextTick = true }
-	}
-
+	/// Each helper re-registers itself: `withObservationTracking` fires `onChange` once only.
 	private func setupNowPlayingCancellables() {
-		npPlayingCancellable = player.playbackInfo.$playing
-			.receive(on: DispatchQueue.main)
-			.sink { [weak self] isPlaying in
-				guard let self else { return }
-				NowPlayingInfoBuilder.updatePlaybackState(isPlaying ? .playing : .paused)
-				let oldArtwork = MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork]
-				var info = NowPlayingInfoBuilder.build(player: self.player, session: self.session)
-				if !info.isEmpty, let artwork = oldArtwork {
-					info[MPMediaItemPropertyArtwork] = artwork
-				}
-				MPNowPlayingInfoCenter.default().nowPlayingInfo = info.isEmpty ? nil : info
-			}
-
-		npFractionCancellable = player.playbackInfo.$fraction
-			.throttle(for: .seconds(1), scheduler: DispatchQueue.main, latest: true)
-			.sink { [weak self] fraction in
-				guard let self else { return }
-				let currentIndex = self.player.queueInfo.currentIndex
-				guard !self.player.queueInfo.queue.isEmpty,
-					  self.player.queueInfo.queue.indices.contains(currentIndex) else { return }
-				let elapsed = Double(self.player.queueInfo.queue[currentIndex].track.duration) * Double(fraction)
-				MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsed
-			}
-
-		npShuffleCancellable = player.playbackInfo.$shuffle
-			.receive(on: DispatchQueue.main)
-			.sink { shuffle in
-				MPNowPlayingInfoCenter.default().nowPlayingInfo?[TidalSwiftAppModel.nowPlayingShuffleKey] = shuffle
-			}
-
-		npRepeatCancellable = player.playbackInfo.$repeatState
-			.receive(on: DispatchQueue.main)
-			.sink { repeatState in
-				MPNowPlayingInfoCenter.default().nowPlayingInfo?[TidalSwiftAppModel.nowPlayingRepeatKey] = repeatState.rawValue
-			}
-
-		npQueueCancellable = player.queueInfo.$queue
-			.receive(on: DispatchQueue.main)
-			.sink { [weak self] _ in
-				self?.updateNowPlayingForTrackChange()
-			}
-
-		npCurrentIndexCancellable = player.queueInfo.$currentIndex
-			.receive(on: DispatchQueue.main)
-			.sink { [weak self] _ in
-				self?.updateNowPlayingForTrackChange()
-			}
+		observeNowPlayingPlaying()
+		observeNowPlayingFraction()
+		observeNowPlayingShuffle()
+		observeNowPlayingRepeatState()
+		observeNowPlayingQueue()
+		observeNowPlayingCurrentIndex()
 	}
 
-	private func setupTimerCancellable() {
-		timerCancellable = Timer.publish(every: 10, on: .main, in: .default)
-			.autoconnect()
-			.sink { [weak self] _ in
-				guard let self else { return }
-				if self.savePlaybackInfoOnNextTick {
-					self.savePlaybackInfoOnNextTick = false
-					self.savePlaybackState()
-				}
-				if self.saveViewStateOnNextTick {
-					self.saveViewStateOnNextTick = false
-					self.saveViewState()
-				}
-				if self.saveSortingStateOnNextTick {
-					self.saveSortingStateOnNextTick = false
-					self.saveFavoritesSortingState()
-				}
+	private func observeNowPlayingPlaying() {
+		withObservationTracking {
+			_ = player.playbackInfo.playing
+		} onChange: { [weak self] in
+			Task { @MainActor in
+				self?.updateNowPlayingPlaybackState()
+				self?.observeNowPlayingPlaying()
 			}
+		}
+	}
+
+	private func updateNowPlayingPlaybackState() {
+		NowPlayingInfoBuilder.updatePlaybackState(player.playbackInfo.playing ? .playing : .paused)
+		let oldArtwork = MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtwork]
+		var info = NowPlayingInfoBuilder.build(player: player, session: session)
+		if !info.isEmpty, let artwork = oldArtwork {
+			info[MPMediaItemPropertyArtwork] = artwork
+		}
+		MPNowPlayingInfoCenter.default().nowPlayingInfo = info.isEmpty ? nil : info
+	}
+
+	private func observeNowPlayingFraction() {
+		withObservationTracking {
+			_ = player.playbackInfo.fraction
+		} onChange: { [weak self] in
+			Task { @MainActor in
+				self?.updateNowPlayingElapsedTime()
+				self?.observeNowPlayingFraction()
+			}
+		}
+	}
+
+	private func observeNowPlayingShuffle() {
+		withObservationTracking {
+			_ = player.playbackInfo.shuffle
+		} onChange: { [weak self] in
+			Task { @MainActor in
+				self?.updateNowPlayingShuffle()
+				self?.observeNowPlayingShuffle()
+			}
+		}
+	}
+
+	private func updateNowPlayingShuffle() {
+		MPNowPlayingInfoCenter.default().nowPlayingInfo?[Self.nowPlayingShuffleKey] = player.playbackInfo.shuffle
+	}
+
+	private func observeNowPlayingRepeatState() {
+		withObservationTracking {
+			_ = player.playbackInfo.repeatState
+		} onChange: { [weak self] in
+			Task { @MainActor in
+				self?.updateNowPlayingRepeatState()
+				self?.observeNowPlayingRepeatState()
+			}
+		}
+	}
+
+	private func updateNowPlayingRepeatState() {
+		MPNowPlayingInfoCenter.default().nowPlayingInfo?[Self.nowPlayingRepeatKey] = player.playbackInfo.repeatState.rawValue
+	}
+
+	private func observeNowPlayingQueue() {
+		withObservationTracking {
+			_ = player.queueInfo.queue
+		} onChange: { [weak self] in
+			Task { @MainActor in
+				self?.updateNowPlayingForTrackChange()
+				self?.refreshFavoriteState()
+				self?.observeNowPlayingQueue()
+			}
+		}
+	}
+
+	private func observeNowPlayingCurrentIndex() {
+		withObservationTracking {
+			_ = player.queueInfo.currentIndex
+		} onChange: { [weak self] in
+			Task { @MainActor in
+				self?.updateNowPlayingForTrackChange()
+				self?.refreshFavoriteState()
+				self?.observeNowPlayingCurrentIndex()
+			}
+		}
+	}
+
+	/// Writes the elapsed time at most once a second, matching the old `.throttle`.
+	private func updateNowPlayingElapsedTime() {
+		let now = Date()
+		guard now.timeIntervalSince(lastNowPlayingFractionUpdate) >= 1 else { return }
+		lastNowPlayingFractionUpdate = now
+
+		let currentIndex = player.queueInfo.currentIndex
+		guard !player.queueInfo.queue.isEmpty,
+			  player.queueInfo.queue.indices.contains(currentIndex) else { return }
+		let elapsed = Double(player.queueInfo.queue[currentIndex].track.duration) * Double(player.playbackInfo.fraction)
+		MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsed
+	}
+
+	// MARK: Saving
+
+	/// Saves every 10 seconds; nothing is written up front, matching the old timer.
+	private func startSaveLoop() {
+		saveTask = Task { [weak self] in
+			while !Task.isCancelled {
+				do {
+					try await Task.sleep(for: .seconds(10))
+				} catch {
+					return
+				}
+				self?.saveUnsavedChanges()
+			}
+		}
+	}
+
+	private func saveUnsavedChanges() {
+		if player.playbackInfo.hasUnsavedChanges || player.queueInfo.hasUnsavedChanges {
+			player.playbackInfo.hasUnsavedChanges = false
+			player.queueInfo.hasUnsavedChanges = false
+			savePlaybackState()
+		}
+		if viewState.hasUnsavedChanges {
+			viewState.hasUnsavedChanges = false
+			saveViewState()
+		}
+		if sortingState.hasUnsavedChanges {
+			sortingState.hasUnsavedChanges = false
+			saveFavoritesSortingState()
+		}
 	}
 
 	func cancelCancellables() {
-		timerCancellable?.cancel()
-		uiRefreshCancellable?.cancel()
-		shuffleCancellable?.cancel()
-		repeatCancellable?.cancel()
-		pauseAfterCancellable?.cancel()
-		queueCancellable?.cancel()
-		currentIndexCancellable?.cancel()
-		volumeCancellable?.cancel()
-		activePanelCancellable?.cancel()
-		viewStackCancellable?.cancel()
-
-		favoritePlaylistSortingCancellable?.cancel()
-		favoritePlaylistReversedCancellable?.cancel()
-		favoriteAlbumSortingCancellable?.cancel()
-		favoriteAlbumReversedCancellable?.cancel()
-		favoriteTrackSortingCancellable?.cancel()
-		favoriteTrackReversedCancellable?.cancel()
-		favoriteVideoSortingCancellable?.cancel()
-		favoriteVideoReversedCancellable?.cancel()
-		favoriteArtistSortingCancellable?.cancel()
-		favoriteArtistReversedCancellable?.cancel()
-		npPlayingCancellable?.cancel()
-		npFractionCancellable?.cancel()
-		npShuffleCancellable?.cancel()
-		npRepeatCancellable?.cancel()
-		npQueueCancellable?.cancel()
-		npCurrentIndexCancellable?.cancel()
+		saveTask?.cancel()
 	}
 
 	// MARK: Menu Actions
@@ -762,7 +879,12 @@ final class TidalSwiftAppModel: ObservableObject {
 					alert.runModal()
 				}
 			} catch {
-				print("Checking for updates failed: \(error)")
+				// No release yet or no network: GitHub's "Not Found" reads as a decoding failure.
+				if error is DecodingError {
+					print("Update check: no usable release feed yet")
+				} else {
+					print("Checking for updates failed: \(error)")
+				}
 			}
 		}
 	}
@@ -814,6 +936,28 @@ final class TidalSwiftAppModel: ObservableObject {
 				refreshFavoriteState()
 				viewState.refreshCurrentView()
 			}
+		}
+	}
+
+	/// Flips the favorite state, keeping the row in the list and only updating its heart.
+	func toggleCurrentTrackFavorite() {
+		let queue = player.queueInfo.queue
+		let currentIndex = player.queueInfo.currentIndex
+		guard queue.indices.contains(currentIndex) else { return }
+		let trackId = queue[currentIndex].track.id
+		Task {
+			guard let favorites = session.favorites else { return }
+			guard let isFavorite = await favorites.doFavoritesContainTrack(trackId: trackId) else { return }
+			let success: Bool
+			if isFavorite {
+				success = await favorites.removeTrack(trackId: trackId)
+			} else {
+				success = await favorites.addTrack(trackId: trackId)
+			}
+			guard success else { return }
+			session.helpers.offline.asyncSyncFavoriteTracks()
+			refreshFavoriteState()
+			NotificationCenter.default.post(name: .favoriteTrackChanged, object: nil, userInfo: ["trackId": trackId, "isFavorite": !isFavorite])
 		}
 	}
 
@@ -894,34 +1038,34 @@ final class TidalSwiftAppModel: ObservableObject {
 
 	func setAudioQuality(_ audioQuality: AudioQuality) {
 		player.setAudioQuality(to: audioQuality)
-		savePlaybackInfoOnNextTick = true
-		objectWillChange.send()
+		player.playbackInfo.hasUnsavedChanges = true
 		self.audioQuality = audioQuality
+	}
+
+	func setPreferDolbyAtmos(_ preferDolbyAtmos: Bool) {
+		player.setPreferDolbyAtmos(to: preferDolbyAtmos)
+		player.playbackInfo.hasUnsavedChanges = true
 	}
 
 	func isAudioQualitySelected(_ audioQuality: AudioQuality) -> Bool {
 		self.audioQuality == audioQuality
 	}
 
-	/// Whether the subscription allows this tier. An unknown subscription (fetch
-	/// failed or not logged in yet) allows everything, so options are never hidden
-	/// on a guess.
+	/// The rule lives in `AudioQualityPolicy` so it can be tested without a view or a
+	/// session; an unknown subscription allows everything, and the override bypasses the cap.
 	func isAudioQualityAvailable(_ quality: AudioQuality) -> Bool {
-		guard let highestSoundQuality else { return true }
-		let order: [AudioQuality] = [.low, .medium, .high, .max]
-		guard let rank = order.firstIndex(of: quality),
-			  let highestRank = order.firstIndex(of: highestSoundQuality) else {
-			return true
-		}
-		return rank <= highestRank
+		AudioQualityPolicy.isAvailable(
+			quality,
+			subscriptionHighest: highestSoundQuality,
+			ignoringLimits: UserDefaults.standard.bool(forKey: Self.ignoreSubscriptionLimitsKey)
+		)
 	}
 
+	/// Fetches the cap that drives the disabled rows. Deliberately does not rewrite
+	/// `audioQuality`: a chosen tier must never change behind the user's back.
 	func loadHighestSoundQuality() async {
 		guard let highest = await session.subscriptionInfo()?.highestSoundQuality else { return }
 		highestSoundQuality = highest
-		if !isAudioQualityAvailable(audioQuality) {
-			setAudioQuality(highest)
-		}
 	}
 
 	func clearQueue() {
@@ -954,8 +1098,12 @@ final class TidalSwiftAppModel: ObservableObject {
 		}
 	}
 
-	func logout() {
-		session.helpers.offline.removeAll()
+	/// `removeDownloads` decides what happens to the offline library: by default it is
+	/// left alone, and the decision is made before `session.logout()`.
+	func logout(removeDownloads: Bool = false) {
+		if removeDownloads {
+			session.helpers.offline.removeAll()
+		}
 		closeModals()
 		#if canImport(AppKit)
 		closeAllSecondaryWindows()
@@ -993,7 +1141,7 @@ final class TidalSwiftAppModel: ObservableObject {
 }
 
 struct TidalSwiftCommands: Commands {
-	@ObservedObject var appModel: TidalSwiftAppModel
+	var appModel: TidalSwiftAppModel
 
 	var body: some Commands {
 		#if canImport(AppKit)
@@ -1067,8 +1215,10 @@ struct TidalSwiftCommands: Commands {
 			}
 			.keyboardShortcut(.space, modifiers: [])
 			Button("Stop") {
+				guard !KeyboardGuard.isTextEntryActive else { return }
 				appModel.stop()
 			}
+			.keyboardShortcut(".", modifiers: .command)
 			Button("Next") {
 				guard !KeyboardGuard.isTextEntryActive else { return }
 				appModel.next()
@@ -1081,24 +1231,12 @@ struct TidalSwiftCommands: Commands {
 			.keyboardShortcut(.leftArrow, modifiers: .command)
 			Button("Seek Forward") {
 				guard !KeyboardGuard.isTextEntryActive else { return }
-				guard !appModel.player.queueInfo.queue.isEmpty else { return }
-				let currentIndex = appModel.player.queueInfo.currentIndex
-				guard appModel.player.queueInfo.queue.indices.contains(currentIndex) else { return }
-				let track = appModel.player.queueInfo.queue[currentIndex].track
-				guard track.duration > 0 else { return }
-				let newFraction = min(max((Double(appModel.player.playbackInfo.fraction) * Double(track.duration) + 15.0) / Double(track.duration), 0.0), 1.0)
-				appModel.player.seek(to: newFraction)
+				seek(by: 15)
 			}
 			.keyboardShortcut(.rightArrow, modifiers: [.command, .option])
 			Button("Seek Backward") {
 				guard !KeyboardGuard.isTextEntryActive else { return }
-				guard !appModel.player.queueInfo.queue.isEmpty else { return }
-				let currentIndex = appModel.player.queueInfo.currentIndex
-				guard appModel.player.queueInfo.queue.indices.contains(currentIndex) else { return }
-				let track = appModel.player.queueInfo.queue[currentIndex].track
-				guard track.duration > 0 else { return }
-				let newFraction = min(max((Double(appModel.player.playbackInfo.fraction) * Double(track.duration) - 15.0) / Double(track.duration), 0.0), 1.0)
-				appModel.player.seek(to: newFraction)
+				seek(by: -15)
 			}
 			.keyboardShortcut(.leftArrow, modifiers: [.command, .option])
 
@@ -1149,6 +1287,7 @@ struct TidalSwiftCommands: Commands {
 				audioQualityButton(title: "Low", quality: .low)
 				audioQualityButton(title: "High", quality: .medium)
 				audioQualityButton(title: "HiFi", quality: .high)
+				audioQualityButton(title: "Max", quality: .max)
 			}
 
 			Button("Clear Queue") {
@@ -1160,29 +1299,8 @@ struct TidalSwiftCommands: Commands {
 
 			Button("Favorite Current Track") {
 				guard !KeyboardGuard.isTextEntryActive else { return }
-				guard !appModel.player.queueInfo.queue.isEmpty else { return }
-				let queue = appModel.player.queueInfo.queue
-				let currentIndex = appModel.player.queueInfo.currentIndex
-				guard queue.indices.contains(currentIndex) else { return }
-				let trackId = queue[currentIndex].track.id
-				Task {
-					guard let favorites = appModel.session.favorites else { return }
-					guard let isFavorite = await favorites.doFavoritesContainTrack(trackId: trackId) else { return }
-					let success: Bool
-					if isFavorite {
-						success = await favorites.removeTrack(trackId: trackId)
-					} else {
-						success = await favorites.addTrack(trackId: trackId)
-					}
-					if success {
-						appModel.session.helpers.offline.asyncSyncFavoriteTracks()
-						appModel.refreshFavoriteState()
-						// Keep the row in the current list; only update its heart.
-						NotificationCenter.default.post(name: .favoriteTrackChanged, object: nil, userInfo: ["trackId": trackId, "isFavorite": !isFavorite])
-					}
-				}
+				appModel.toggleCurrentTrackFavorite()
 			}
-			.keyboardShortcut("l", modifiers: .command)
 		}
 
 		CommandMenu("Account") {
@@ -1193,7 +1311,7 @@ struct TidalSwiftCommands: Commands {
 				appModel.refreshAccessToken()
 			}
 			Button("Logout") {
-				appModel.logout()
+				appModel.loginInfo.showLogoutConfirmation = true
 			}
 			Button("Remove All Offline Content") {
 				appModel.removeAllOfflineContent()
@@ -1204,22 +1322,30 @@ struct TidalSwiftCommands: Commands {
 		CommandGroup(after: .windowArrangement) {
 			Divider()
 			Button("Lyrics") {
+				guard !KeyboardGuard.isTextEntryActive else { return }
 				withAnimation(.easeInOut(duration: 0.3)) {
 					appModel.player.playbackInfo.isNowPlayingExpanded = true
 					appModel.player.playbackInfo.activePanel = .lyrics
 				}
 			}
+			.keyboardShortcut("l", modifiers: .command)
 			Button("Queue") {
+				guard !KeyboardGuard.isTextEntryActive else { return }
 				withAnimation {
 					appModel.showQueuePanel.toggle()
 				}
 			}
+			.keyboardShortcut("p", modifiers: .command)
 			Button("Playback History") {
+				guard !KeyboardGuard.isTextEntryActive else { return }
 				appModel.showPlaybackHistoryWindow()
 			}
+			.keyboardShortcut("k", modifiers: .command)
 			Button("View History") {
+				guard !KeyboardGuard.isTextEntryActive else { return }
 				appModel.showViewHistoryWindow()
 			}
+			.keyboardShortcut("u", modifiers: .command)
 		}
 		#endif
 
@@ -1238,6 +1364,18 @@ struct TidalSwiftCommands: Commands {
 		}
 	}
 
+	/// Seeks `delta` seconds from the current position, clamped to the track.
+	private func seek(by delta: Double) {
+		let player = appModel.player
+		guard !player.queueInfo.queue.isEmpty else { return }
+		let currentIndex = player.queueInfo.currentIndex
+		guard player.queueInfo.queue.indices.contains(currentIndex) else { return }
+		let track = player.queueInfo.queue[currentIndex].track
+		guard track.duration > 0 else { return }
+		let newFraction = min(max((Double(player.playbackInfo.fraction) * Double(track.duration) + delta) / Double(track.duration), 0.0), 1.0)
+		player.seek(to: newFraction)
+	}
+
 	@ViewBuilder
 	private func audioQualityButton(title: String, quality: AudioQuality) -> some View {
 		Button {
@@ -1249,5 +1387,6 @@ struct TidalSwiftCommands: Commands {
 				Text(title)
 			}
 		}
+		.disabled(!appModel.isAudioQualityAvailable(quality))
 	}
 }

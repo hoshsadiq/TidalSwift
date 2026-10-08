@@ -8,7 +8,6 @@
 
 import SwiftUI
 import TidalSwiftLib
-import Sliders
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -18,9 +17,9 @@ struct PlayerInfoView: View {
 	let player: Player
 
 
-	@EnvironmentObject var queueInfo: QueueInfo
-	@EnvironmentObject var appModel: TidalSwiftAppModel
-	@EnvironmentObject var playbackInfo: PlaybackInfo
+	@Environment(QueueInfo.self) private var queueInfo
+	@Environment(TidalSwiftAppModel.self) private var appModel
+	@Environment(PlaybackInfo.self) private var playbackInfo
 
 	var body: some View {
 		VStack {
@@ -136,7 +135,7 @@ struct FavoriteButton: View {
 	/// tap-to-expand container, so it needs a larger target than the miniplayer.
 	var hitPadding: CGFloat = 0
 
-	@EnvironmentObject var appModel: TidalSwiftAppModel
+	@Environment(TidalSwiftAppModel.self) private var appModel
 
 	var body: some View {
 		Button {
@@ -179,7 +178,7 @@ struct TrackInfoView: View {
 	let player: Player
 	let session: Session
 
-	@EnvironmentObject var queueInfo: QueueInfo
+	@Environment(QueueInfo.self) private var queueInfo
 
 	var body: some View {
 		HStack {
@@ -188,13 +187,7 @@ struct TrackInfoView: View {
 				HStack {
 					if let coverUrlSmall = track.getCoverUrl(session: session, resolution: 320),
 					   let coverUrlBig = track.getCoverUrl(session: session, resolution: 1280) {
-						AsyncImage(url: coverUrlSmall) { image in
-							image.resizable().scaledToFit()
-						} placeholder: {
-							Rectangle()
-						}
-						.frame(width: 40, height: 40)
-						.cornerRadius(CORNERRADIUS)
+						ArtworkImage(url: coverUrlSmall, size: 40, showsShadow: false)
 						.help("Show cover in new window")
 						#if canImport(AppKit)
 						.onTapGesture(count: 2) {
@@ -303,7 +296,7 @@ struct QualityBadge: View {
 struct PlaybackControls: View {
 	let player: Player
 
-	@EnvironmentObject var playbackInfo: PlaybackInfo
+	@Environment(PlaybackInfo.self) private var playbackInfo
 
 	var body: some View {
 		VStack(spacing: 6) {
@@ -315,6 +308,8 @@ struct PlaybackControls: View {
 						.padding(6)
 						.contentShape(Rectangle())
 				}
+				.accessibilityLabel("Shuffle")
+				.accessibilityAddTraits(playbackInfo.shuffle ? .isSelected : [])
 				.help("Shuffle")
 				.onTapGesture {
 					playbackInfo.shuffle.toggle()
@@ -354,6 +349,8 @@ struct PlaybackControls: View {
 						.padding(6)
 						.contentShape(Rectangle())
 				}
+				.accessibilityLabel("Repeat")
+				.accessibilityValue(repeatStateAccessibilityValue)
 				.help("Repeat")
 				.onTapGesture {
 					player.playbackInfo.repeatState = player.playbackInfo.repeatState.next()
@@ -364,67 +361,85 @@ struct PlaybackControls: View {
 			ProgressBar(player: player)
 		}
 	}
+
+	private var repeatStateAccessibilityValue: LocalizedStringResource {
+		switch playbackInfo.repeatState {
+		case .off: "Off"
+		case .all: "All"
+		case .single: "One"
+		}
+	}
 }
 
 struct ProgressBar: View {
 	let player: Player
 
-	@EnvironmentObject var playbackInfo: PlaybackInfo
+	@Environment(PlaybackInfo.self) private var playbackInfo
 	@Environment(\.colorScheme) var colorScheme: ColorScheme
 
 	var body: some View {
-		ValueSlider(value: $playbackInfo.fraction) { down in
-			if down { // Only apply while scrubbing, not when releasing
-				player.seek(to: Double(playbackInfo.fraction))
+		// Seek from the binding setter, not an editing callback: the callback that used to
+		// live here fires before the new value is written and would seek to the previous position.
+		let fraction = Binding(
+			get: { playbackInfo.fraction },
+			set: { newFraction in
+				playbackInfo.fraction = newFraction
+				player.seek(to: Double(newFraction))
 			}
-		}
-		.valueSliderStyle(
-			HorizontalValueSliderStyle(track: HorizontalValueTrack(view:
-																	Rectangle()
-																	.foregroundColor(.playbackProgressBarForeground(for: colorScheme))
-																	.frame(height: 8),
-																   mask: Rectangle()
-			)
-			.background(Color.playbackProgressBarBackground(for: colorScheme))
-			.frame(height: 8)
-			.cornerRadius(4)
-			.help((playbackInfo.playbackTimeInfo)),
-			thumb: EmptyView(),
-			thumbSize: .zero,
-			options: .interactiveTrack)
 		)
+
+		GeometryReader { geometry in
+			ZStack(alignment: .leading) {
+				Rectangle()
+					.foregroundStyle(Color.playbackProgressBarBackground(for: colorScheme))
+				Rectangle()
+					.foregroundStyle(Color.playbackProgressBarForeground(for: colorScheme))
+					.frame(width: geometry.size.width * min(max(playbackInfo.fraction, 0), 1))
+			}
+			.clipShape(.rect(cornerRadius: 4))
+			.contentShape(.rect)
+			.gesture(
+				DragGesture(minimumDistance: 0)
+					.onChanged { value in
+						guard geometry.size.width > 0 else { return }
+						fraction.wrappedValue = min(max(value.location.x / geometry.size.width, 0), 1)
+					}
+			)
+		}
 		.frame(height: 8)
+		.help(playbackInfo.playbackTimeInfo)
+		.accessibilityRepresentation {
+			Slider(value: fraction, in: 0...1) {
+				Text("Playback Position")
+			}
+			.accessibilityValue(playbackInfo.playbackTimeInfo)
+		}
 	}
 }
 
 struct VolumeControl: View {
 	let player: Player
 
-	@EnvironmentObject var playbackInfo: PlaybackInfo
+	@Environment(PlaybackInfo.self) private var playbackInfo
 
 	var body: some View {
+		@Bindable var playbackInfo = playbackInfo
 		HStack {
 			speakerSymbol
 				.frame(width: 20, alignment: .leading)
+				.accessibilityLabel("Mute")
+				.accessibilityAddTraits(playbackInfo.volume == 0 ? .isSelected : [])
 				.onTapGesture {
 					player.toggleMute()
 				}
-			ValueSlider(value: $playbackInfo.volume, in: 0.0...1.0)
-				.valueSliderStyle(
-					HorizontalValueSliderStyle(track:
-												HorizontalValueTrack(view:
-													Rectangle()
-														.foregroundColor(.secondary)
-														.frame(height: 4)
-												)
-												.background(Color.secondary)
-												.frame(height: 4)
-												.cornerRadius(3),
-											   thumbSize: CGSize(width: 15, height: 15),
-											   options: .interactiveTrack)
-				)
-				.frame(width: 80, height: 30)
-				.layoutPriority(1)
+			Slider(value: $playbackInfo.volume, in: 0...1) {
+				Text("Volume")
+			}
+			.labelsHidden()
+			.controlSize(.small)
+			.tint(.secondary)
+			.frame(width: 80, height: 30)
+			.layoutPriority(1)
 		}
 	}
 

@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 #MISE description="Generate licenses plist from SPM dependencies (Settings acknowledgements)"
 #MISE depends=["generate"]
-set -eo pipefail
+# Keeps the Settings window's acknowledgements in step with the pinned dependencies.
+set -Eeuo pipefail
 
-exec license-plist --xcodeproj TidalSwift.xcodeproj --output-path TidalSwift/Settings.bundle
+# shellcheck source=mise/tasks/_lib.sh
+. "$(dirname -- "${BASH_SOURCE[0]}")/_lib.sh"
+
+main() {
+	cd -- "$(task_repo_root)"
+	exec license-plist --xcodeproj-path TidalSwift.xcodeproj --output-path TidalSwift/Settings.bundle
+}
+
+main "$@"

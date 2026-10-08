@@ -7,18 +7,24 @@
 //
 
 import SwiftUI
-import Combine
 import TidalSwiftLib
 
-final class PlaybackInfo: ObservableObject {
-	@Published var fraction: CGFloat = 0.0
-	@Published var playbackTimeInfo: String = "0:00 / 0:00"
-	@Published var playing: Bool = false
-	@Published var volume: Float = 1.0
-	@Published var shuffle: Bool = false
-	@Published var repeatState: RepeatState = .off
-	@Published var pauseAfter: Bool = false
-	@Published var failedTrackIds: Set<Int> = []
+@Observable
+final class PlaybackInfo {
+	var fraction: CGFloat = 0.0
+	var playbackTimeInfo: String = "0:00 / 0:00"
+	var playing: Bool = false
+	var volume: Float = 1.0 { didSet { hasUnsavedChanges = true } }
+	var shuffle: Bool = false { didSet { hasUnsavedChanges = true } }
+	var repeatState: RepeatState = .off { didSet { hasUnsavedChanges = true } }
+	var pauseAfter: Bool = false { didSet { hasUnsavedChanges = true } }
+	var failedTrackIds: Set<Int> = []
+	/// The stream resolved for a track, tagged with the track it describes.
+	/// Resolution is async, so during a track change this still names the previous
+	/// track; readers must match `trackId` before describing the current track.
+	var resolvedStream: ResolvedStream?
+
+	@ObservationIgnored var hasUnsavedChanges = false
 
 	// MARK: Now Playing drawer
 	/// Whether the Now Playing drawer is expanded. Toggled by tapping the player
@@ -26,18 +32,29 @@ final class PlaybackInfo: ObservableObject {
 	///
 	/// Collapsing deliberately leaves `activePanel` untouched so the last panel
 	/// is restored when the drawer reopens.
-	@Published var isNowPlayingExpanded: Bool = false
+	var isNowPlayingExpanded: Bool = false
 	/// Which panel the expanded Now Playing drawer shows. Persisted to
 	/// UserDefaults so it survives relaunches.
-	@Published var activePanel: NowPlayingPanel = .none
+	var activePanel: NowPlayingPanel = .none { didSet { hasUnsavedChanges = true } }
 	/// Whether the Now Playing drawer covers the whole window.
-	@Published var isFullscreen: Bool = false
+	var isFullscreen: Bool = false
 	/// Current playback position in seconds, kept in sync by the player's
 	/// periodic time observer. Drives the lyrics panel's line highlight.
-	@Published var playbackPosition: Double = 0
+	var playbackPosition: Double = 0
 	/// Ambient background colour derived from the current artwork. Shared with
 	/// the drawer so its panels can pick a foreground that contrasts with it.
-	@Published var ambientColor: Color = NowPlayingAmbient.fallback
+	var ambientColor: Color = NowPlayingAmbient.fallback
+}
+
+/// The stream that actually plays for a track (not what the track could offer).
+struct ResolvedStream {
+	let trackId: Int
+	let quality: AudioQuality
+	let isDolbyAtmos: Bool
+	/// Set for the locally decrypted rendition, so the badge can name the bit depth
+	/// and sample rate of what is playing rather than just "24-bit".
+	var hiResBitDepth: Int?
+	var hiResSampleRate: Int?
 }
 
 /// Panels of the Now Playing drawer.

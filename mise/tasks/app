@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+#MISE description="Launch the app from this checkout, tidying stale URL-scheme registrations first"
+#MISE depends=["build"]
+# TidalSwift claims tidal://, and so does every build copy ever launched: a stale path in the
+# registry can swallow the login callback. This removes the others, then launches this checkout.
+set -Eeuo pipefail
+
+# shellcheck source=mise/tasks/_lib.sh
+. "$(dirname -- "${BASH_SOURCE[0]}")/_lib.sh"
+
+readonly LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+readonly BUNDLE_NAME="TidalSwift.app"
+
+usage() {
+	cat <<'EOF'
+Launch the app from this checkout, removing other registered copies of TidalSwift.app
+from LaunchServices first.
+
+Env overrides:
+  CONFIGURATION    Build configuration to launch (default Debug).
+  TIDY_ONLY        Set to tidy the LaunchServices registry and exit without launching.
+  LAUNCH_DETACHED  Set to launch with `open` (no console output) instead of running
+                   the binary in the foreground.
+EOF
+}
+
+# Every registered copy of this app, from the LaunchServices dump; matched on the path alone,
+# because a copy can be chosen by the system even when the dump does not list it as a claimant.
+registered_paths() {
+	"$LSREGISTER" -dump 2>/dev/null | awk '
+		/^[[:space:]]*path:/ {
+			p = $0
+			sub(/^[[:space:]]*path:[[:space:]]*/, "", p)
+			sub(/[[:space:]]*\(0x[0-9a-fA-F]+\)[[:space:]]*$/, "", p)
+			if (p ~ /\/TidalSwift\.app$/) print p
+		}
+	' | sort -u
+}
+
+# Unregister every other copy of this app, leaving the one at $1 alone.
+tidy_registry() {
+	local here="$1"
+	local removed=0
+	local kept_other=0
+	while IFS= read -r path; do
+		[[ -n "$path" ]] || continue
+		# Only this app's own copies are touched; TIDAL.app keeps its registration.
+		[[ "$path" == */"$BUNDLE_NAME" ]] || continue
+		if [[ "$path" == "$here" ]]; then
+			continue
+		fi
+		if "$LSREGISTER" -u "$path" >/dev/null 2>&1; then
+			printf 'unregistered  %s\n' "$path"
+			removed=$((removed + 1))
+		else
+			kept_other=$((kept_other + 1))
+		fi
+	done < <(registered_paths)
+
+	printf '%s stale registration(s) removed from %s\n' "$removed" "$BUNDLE_NAME"
+	if (( kept_other > 0 )); then
+		printf '%s could not be removed (already gone, or not removable)\n' "$kept_other"
+	fi
+}
+
+# Run the binary rather than `open` so its `[LOGIN]`/`[PLAYBACK]` console output arrives here;
+# the app claims tidal:// for itself on launch, which is what returns the callback.
+launch() {
+	local app_path="$1"
+	if [[ -n "${LAUNCH_DETACHED:-}" ]]; then
+		open "$app_path"
+		printf 'launched %s (detached, no console output)\n' "$app_path"
+	else
+		printf 'launching %s — console output follows, Ctrl-C quits\n' "$app_path"
+		# Foundation buffers stdout when it is not a terminal, which would hide every line of a
+		# captured log until the buffer fills; NSUnbufferedIO writes each as it happens.
+		NSUnbufferedIO=YES exec "$app_path/Contents/MacOS/TidalSwift"
+	fi
+}
+
+main() {
+	if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+		usage
+		return 0
+	fi
+
+	cd -- "$(task_repo_root)"
+
+	local app_path
+	app_path="$(task_app_path "${CONFIGURATION:-Debug}")"
+
+	if [[ ! -x "$LSREGISTER" ]]; then
+		printf 'lsregister not found at %s\n' "$LSREGISTER" >&2
+		exit 1
+	fi
+	if [[ ! -d "$app_path" ]]; then
+		printf 'No build at %s — run: mise run build\n' "$app_path" >&2
+		exit 1
+	fi
+
+	# Absolute path of the copy being launched, so it is never the one removed.
+	local here
+	here="$(cd -- "$(dirname -- "$app_path")" && pwd -P)/$BUNDLE_NAME"
+
+	tidy_registry "$here"
+
+	if [[ -n "${TIDY_ONLY:-}" ]]; then
+		printf 'TIDY_ONLY set, not launching\n'
+		exit 0
+	fi
+
+	launch "$app_path"
+}
+
+main "$@"

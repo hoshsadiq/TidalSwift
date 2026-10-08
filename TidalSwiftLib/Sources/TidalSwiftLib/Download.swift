@@ -8,20 +8,18 @@
 
 import Foundation
 import AVFoundation
+import Observation
 
-public final class DownloadStatus: ObservableObject {
-	@Published public var downloadingTasks: Int = 0
+@Observable
+public final class DownloadStatus {
+	public var downloadingTasks: Int = 0
 
 	func startTask() {
-		DispatchQueue.main.async { [weak self] in
-			self?.downloadingTasks += 1
-		}
+		downloadingTasks += 1
 	}
 
 	func finishTask() {
-		DispatchQueue.main.async { [weak self] in
-			self?.downloadingTasks -= 1
-		}
+		downloadingTasks -= 1
 	}
 }
 
@@ -63,35 +61,65 @@ public class Download {
 		"\(video.trackNumber) \(video.title) - \(video.artists.formArtistString())"
 	}
 
+	/// `audioQuality` is explicit because this app keeps two qualities: playback and offline sync.
 	public func download(track: Track, parentFolder: String = "", audioQuality: AudioQuality) async -> Bool {
 		downloadStatus.startTask()
 		defer { downloadStatus.finishTask() }
 
-		// Atmos-only tracks are refused by `streamUrl`/`offlineUrl`; the manifest
-		// endpoint serves them (as E-AC-3 MP4), hence the URL-derived extension.
-		var url = await track.audioUrl(session: session, audioQuality: audioQuality)
-		if url == nil {
-			url = await session.playbackManifestUrl(trackId: track.id, audioQuality: audioQuality)
-		}
-		guard let url else {
-			return false
-		}
 		let filename = formFileName(track)
 		print("Downloading: \(filename)")
-		let optionalPath = buildPath(baseLocation: .downloads, parentFolder: parentFolder, name: filename, pathExtension: session.pathExtension(for: url, audioQuality: audioQuality))
-		guard let path = optionalPath else {
+
+		// At a FLAC tier the encrypted rendition is downloaded and decrypted, so the file
+		// on disk is a playable FLAC. At Medium/Low the branch below assembles the DASH.
+		if HiResStreaming.usesHiResStereo(
+			for: track,
+			session: session,
+			quality: audioQuality,
+			preferDolbyAtmos: session.helpers.offline.preferDolbyAtmos
+		),
+		   case .resolved(let manifest) = await session.hiResStereoStream(trackId: track.id) {
+			return await save(track, named: filename, parentFolder: parentFolder, pathExtension: "flac") { path in
+				try await HiResStreaming.downloadAndDecrypt(manifest, to: path)
+			}
+		}
+
+		// At High/Low `streamUrl` is refused; the desktop endpoint answers an unencrypted
+		// AAC DASH manifest, which fills only the plain stereo tiers.
+		let wantsAtmos = track.hasDolbyAtmos && (session.helpers.offline.preferDolbyAtmos || !track.hasStereo)
+		if audioQuality == .medium || audioQuality == .low, track.hasStereo, !wantsAtmos,
+		   let manifest = await session.dashAudioManifest(trackId: track.id, audioQuality: audioQuality) {
+			return await save(track, named: filename, parentFolder: parentFolder, pathExtension: "m4a") { path in
+				try await DashAudio.assemble(manifest, to: path)
+			}
+		}
+
+		guard let stream = await track.audioStream(session: session, audioQuality: audioQuality, preferDolbyAtmos: session.helpers.offline.preferDolbyAtmos) else {
+			return false
+		}
+		return await save(track, named: filename, parentFolder: parentFolder, pathExtension: stream.pathExtension) { path in
+			try await Network.download(stream.url, path: path, overwrite: true)
+		}
+	}
+
+	/// Builds the path under the downloads folder, writes the track's audio there and tags it.
+	private func save(
+		_ track: Track,
+		named filename: String,
+		parentFolder: String,
+		pathExtension: String,
+		write: (URL) async throws -> Void
+	) async -> Bool {
+		guard let path = buildPath(baseLocation: .downloads, parentFolder: parentFolder, name: filename, pathExtension: pathExtension) else {
 			displayError(title: "Error while downloading track", content: "Couldn't build path for track: \(track.title) -  \(track.artists.formArtistString())")
 			return false
 		}
-
 		do {
-			try await Network.download(url, path: path, overwrite: true)
+			try await write(path)
 		} catch {
 			displayError(title: "Error while downloading track", content: "Download failed for track \(track.title). Error: \(error)")
 			return false
 		}
-
-//		await metadata.setMetadata(for: track, at: path)
+		await metadata.setMetadata(for: track, at: path)
 		print("Download Finished: \(filename)")
 		return true
 	}
@@ -124,7 +152,6 @@ public class Download {
 		} catch {
 			return false
 		}
-//		metadataHandler.setMetadata(for: video, at: path)
 		// TODO: Metadata for Videos
 	}
 
@@ -168,7 +195,6 @@ public class Download {
 }
 
 /// Sanitizes a single path component derived from untrusted API data (e.g. a title).
-/// Removes path separators, `..` sequences, leading dots and control characters.
 private func sanitizedPathComponent(_ component: String) -> String {
 	var sanitized = component
 		.replacingOccurrences(of: "/", with: ":")
@@ -179,8 +205,7 @@ private func sanitizedPathComponent(_ component: String) -> String {
 	return sanitized
 }
 
-/// Sanitizes a parent folder path. `/` separators between components are kept,
-/// but every component is sanitized individually, so `..` can't escape the root.
+/// Sanitizes a parent folder path, component by component, so `..` can't escape the root.
 private func sanitizedParentFolder(_ parentFolder: String) -> String {
 	parentFolder
 		.split(separator: "/", omittingEmptySubsequences: true)
@@ -191,16 +216,6 @@ private func sanitizedParentFolder(_ parentFolder: String) -> String {
 
 func buildPath(baseLocation: DownloadLocation, parentFolder: String?, name: String, pathExtension: String?) -> URL? {
 
-//	if !parentFolder.isEmpty {
-//		if URL(string: parentFolder) == nil {
-//			displayError(title: "Download Error", content: "Target Path '\(targetPath)' is not valid")
-//			return nil
-//		}
-//	}
-//	if URL(string: name) == nil {
-//		displayError(title: "Download Error", content: "Name '\(name)' is not valid")
-//		return nil
-//	}
 	// TODO: Doesn't work as intended, because URL doesn't allow whitespace, but should
 
 	var path: URL

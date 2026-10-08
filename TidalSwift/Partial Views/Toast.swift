@@ -15,16 +15,16 @@ struct ToastView: View {
 	var body: some View {
 		Text(message)
 			.font(.system(size: 13, weight: .medium))
-			.foregroundStyle(.secondary)
+			// No forced dark scheme: `.regularMaterial` follows the window appearance, so
+			// the text must resolve against that same appearance. Forcing `.dark` left
+			// near-white text on a light capsule under a light system appearance.
+			.foregroundStyle(.primary)
 			.multilineTextAlignment(.center)
 			.lineLimit(2)
 			.padding(.horizontal, 16)
 			.padding(.vertical, 10)
 			.background(.regularMaterial, in: Capsule())
 			.shadow(color: .black.opacity(0.25), radius: 10, y: 3)
-			// The capsule is always dark, so resolve its text in the dark scheme
-			// regardless of the window's appearance.
-			.environment(\.colorScheme, .dark)
 	}
 }
 
@@ -33,12 +33,14 @@ struct ToastView: View {
 /// The toast fades in, holds for the duration set by `ToastCenter.show`, then
 /// fades out. It never intercepts clicks.
 private struct ToastModifier: ViewModifier {
-	@ObservedObject var toastCenter: ToastCenter
+	var toastCenter: ToastCenter
 	let bottomPadding: CGFloat
 
 	func body(content: Content) -> some View {
 		content.overlay(alignment: .bottom) {
-			if let message = toastCenter.message {
+			// An empty or whitespace-only message would show a textless capsule.
+			if let message = toastCenter.message,
+			   !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
 				ToastView(message: message)
 					.padding(.bottom, bottomPadding)
 					.transition(.opacity)

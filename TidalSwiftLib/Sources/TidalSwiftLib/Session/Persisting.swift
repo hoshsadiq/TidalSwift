@@ -31,6 +31,9 @@ extension Session {
 	}
 
 	public func saveSession() {
+		// A token is what makes this a session, and this runs from `saveState` on quit and on
+		// every scene-phase change; writing without one put a stale "Session Information" back.
+		guard !config.refreshToken.isEmpty else { return }
 		guard let countryCode = countryCode,
 			  let userId = userId else {
 			displayError(title: "Couldn't save Session Information",
@@ -51,7 +54,6 @@ extension Session {
 			"clientID": config.clientID,
 			"apiToken": config.apiToken,
 			"offlineAudioQuality": config.offlineAudioQuality.rawValue,
-			"urlType": config.urlType.rawValue,
 			"imageSize": String(config.imageSize)
 		]
 		if let tokenExpirationDate = config.tokenExpirationDate {
@@ -61,9 +63,16 @@ extension Session {
 		UserDefaults.standard.set(persistentInformation, forKey: "Config Information")
 	}
 
+	/// The only keys a logout owns. The rest of the app's UserDefaults domain — the
+	/// `OfflineDB:*` database and the offline preferences — says which files the offline
+	/// library holds, and `Offline.init` deletes every file missing from it at launch, so a
+	/// logout that removed the whole domain emptied the library.
+	private static let sessionKeys = ["Config Information", "Session Information"]
+
 	public func deletePersistentInformation() {
-		let domain = Bundle.main.bundleIdentifier!
-		UserDefaults.standard.removePersistentDomain(forName: domain)
+		for key in Self.sessionKeys {
+			UserDefaults.standard.removeObject(forKey: key)
+		}
 	}
 }
 
@@ -82,8 +91,6 @@ extension Config {
 			  let apiToken = persistentInformation["apiToken"],
 			  let offlineAudioQualityString = persistentInformation["offlineAudioQuality"],
 			  let offlineAudioQuality = AudioQuality(rawValue: offlineAudioQualityString),
-			  let urlTypeString = persistentInformation["urlType"],
-			  let urlType = AudioUrlType(rawValue: urlTypeString),
 			  let imageSizeString = persistentInformation["imageSize"],
 			  let imageSize = Int(imageSizeString)
 		else {
@@ -105,7 +112,6 @@ extension Config {
 			clientID: clientID,
 			apiToken: apiToken,
 			offlineAudioQuality: offlineAudioQuality,
-			urlType: urlType,
 			imageSize: imageSize,
 			tokenExpirationDate: tokenExpirationDate
 		)

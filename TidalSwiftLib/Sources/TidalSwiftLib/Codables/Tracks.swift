@@ -46,6 +46,9 @@ public struct Track: Codable, Equatable, Identifiable, Hashable {
 	public let explicit: Bool
 	public let audioQuality: AudioQuality?
 	public let audioModes: [AudioMode]?
+	/// Defaulted so the long memberwise initialiser call sites stay unchanged; the field
+	/// only matters for tracks built from a payload that carries it.
+	public var mediaMetadata: MediaMetadata? = nil
 	public let artist: Artist?
 	public let artists: [Artist]
 	public let album: Album
@@ -102,8 +105,53 @@ public struct Track: Codable, Equatable, Identifiable, Hashable {
 		await session.trackCredits(trackId: id)
 	}
 
-	public func audioUrl(session: Session, audioQuality: AudioQuality) async -> URL? {
-		await session.audioUrl(trackId: id, audioQuality: audioQuality)
+	public var hasDolbyAtmos: Bool {
+		audioModes?.contains(.dolbyAtmos) ?? false
+	}
+
+	/// A track can advertise hi-res even though the playback endpoints answer a
+	/// `HI_RES_LOSSLESS` request with 44,1 kHz / 16 Bit. Showing the marker is honest;
+	/// claiming the audio is hi-res would not be. See `AudioQuality.max`.
+	public var hasHiRes: Bool {
+		mediaMetadata?.tags.contains("HIRES_LOSSLESS") ?? false
+	}
+	public var hasStereo: Bool {
+		guard let audioModes else { return true }
+		return audioModes.contains(.stereo) || audioModes.contains(.mono)
+	}
+
+	/// Sony 360 Reality Audio can't be played, so a track needs at least one other mode
+	public var isPlayable: Bool {
+		streamReady && (audioModes?.contains { $0 != .sony360RealityAudio } ?? true)
+	}
+
+	/// Dolby Atmos is used when preferred or when the track has no stereo version
+	public func audioStream(session: Session, audioQuality: AudioQuality, preferDolbyAtmos: Bool) async -> AudioStream? {
+		if hasDolbyAtmos && (preferDolbyAtmos || !hasStereo) {
+			if let url = await session.dolbyAtmosUrl(trackId: id) {
+				return AudioStream(url: url, pathExtension: "m4a", isDolbyAtmos: true)
+			}
+			if !hasStereo {
+				return nil
+			}
+		}
+		if let url = await session.audioUrl(trackId: id, audioQuality: audioQuality) {
+			return AudioStream(url: url, pathExtension: session.pathExtension(for: audioQuality), isDolbyAtmos: false)
+		}
+		// `streamUrl` refuses an Atmos-capable track at every tier (HTTP 401,
+		// subStatus 4005 "Asset is not ready for playback"), and Tidal answers the
+		// same track through the manifest instead. Fall back at this tier only: an
+		// offline file is named after the configured quality, so degrading to a
+		// lower tier would store a file that claims to be lossless and is not.
+		// The rendition is read from the manifest, never assumed from the request.
+		guard let manifest = await session.playbackManifestUrl(trackId: id, audioQuality: audioQuality) else {
+			return nil
+		}
+		return AudioStream(
+			url: manifest.url,
+			pathExtension: session.pathExtension(for: manifest.url, audioQuality: audioQuality),
+			isDolbyAtmos: manifest.isDolbyAtmos
+		)
 	}
 
 	public func isOffline(session: Session) async -> Bool {
@@ -123,6 +171,17 @@ public struct Track: Codable, Equatable, Identifiable, Hashable {
 	}
 }
 
+/// A stream URL resolved for a track: which URL plays, what extension it serves, and
+/// whether it is the Dolby Atmos rendition.
+public struct AudioStream {
+	/// The URL to play.
+	public let url: URL
+	/// The extension the URL serves, used when the stream is saved to disk.
+	public let pathExtension: String
+	/// Whether the stream is the Dolby Atmos rendition.
+	public let isDolbyAtmos: Bool
+}
+
 struct AudioUrl: Decodable {
 	let url: URL
 	let trackId: Int
@@ -131,16 +190,27 @@ struct AudioUrl: Decodable {
 	let codec: String
 }
 
-/// Response of `/tracks/{id}/playbackinfopostpaywall`. Hi-res answers with a DASH
-/// manifest, which AVPlayer cannot play, so only the BTS payload is used.
+/// Response of `/tracks/{id}/playbackinfopostpaywall` and of the desktop host's
+/// `/tracks/{id}/playbackinfo`. High and Low answer with a DASH manifest on that host,
+/// which AVPlayer cannot play, so only the BTS payload is used. `bitDepth` and
+/// `sampleRate` are the desktop host's description of the rendition it serves.
 struct TrackPlaybackInfo: Decodable {
+	let audioMode: AudioMode?
+	/// Defaulted so existing memberwise call sites stay unchanged; both are set by the
+	/// payload, not by us.
+	var bitDepth: Int? = nil
+	var sampleRate: Int? = nil
 	let manifestMimeType: String
 	let manifest: String
 }
 
 /// The BTS (Bento) manifest: a base64-encoded JSON payload with a direct stream URL.
+/// `keyId` is the wrapped content key of an `OLD_AES` manifest.
 struct BTSManifest: Decodable {
+	let mimeType: String?
+	let codecs: String?
 	let encryptionType: String?
+	let keyId: String?
 	let urls: [URL]
 }
 

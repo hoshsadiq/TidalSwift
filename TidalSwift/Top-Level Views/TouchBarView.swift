@@ -10,9 +10,10 @@ import SwiftUI
 
 struct TouchBarView: View {
 	let player: Player
-	@ObservedObject var playbackInfo: PlaybackInfo
+	var playbackInfo: PlaybackInfo
 
 	var body: some View {
+		@Bindable var playbackInfo = playbackInfo
 		Button(action: {
 			player.previous()
 		}) {

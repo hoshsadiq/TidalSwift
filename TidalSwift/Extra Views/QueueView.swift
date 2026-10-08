@@ -14,8 +14,8 @@ struct QueueView: View {
 	unowned let session: Session
 	unowned let player: Player
 
-	@EnvironmentObject var queueInfo: QueueInfo
-	@EnvironmentObject var appModel: TidalSwiftAppModel
+	@Environment(QueueInfo.self) private var queueInfo
+	@Environment(TidalSwiftAppModel.self) private var appModel
 
 	/// How long auto-follow stays paused after the last manual scroll.
 	private static let autoScrollResumeDelay: TimeInterval = 10 * 60
@@ -123,10 +123,22 @@ struct QueueView: View {
 
 	// MARK: - Header
 
+	/// Summed length of every track in the queue, shown under the header title.
+	private var totalDuration: Int {
+		queueInfo.queue.reduce(0) { $0 + $1.track.duration }
+	}
+
 	private var header: some View {
 		HStack {
-			Text("Play queue")
-				.font(.headline)
+			VStack(alignment: .leading, spacing: 1) {
+				Text("Play queue")
+					.font(.headline)
+				if !isEmpty {
+					Text("\(queueInfo.queue.count) tracks · \(secondsToHoursMinutesSecondsString(seconds: totalDuration))")
+						.font(.caption)
+						.foregroundColor(.secondary)
+				}
+			}
 			Spacer(minLength: 8)
 			Button {
 				appModel.showQueuePanel = false
@@ -248,6 +260,9 @@ private struct QueueRow: View {
 					.foregroundColor(.primary)
 					.lineLimit(1)
 					.help(trackToolTipString)
+					.accessibilityAction {
+						onPlay()
+					}
 				Text(item.track.artists.formArtistString())
 					.font(.caption)
 					.foregroundColor(.secondary)
@@ -260,6 +275,7 @@ private struct QueueRow: View {
 				} label: {
 					Image(systemName: "xmark")
 						.secondaryIconColor()
+						.accessibilityLabel("Remove from Queue")
 				}
 				.buttonStyle(.plain)
 				.help("Remove from queue")
@@ -284,14 +300,7 @@ private struct QueueRow: View {
 	@ViewBuilder
 	private var artwork: some View {
 		if let coverUrl = item.track.getCoverUrl(session: session, resolution: 80) {
-			AsyncImage(url: coverUrl) { image in
-				image.resizable().scaledToFit()
-			} placeholder: {
-				Rectangle()
-			}
-			.frame(width: 40, height: 40)
-			.cornerRadius(CORNERRADIUS)
-			.accessibilityHidden(true)
+			ArtworkImage(url: coverUrl, size: 40, showsShadow: false)
 		} else {
 			Rectangle()
 				.foregroundColor(.black)
@@ -315,7 +324,7 @@ struct QueuePanel: View {
 	unowned let session: Session
 	unowned let player: Player
 
-	@EnvironmentObject var playbackInfo: PlaybackInfo
+	@Environment(PlaybackInfo.self) private var playbackInfo
 	@Environment(\.colorScheme) private var colorScheme
 
 	var body: some View {
@@ -364,21 +373,31 @@ private struct QueueScrollObserver: NSViewRepresentable {
 
 	private final class ObserverView: NSView {
 		var onUserScroll: (() -> Void)?
-		/// Only touched on the main thread; `nonisolated(unsafe)` lets the
-		/// nonisolated `deinit` remove the registration.
+		/// Registered on the main thread, but `deinit` is not guaranteed to run there,
+		/// so the lock guards the handoff.
+		nonisolated let observerLock = NSLock()
 		nonisolated(unsafe) private var observer: NSObjectProtocol?
 
 		override func viewDidMoveToWindow() {
 			super.viewDidMoveToWindow()
 			guard window != nil else { return }
 			attachIfNeeded()
-			if observer == nil {
+			if registeredObserver == nil {
 				DispatchQueue.main.async { [weak self] in self?.attachIfNeeded() }
 			}
 		}
 
+		private var registeredObserver: NSObjectProtocol? {
+			observerLock.lock()
+			defer { observerLock.unlock() }
+			return observer
+		}
+
 		private func attachIfNeeded() {
-			guard observer == nil, let scrollView = enclosingScrollView else { return }
+			guard let scrollView = enclosingScrollView else { return }
+			observerLock.lock()
+			defer { observerLock.unlock() }
+			guard observer == nil else { return }
 			observer = NotificationCenter.default.addObserver(
 				forName: NSScrollView.willStartLiveScrollNotification,
 				object: scrollView,
@@ -396,8 +415,12 @@ private struct QueueScrollObserver: NSViewRepresentable {
 		override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
 		deinit {
-			if let observer {
-				NotificationCenter.default.removeObserver(observer)
+			observerLock.lock()
+			let token = observer
+			observer = nil
+			observerLock.unlock()
+			if let token {
+				NotificationCenter.default.removeObserver(token)
 			}
 		}
 	}

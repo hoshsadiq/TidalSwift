@@ -10,7 +10,7 @@ import SwiftUI
 import TidalSwiftLib
 
 struct PlaybackHistoryView: View {
-	@EnvironmentObject var queueInfo: QueueInfo
+	@Environment(QueueInfo.self) private var queueInfo
 
 	let session: Session
 	let player: Player
@@ -42,6 +42,9 @@ struct PlaybackHistoryView: View {
 								.fontWeight(item.id == queueInfo.history.count - 1 ? .bold : .regular)
 								.lineLimit(1)
 								.onTapGesture(count: 2) {
+									player.add(tracks: queueInfo.history.map { $0.track }, .now, playAt: item.id)
+								}
+								.accessibilityAction {
 									player.add(tracks: queueInfo.history.map { $0.track }, .now, playAt: item.id)
 								}
 								.contextMenu {

@@ -76,8 +76,8 @@ extension ViewState {
 	/// Replaces the current view's mix list in place.
 	///
 	/// Optimistic updates can't wait for `replaceCurrentView`'s async
-	/// round-trip, so they write the stack entry directly; `stack` is
-	/// `@Published`, so the change renders immediately.
+	/// round-trip, so they write the stack entry directly; Observation tracks
+	/// the nested change, so it renders immediately.
 	func setCurrentMixes(_ mixes: [MixesItem]) {
 		guard !stack.isEmpty else { return }
 		stack[stack.count - 1].mixes = mixes

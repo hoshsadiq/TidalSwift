@@ -51,7 +51,7 @@ struct CollectionPlaylists: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 
 	@State private var filterText = ""
 	@State private var sortOption: CollectionPlaylistSort = .created
@@ -181,7 +181,7 @@ struct CollectionAlbums: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 
 	@State private var filterText = ""
 	@State private var sortOption: CollectionAlbumSort = .dateAdded
@@ -328,7 +328,7 @@ struct CollectionTracks: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 
 	@State private var filterText = ""
 	@State private var sortOption: CollectionTrackSort = .dateAdded
@@ -531,8 +531,8 @@ private struct CollectionTrackRow: View {
 	let player: Player
 	let onDoubleTap: () -> Void
 
-	@EnvironmentObject var queueInfo: QueueInfo
-	@EnvironmentObject var playbackInfo: PlaybackInfo
+	@Environment(QueueInfo.self) private var queueInfo
+	@Environment(PlaybackInfo.self) private var playbackInfo
 	@State private var isFavorite: Bool?
 	@State private var isOffline = false
 
@@ -592,6 +592,43 @@ private struct CollectionTrackRow: View {
 			isOffline = await track.isOffline(session: session)
 			isFavorite = await track.isInFavorites(session: session)
 		}
+		// The whole row is one VoiceOver element; its text and buttons merge into
+		// it, so each interactive child is re-exposed by name below.
+		.accessibilityElement(children: .combine)
+		.accessibilityLabel(accessibilityLabel)
+		.accessibilityAddTraits(.isButton)
+		.accessibilityAction(.default, play)
+		.accessibilityAction(named: "Add to queue", addToQueue)
+		.accessibilityAction(named: "Toggle favourite", toggleFavorite)
+	}
+
+	private func play() {
+		guard !track.isUnavailable else { return }
+		onDoubleTap()
+	}
+
+	private func addToQueue() {
+		player.add(track: track, .last)
+	}
+
+	private var accessibilityLabel: String {
+		var parts = [track.title]
+		if let version = track.version {
+			parts.append(version)
+		}
+		parts.append(track.artists.formArtistString())
+		parts.append(track.album.title)
+		if let dateAdded {
+			parts.append(relativeDateAddedString(dateAdded))
+		}
+		parts.append(secondsToHoursMinutesSecondsString(seconds: track.duration))
+		if let bpm = track.bpm {
+			parts.append("\(bpm) BPM")
+		}
+		if isOffline {
+			parts.append("Available offline")
+		}
+		return parts.joined(separator: ", ")
 	}
 
 	@ViewBuilder
@@ -636,12 +673,14 @@ private struct CollectionTrackRow: View {
 		HStack(spacing: 12) {
 			Image(systemName: "cloud.fill")
 				.opacity(isOffline ? 1 : 0)
+				.accessibilityHidden(true)
 			Button {
 				player.add(track: track, .last)
 			} label: {
 				Image(systemName: "plus")
 			}
 			.buttonStyle(.plain)
+			.accessibilityHidden(true)
 			.help("Add to Queue")
 
 			Button {
@@ -650,6 +689,7 @@ private struct CollectionTrackRow: View {
 				Image(systemName: (isFavorite ?? false) ? "heart.fill" : "heart")
 			}
 			.buttonStyle(.plain)
+			.accessibilityHidden(true)
 			.help((isFavorite ?? false) ? "Remove from Favorites" : "Add to Favorites")
 		}
 		.secondaryIconColor()
@@ -704,7 +744,7 @@ struct CollectionVideos: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 
 	@State private var filterText = ""
 	@State private var sortOption: CollectionVideoSort = .dateAdded
@@ -786,7 +826,7 @@ struct CollectionProfiles: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 
 	@State private var filterText = ""
 	@State private var sortOption: CollectionProfileSort = .dateAdded
@@ -852,7 +892,7 @@ struct CollectionMixes: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 
 	@State private var isLoadingMore = false
 	@State private var loadMoreFailed = false

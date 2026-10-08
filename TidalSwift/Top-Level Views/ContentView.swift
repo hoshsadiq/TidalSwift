@@ -11,12 +11,13 @@ import AppKit
 import TidalSwiftLib
 
 struct ContentView: View {
-	@ObservedObject var loginInfo: LoginInfo
-	@ObservedObject var playlistEditingValues: PlaylistEditingValues
-	@ObservedObject var viewState: ViewState
-	@ObservedObject var sortingState: SortingState
+	var loginInfo: LoginInfo
+	var playlistEditingValues: PlaylistEditingValues
+	var viewState: ViewState
+	var sortingState: SortingState
 
-	@StateObject private var toastCenter = ToastCenter()
+	@Environment(ToastCenter.self) private var toastCenter
+	@Environment(TidalSwiftAppModel.self) private var appModel
 
 	let session: Session
 	let player: Player
@@ -25,17 +26,19 @@ struct ContentView: View {
 	private static let toastBottomInset: CGFloat = 96
 
 	var body: some View {
+		@Bindable var loginInfo = loginInfo
+		@Bindable var playlistEditingValues = playlistEditingValues
 		TopDetailView(session: session, player: player)
-			.environmentObject(viewState)
-			.environmentObject(sortingState)
-			.environmentObject(playlistEditingValues)
-			.environmentObject(player.playbackInfo)
-			.environmentObject(player.queueInfo)
-			.environmentObject(session.helpers.downloadStatus)
-			.environmentObject(toastCenter)
+			.environment(viewState)
+			.environment(sortingState)
+			.environment(playlistEditingValues)
+			.environment(player.playbackInfo)
+			.environment(player.queueInfo)
+			.environment(session.helpers.downloadStatus)
+			.environment(toastCenter)
 			.toast(toastCenter, bottomPadding: Self.toastBottomInset)
 			.background(EmptyView().sheet(isPresented: $loginInfo.showModal) {
-				LoginView(loginInfo: loginInfo, viewState: viewState, session: session, player: player)
+				LoginView(loginInfo: loginInfo, viewState: viewState, session: session)
 			})
 			.background(EmptyView().sheet(isPresented: $playlistEditingValues.showAddTracksModal) {
 				AddToPlaylistView(session: session, playlistEditingValues: playlistEditingValues, viewState: viewState)
@@ -49,6 +52,24 @@ struct ContentView: View {
 			.background(EmptyView().sheet(isPresented: $playlistEditingValues.showEditModal) {
 				EditPlaylistView(session: session, playlistEditingValues: playlistEditingValues, viewState: viewState)
 			})
+			.confirmationDialog(
+				"Log out of TidalSwift?",
+				isPresented: $loginInfo.showLogoutConfirmation,
+				titleVisibility: .visible
+			) {
+				Button("Log Out") {
+					appModel.logout()
+				}
+				.keyboardShortcut(.defaultAction)
+
+				Button("Log Out and Remove Downloads", role: .destructive) {
+					appModel.logout(removeDownloads: true)
+				}
+
+				Button("Cancel", role: .cancel) {}
+			} message: {
+				Text("Your downloaded music is kept on this Mac. Removing downloads deletes the files for good.")
+			}
 			#if canImport(AppKit)
 			.touchBar {
 				TouchBarView(player: player, playbackInfo: player.playbackInfo)

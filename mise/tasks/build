@@ -1,30 +1,57 @@
 #!/usr/bin/env bash
 #MISE description="Build TidalSwift.app (unsigned)"
 #MISE depends=["generate"]
-# Env overrides: CONFIGURATION (default Debug), MARKETING_VERSION, CURRENT_PROJECT_VERSION (empty = project values), BUILD_RAW (skip xcbeautify)
-set -eo pipefail
+# Builds the app the same way everywhere: unsigned, into the shared DerivedData directory.
+set -Eeuo pipefail
 
-args=()
-if [ -n "${MARKETING_VERSION:-}" ]; then
-	args+=(MARKETING_VERSION="$MARKETING_VERSION")
-fi
-if [ -n "${CURRENT_PROJECT_VERSION:-}" ]; then
-	args+=(CURRENT_PROJECT_VERSION="$CURRENT_PROJECT_VERSION")
-fi
+# shellcheck source=mise/tasks/_lib.sh
+. "$(dirname -- "${BASH_SOURCE[0]}")/_lib.sh"
 
-xcb=(xcodebuild
-	-project TidalSwift.xcodeproj
-	-scheme TidalSwift
-	-configuration "${CONFIGURATION:-Debug}"
-	-derivedDataPath .build/DerivedData
-	CODE_SIGNING_ALLOWED=NO)
-if [ "${#args[@]}" -gt 0 ]; then
-	xcb+=("${args[@]}")
-fi
-xcb+=(build)
+usage() {
+	cat <<'EOF'
+Build TidalSwift.app (unsigned).
 
-if [ -n "${BUILD_RAW:-}" ]; then
-	"${xcb[@]}"
-else
-	"${xcb[@]}" | xcbeautify --quiet
-fi
+Env overrides:
+  CONFIGURATION            Build configuration (default Debug).
+  MARKETING_VERSION        Override MARKETING_VERSION (default: the project value).
+  CURRENT_PROJECT_VERSION  Override CURRENT_PROJECT_VERSION (default: the project value).
+  BUILD_RAW                Set to print raw xcodebuild output instead of piping it
+                           through xcbeautify.
+EOF
+}
+
+main() {
+	if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+		usage
+		return 0
+	fi
+
+	cd -- "$(task_repo_root)"
+
+	local overrides=()
+	if [[ -n "${MARKETING_VERSION:-}" ]]; then
+		overrides+=(MARKETING_VERSION="$MARKETING_VERSION")
+	fi
+	if [[ -n "${CURRENT_PROJECT_VERSION:-}" ]]; then
+		overrides+=(CURRENT_PROJECT_VERSION="$CURRENT_PROJECT_VERSION")
+	fi
+
+	local xcb=(xcodebuild
+		-project TidalSwift.xcodeproj
+		-scheme TidalSwift
+		-configuration "${CONFIGURATION:-Debug}"
+		-derivedDataPath "$(task_derived_data)"
+		CODE_SIGNING_ALLOWED=NO)
+	if ((${#overrides[@]} > 0)); then
+		xcb+=("${overrides[@]}")
+	fi
+	xcb+=(build)
+
+	if [[ -n "${BUILD_RAW:-}" ]]; then
+		"${xcb[@]}"
+	else
+		"${xcb[@]}" | xcbeautify --quiet
+	fi
+}
+
+main "$@"

@@ -16,9 +16,10 @@ struct TrackContextMenu: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var viewState: ViewState
-	@EnvironmentObject var playlistEditingValues: PlaylistEditingValues
+	@Environment(ViewState.self) private var viewState
+	@Environment(PlaylistEditingValues.self) private var playlistEditingValues
 	@State private var isFavorite: Bool? = nil
+	@State private var isOffline: Bool = false
 
 	private var source: QueueSource? {
 		playlist.map { QueueSource(type: .playlist, title: $0.title, id: $0.uuid) }
@@ -133,6 +134,29 @@ struct TrackContextMenu: View {
 					} label: {
 						Text("Download")
 					}
+					if isOffline {
+						Button {
+							Task {
+								print("Remove from Offline")
+								await session.helpers.offline.remove(track: track)
+								isOffline = false
+								viewState.refreshCurrentView()
+							}
+						} label: {
+							Text("Remove from offline")
+						}
+					} else {
+						Button {
+							Task {
+								print("Make available offline")
+								await session.helpers.offline.add(track: track)
+								isOffline = true
+								viewState.refreshCurrentView()
+							}
+						} label: {
+							Text("Make available offline")
+						}
+					}
 					Divider()
 					Button {
 						Task {
@@ -164,7 +188,7 @@ struct TrackContextMenu: View {
 						print("Credits")
 						let controller = ResizableWindowControllerFactory.create(rootView:
 							CreditsView(session: session, track: track)
-								.environmentObject(viewState)
+								.environment(viewState)
 						)
 						controller.window?.title = "Credits – \(track.title)"
 						controller.showWindow(nil)
@@ -182,6 +206,7 @@ struct TrackContextMenu: View {
 			}
 		}
 		.task(id: track.id) {
+			isOffline = session.helpers.offline.isTrackOffline(track: track)
 			isFavorite = await track.isInFavorites(session: session)
 		}
 	}

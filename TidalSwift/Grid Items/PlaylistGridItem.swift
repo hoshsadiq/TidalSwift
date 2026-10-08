@@ -29,7 +29,7 @@ struct PlaylistGridItem: View {
 	/// existing single-cover artwork.
 	var showsMosaic: Bool = false
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 	@Environment(\.colorScheme) private var colorScheme
 	@State private var isOffline: Bool = false
 
@@ -133,19 +133,27 @@ struct PlaylistGridItem: View {
 		}
 		.padding(5)
 		.help(playlist.title)
-		.onTapGesture(count: 2) {
-			print("Second Click. \(playlist.title)")
-			player.add(playlist: playlist, .now, source: QueueSource(type: .playlist, title: playlist.title, id: playlist.uuid))
-		}
-		.onTapGesture(count: 1) {
-			print("First Click. \(playlist.title)")
-			viewState.push(playlist: playlist)
-		}
+		.onTapGesture(count: 2, perform: play)
+		.onTapGesture(count: 1, perform: open)
+		.accessibilityElement(children: .combine)
+		.accessibilityAddTraits(.isButton)
+		.accessibilityAction(.default, open)
+		.accessibilityAction(named: "Play", play)
 		.contextMenu {
 			PlaylistContextMenu(playlist: playlist, session: session, player: player)
 		}
 		.task(id: playlist.uuid) {
 			isOffline = await playlist.isOffline(session: session)
 		}
+	}
+
+	private func open() {
+		print("First Click. \(playlist.title)")
+		viewState.push(playlist: playlist)
+	}
+
+	private func play() {
+		print("Second Click. \(playlist.title)")
+		player.add(playlist: playlist, .now, source: QueueSource(type: .playlist, title: playlist.title, id: playlist.uuid))
 	}
 }

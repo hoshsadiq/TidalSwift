@@ -7,16 +7,18 @@
 //
 
 import Foundation
-import Combine
 
 extension Session {
-	/// Margin before actual expiration to trigger a refresh (5 minutes)
 	private static let tokenRefreshMargin: TimeInterval = 5 * 60
 
-	public func login(refreshToken: String, clientID: String) async throws {
-		config.refreshToken = refreshToken
-		config.clientID = clientID
-		try await refreshAccessToken()
+	/// The stored `clientID` is the desktop client's, which makes `refreshAccessToken`
+	/// skip the secret on later refreshes.
+	public func completeDesktopLogin(callbackURL: URL, codeVerifier: String) async throws {
+		let code = try DesktopLogin.authorizationCode(from: callbackURL)
+		let token = try await DesktopLogin.exchangeAuthorizationCode(code: code, verifier: codeVerifier)
+		setAccessToken(token.accessToken, refreshToken: token.refreshToken, expiresIn: token.expiresIn)
+		config.clientID = AuthInformation.DesktopClientID
+		saveConfig()
 		try await populateVariablesForAccessToken()
 	}
 
@@ -60,39 +62,48 @@ extension Session {
 		case failure(Error)
 	}
 
-	enum AuthorizationError: Error {
+	private enum AuthorizationError: Error {
 		case deviceAuthorizationFailed
 		case pollingFailed
 		case expiredToken
 		case unknown
 	}
 
-	public func startAuthorization() -> CurrentValueSubject<AuthorizationState, Never> {
-		let subject = CurrentValueSubject<AuthorizationState, Never>(.waiting)
+	/// Cancelling the consumer of the stream stops the polling.
+	public func startAuthorization() -> AsyncStream<AuthorizationState> {
+		let (stream, continuation) = AsyncStream.makeStream(of: AuthorizationState.self)
+		let task = Task {
+			continuation.yield(.waiting)
+			continuation.yield(await authorize(onPending: { continuation.yield($0) }))
+			continuation.finish()
+		}
+		continuation.onTermination = { _ in
+			task.cancel()
+		}
+		return stream
+	}
 
+	private func authorize(onPending: (AuthorizationState) -> Void) async -> AuthorizationState {
 		let url = URL(string: "\(AuthInformation.AuthLocation)/device_authorization")!
 		let parameters: [String: String] = ["client_id": AuthInformation.OAuthClientID,
 											"scope": AuthInformation.scope]
 
-		Task {
-			do {
-				let response: DeviceAuthorizationResponse = try await Network.post(url: url, parameters: parameters, accessToken: nil, xTidalToken: nil)
-
-				let expiration = Date().addingTimeInterval(TimeInterval(response.expiresIn))
-				let loginUrlString = "https://\(response.verificationUriComplete.absoluteString)"
-				let loginUrl = URL(string: loginUrlString)!
-				subject.send(.pending(loginUrl: loginUrl, expiration: expiration))
-
-				startAuthorizationPolling(deviceCode: response.deviceCode, subject: subject)
-			} catch {
-				subject.send(.failure(AuthorizationError.deviceAuthorizationFailed))
-			}
+		let response: DeviceAuthorizationResponse
+		do {
+			response = try await Network.post(url: url, parameters: parameters, accessToken: nil, xTidalToken: nil)
+		} catch {
+			return .failure(AuthorizationError.deviceAuthorizationFailed)
 		}
 
-		return subject
+		let expiration = Date().addingTimeInterval(TimeInterval(response.expiresIn))
+		let loginUrlString = "https://\(response.verificationUriComplete.absoluteString)"
+		let loginUrl = URL(string: loginUrlString)!
+		onPending(.pending(loginUrl: loginUrl, expiration: expiration))
+
+		return await pollAuthorization(deviceCode: response.deviceCode)
 	}
 
-	private func startAuthorizationPolling(deviceCode: UUID, subject: CurrentValueSubject<AuthorizationState, Never>) {
+	private func pollAuthorization(deviceCode: UUID) async -> AuthorizationState {
 		let url = URL(string: "\(AuthInformation.AuthLocation)/token")!
 		let parameters: [String: String] = [
 			"client_id": AuthInformation.OAuthClientID,
@@ -102,49 +113,47 @@ extension Session {
 			"scope": AuthInformation.scope
 		]
 
-		Task {
-			try await Task.sleep(for: .seconds(2))
-			authorizationPoll(url: url, parameters: parameters, subject: subject)
-		}
-	}
-
-	private func authorizationPoll(url: URL, parameters: [String: String], subject: CurrentValueSubject<AuthorizationState, Never>) {
-		Task {
+		while true {
 			do {
-				let response = try await Network.post(url: url, parameters: parameters, accessToken: nil, xTidalToken: nil)
-				if let successResponse = try? JSONDecoder.custom.decode(TokenSuccessResponse.self, from: response.data) {
-					setAccessToken(successResponse.accessToken, refreshToken: successResponse.refreshToken, expiresIn: successResponse.expiresIn)
-					config.clientID = AuthInformation.OAuthClientID
-					do {
-						try await populateVariablesForAccessToken()
-						subject.send(.success)
-					} catch {
-						subject.send(.failure(error))
-					}
-				} else if let errorResponse = try? JSONDecoder.custom.decode(TokenErrorResponse.self, from: response.data) {
-					switch errorResponse.error {
-					case "authorization_pending":
-						print("Auth pending")
-						try await Task.sleep(for: .seconds(2))
-						authorizationPoll(url: url, parameters: parameters, subject: subject)
-					case "expired_token":
-						print("Expired token")
-						subject.send(.failure(AuthorizationError.expiredToken))
-					default:
-						print("Polling failed")
-						subject.send(.failure(AuthorizationError.pollingFailed))
-					}
-				} else {
-					subject.send(.failure(AuthorizationError.pollingFailed))
-				}
+				try await Task.sleep(for: .seconds(2))
 			} catch {
-				subject.send(.failure(AuthorizationError.deviceAuthorizationFailed))
+				return .failure(error)
+			}
+
+			let response: Response
+			do {
+				response = try await Network.post(url: url, parameters: parameters, accessToken: nil, xTidalToken: nil)
+			} catch {
+				return .failure(AuthorizationError.deviceAuthorizationFailed)
+			}
+
+			if let successResponse = try? JSONDecoder.custom.decode(TokenSuccessResponse.self, from: response.data) {
+				setAccessToken(successResponse.accessToken, refreshToken: successResponse.refreshToken, expiresIn: successResponse.expiresIn)
+				config.clientID = AuthInformation.OAuthClientID
+				do {
+					try await populateVariablesForAccessToken()
+					return .success
+				} catch {
+					return .failure(error)
+				}
+			} else if let errorResponse = try? JSONDecoder.custom.decode(TokenErrorResponse.self, from: response.data) {
+				switch errorResponse.error {
+				case "authorization_pending":
+					print("Auth pending")
+				case "expired_token":
+					print("Expired token")
+					return .failure(AuthorizationError.expiredToken)
+				default:
+					print("Polling failed")
+					return .failure(AuthorizationError.pollingFailed)
+				}
+			} else {
+				return .failure(AuthorizationError.pollingFailed)
 			}
 		}
 	}
 
-	/// Refreshes the access token. Concurrent calls share a single refresh
-	/// request instead of each hitting the auth server.
+	/// Concurrent calls share a single refresh request instead of each hitting the auth server.
 	public func refreshAccessToken() async throws {
 		if let activeTokenRefresh {
 			return try await activeTokenRefresh.value
@@ -199,11 +208,9 @@ extension Session {
 		}
 	}
 
-	/// Refreshes the access token if it is expired or about to expire.
 	public func refreshAccessTokenIfNeeded() async throws {
 		guard !config.refreshToken.isEmpty else { return }
 		guard let expirationDate = config.tokenExpirationDate else {
-			// No expiration date recorded — refresh to be safe
 			try await refreshAccessToken()
 			return
 		}
@@ -219,6 +226,11 @@ extension Session {
 		activeTokenRefresh = nil
 		activeTokenRefreshID = nil
 		deletePersistentInformation()
-		config = Config(accessToken: "", refreshToken: "", clientID: "", offlineAudioQuality: .high, urlType: .streaming)
+		// The ids go with the tokens: `saveSession` runs from the quit and scene-phase
+		// paths, and a stale id left here would be written back and make the next launch
+		// report a logged-in session with no token behind it.
+		countryCode = nil
+		userId = nil
+		config = Config(accessToken: "", refreshToken: "", clientID: "", offlineAudioQuality: .high)
 	}
 }

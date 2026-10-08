@@ -7,7 +7,6 @@
 //
 
 import SwiftUI
-@preconcurrency import Combine
 import AVFoundation
 import TidalSwiftLib
 
@@ -23,18 +22,25 @@ class Player {
 
 	private var previousValue: Float = 1.0
 	private var failedItems = 0
+	// Incremented on every item change, so outdated async loads can be discarded.
+	private var itemLoadID = 0
+	private var itemStatusObservation: NSKeyValueObservation?
 
-	private var volumeCancellable: AnyCancellable?
-	private var shuffleCancellable: AnyCancellable?
 
-	private var currentAudioQuality: AudioQuality
 	private(set) var nextAudioQuality: AudioQuality
+	private(set) var preferDolbyAtmos: Bool
+	/// Plain, not observable: written just before `playbackInfo.resolvedStream` so the view
+	/// re-rendering on that write sees it.
+	private(set) var isPlayingHiResStereo = false
+	private(set) var currentHiResBitDepth: Int?
 
-	init(session: Session, audioQuality: AudioQuality, autoplayAfterAddNow: Bool = true) {
+	init(session: Session, audioQuality: AudioQuality, preferDolbyAtmos: Bool = false, autoplayAfterAddNow: Bool = true) {
 		self.session = session
-		self.currentAudioQuality = audioQuality
 		self.nextAudioQuality = audioQuality
+		self.preferDolbyAtmos = preferDolbyAtmos
 		self.autoplayAfterAddNow = autoplayAfterAddNow
+
+		HiResStreaming.pruneCache()
 
 		timeObserverToken = avPlayer.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1, preferredTimescale: 1), queue: nil) { [weak self] _ in
 			if let self {
@@ -46,8 +52,36 @@ class Player {
 			}
 		}
 
-		volumeCancellable = playbackInfo.$volume.receive(on: DispatchQueue.main).sink(receiveValue: setVolume(to:))
-		shuffleCancellable = playbackInfo.$shuffle.receive(on: DispatchQueue.main).sink(receiveValue: shuffle(enabled:))
+		observeVolume()
+		observeShuffle()
+	}
+
+	// MARK: Prefetching
+
+	/// Lazy because its closures read this player's live settings.
+	private lazy var prefetcher = HiResStreaming.makePrefetcher(
+		for: session,
+		qualityProvider: { [weak self] in self?.nextAudioQuality ?? .high }
+	) { [weak self] track in
+		self?.shouldPrefetch(track) ?? false
+	}
+
+	private func shouldPrefetch(_ track: Track) -> Bool {
+		HiResStreamingPolicy.usesLocalFile(
+			sessionHasHiResStereoAccess: session.hasHiResStereoAccess,
+			preferDolbyAtmos: track.hasDolbyAtmos && preferDolbyAtmos,
+			trackHasStereo: track.hasStereo,
+			trackHasDolbyAtmos: track.hasDolbyAtmos,
+			quality: nextAudioQuality
+		)
+	}
+
+	private func prefetchUpcoming() {
+		prefetcher.queueChanged(queue: queueInfo.queue.map(\.track), currentIndex: queueInfo.currentIndex)
+	}
+
+	func stopPrefetching() {
+		prefetcher.stop()
 	}
 
 	@MainActor
@@ -56,17 +90,49 @@ class Player {
 			avPlayer.removeTimeObserver(token)
 			timeObserverToken = nil
 		}
-		volumeCancellable?.cancel()
-		shuffleCancellable?.cancel()
 	}
+
+	// MARK: Observers
+
+	/// `withObservationTracking` fires `onChange` once only, so each observer re-arms itself.
+	private func observeVolume() {
+		withObservationTracking {
+			_ = playbackInfo.volume
+		} onChange: { [weak self] in
+			Task { @MainActor in
+				guard let self else { return }
+				self.setVolume(to: self.playbackInfo.volume)
+				self.observeVolume()
+			}
+		}
+	}
+
+	private func observeShuffle() {
+		withObservationTracking {
+			_ = playbackInfo.shuffle
+		} onChange: { [weak self] in
+			Task { @MainActor in
+				guard let self else { return }
+				self.shuffle(enabled: self.playbackInfo.shuffle)
+				self.observeShuffle()
+			}
+		}
+	}
+
+	// MARK: Settings
 
 	func setAudioQuality(to audioQuality: AudioQuality) {
 		nextAudioQuality = audioQuality
 	}
 
+	func setPreferDolbyAtmos(to preferDolbyAtmos: Bool) {
+		self.preferDolbyAtmos = preferDolbyAtmos
+	}
+
+	// MARK: Playback Control
+
 	func play() {
 		if !queueInfo.queue.isEmpty {
-//			print("Play: \(playbackInfo.queue[playbackInfo.currentIndex].track.title)")
 			avPlayer.play()
 			playbackInfo.playing = true
 			queueInfo.addToHistory(track: queueInfo.queue[queueInfo.currentIndex].track)
@@ -102,32 +168,42 @@ class Player {
 
 	func previous() {
 		guard !queueInfo.queue.isEmpty else { return }
+		if avPlayer.currentTime().seconds < 3 && queueInfo.currentIndex > 0 {
+			prefetcher.trackSkipped()
+		}
+		previousTrack(resumeAfterSet: playbackInfo.playing)
+	}
+
+	private func previousTrack(resumeAfterSet: Bool) {
+		guard !queueInfo.queue.isEmpty else { return }
 		if avPlayer.currentTime().seconds >= 3 || queueInfo.currentIndex == 0 {
 			avPlayer.seek(to: CMTime(seconds: 0, preferredTimescale: 1))
 			if queueInfo.currentIndex == 0 && !queueInfo.queue[queueInfo.currentIndex].track.streamReady {
 				print("Not possible to stream \(queueInfo.queue[queueInfo.currentIndex].track.title)")
 				pause()
-				next()
+				advance(resumeAfterSet: resumeAfterSet)
 			}
 			return
 		}
 
 		queueInfo.currentIndex -= 1
-		if queueInfo.queue[queueInfo.currentIndex].track.streamReady {
-//			print("previous(): \(playbackInfo.currentIndex) - \(playbackInfo.queue.count)")
-			avSetItem(from: queueInfo.queue[queueInfo.currentIndex].track)
-//			print("previous() done")
+		let track = queueInfo.queue[queueInfo.currentIndex].track
+		if track.streamReady {
+			avSetItem(from: track, resumeAfterSet: playbackInfo.pauseAfter ? false : resumeAfterSet)
 		} else {
-			print("Not possible to stream \(queueInfo.queue[queueInfo.currentIndex].track.title)")
-			previous()
+			print("Not possible to stream \(track.title)")
+			previousTrack(resumeAfterSet: resumeAfterSet)
 		}
 	}
 
+	/// A user pressing next: counts towards the browsing guard that stops preparing early.
 	func next() {
-		next(resumeAfterSet: playbackInfo.playing)
+		prefetcher.trackSkipped()
+		advance(resumeAfterSet: playbackInfo.playing)
 	}
 
-	private func next(resumeAfterSet: Bool, visited: Int = 0) {
+	/// Moves on without counting as a manual skip (auto-advance, unplayable tracks).
+	private func advance(resumeAfterSet: Bool, visited: Int = 0) {
 		if playbackInfo.repeatState == .single {
 			seek(to: 0)
 			return
@@ -141,7 +217,6 @@ class Player {
 		}
 
 		if queueInfo.currentIndex >= queueInfo.queue.count - 1 {
-//			print("next(): \(playbackInfo.currentIndex) Last - \(playbackInfo.queue.count)")
 			if playbackInfo.repeatState == .all {
 				queueInfo.currentIndex = 0
 			} else {
@@ -153,13 +228,12 @@ class Player {
 			queueInfo.currentIndex += 1
 		}
 		if queueInfo.queue[queueInfo.currentIndex].track.streamReady {
-//			print("next(): \(playbackInfo.currentIndex) - \(queueCount())")
 			avSetItem(from: queueInfo.queue[queueInfo.currentIndex].track, resumeAfterSet: playbackInfo.pauseAfter ? false : resumeAfterSet)
 		} else {
 			let track = queueInfo.queue[queueInfo.currentIndex].track
 			print("[PLAYBACK] next(): skipping non-streamable track - title: \(track.title), id: \(track.id), streamReady: \(track.streamReady), isUnavailable: \(track.isUnavailable), currentIndex: \(queueInfo.currentIndex), queueCount: \(queueInfo.queue.count)")
 			failedItems += 1
-			next(resumeAfterSet: resumeAfterSet, visited: visited + 1)
+			advance(resumeAfterSet: resumeAfterSet, visited: visited + 1)
 		}
 
 		if playbackInfo.pauseAfter {
@@ -184,6 +258,7 @@ class Player {
 				queueInfo.currentIndex = i
 			}
 		}
+		prefetchUpcoming()
 	}
 
 	func seek(to percentage: Double) {
@@ -191,80 +266,165 @@ class Player {
 			return
 		}
 		let seconds = percentage * currentItem.duration.seconds
-		// A timescale of 1 rounds sub-second targets to whole seconds, which
-		// drops a tapped lyric line up to half a second early. Seek at media
-		// resolution so the target is preserved.
+		// A timescale of 1 rounds sub-second targets to whole seconds, dropping a tapped
+		// lyric line early; seek at media resolution so the target is preserved.
 		avPlayer.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
 	}
 
+	// MARK: Stream Loading
+
 	private func avSetItem(from track: Track, resumeAfterSet: Bool? = nil) {
+		itemLoadID += 1
+		let loadID = itemLoadID
+		prefetchUpcoming()
 		Task {
-			await avSetItemAsync(from: track, resumeAfterSet: resumeAfterSet)
+			await avSetItemAsync(from: track, loadID: loadID, resumeAfterSet: resumeAfterSet)
 		}
 	}
 
-	private func avSetItemAsync(from track: Track, resumeAfterSet: Bool? = nil) async {
-//		print("avSetItem(): \(track.title)")
+	private func avSetItemAsync(from track: Track, loadID: Int, resumeAfterSet: Bool? = nil) async {
+		// A newer request can arrive while this one is in flight; discard the stale load.
+		guard loadID == itemLoadID else {
+			return
+		}
 		let shouldResume = resumeAfterSet ?? playbackInfo.playing
 		pause()
 
-		func skip() {
-			failedItems += 1
-			if failedItems == queueInfo.queue.count {
-				print("[PLAYBACK] all tracks in queue failed to play")
-				pause()
-				seek(to: 0)
-			} else {
-				next(resumeAfterSet: shouldResume)
-			}
-		}
-
 		if track.isUnavailable {
 			print("[PLAYBACK] avSetItem(): track unavailable - title: \(track.title), id: \(track.id), streamReady: \(track.streamReady), audioModes: \(String(describing: track.audioModes)), failedItems: \(failedItems), queueCount: \(queueInfo.queue.count)")
-			skip()
+			skipFailedItem(resumeAfterSet: shouldResume)
 			return
 		}
 
-		let url: URL
-		if let offlineUrl = await session.helpers.offline.url(for: track) {
-			print("Play \(track.title) from offline URL: \(offlineUrl)")
-			print("[PLAYBACK] avSetItem(): resolved URL - title: \(track.title), quality: \(nextAudioQuality), source: offline")
-			url = offlineUrl
-			currentAudioQuality = nextAudioQuality
-		} else if let resolved = await session.bestAudioUrl(trackId: track.id, preferredQuality: nextAudioQuality) {
-			print("Play \(track.title) from online URL: \(resolved.url)")
-			print("[PLAYBACK] avSetItem(): resolved URL - title: \(track.title), quality: \(resolved.quality), source: online")
-			url = resolved.url
-			currentAudioQuality = resolved.quality
-		} else {
-			print("No URL so skipping \(track.title)")
-			print("[PLAYBACK] avSetItem(): no URL - title: \(track.title), id: \(track.id), failedItems: \(failedItems), queueCount: \(queueInfo.queue.count)")
-			playbackInfo.failedTrackIds.insert(track.id)
-			skip()
+		guard let url = await resolveStreamURL(for: track, loadID: loadID, resumeAfterSet: shouldResume) else {
 			return
 		}
 		failedItems = 0
 		playbackInfo.failedTrackIds.remove(track.id)
 
-		NotificationCenter.default.removeObserver(self, name: NSNotification.Name.AVPlayerItemDidPlayToEndTime, object: avPlayer.currentItem)
-
 		let item = AVPlayerItem(url: url)
-		NotificationCenter.default.addObserver(self, selector: #selector(self.playerDidFinishPlaying(sender:)), name: NSNotification.Name.AVPlayerItemDidPlayToEndTime, object: item)
-		avPlayer.replaceCurrentItem(with: item)
-		// The periodic observer only refreshes once a second; reset eagerly so a
-		// new track can't briefly highlight a line at the previous track's time.
+		installCurrentItem(item)
 		playbackInfo.playbackPosition = 0
 
 		if shouldResume {
-//			print("Was playing...")
 			play()
 		}
 	}
 
-	@objc func playerDidFinishPlaying(sender: Notification) {
-//		print("Song finished playing")
-		next()
+	/// Resolves the URL that plays `track` — the offline copy first, then the policy's
+	/// online routes — and publishes the resolved stream. A rendition fetch can suspend
+	/// for a download, so the stale-load check repeats in every publishing path.
+	private func resolveStreamURL(for track: Track, loadID: Int, resumeAfterSet: Bool) async -> URL? {
+		isPlayingHiResStereo = false
+
+		if let offlineStream = await session.helpers.offline.stream(for: track) {
+			guard loadID == itemLoadID else {
+				return nil
+			}
+			print("Play \(track.title) from offline URL: \(offlineStream.url)")
+			print("[PLAYBACK] avSetItem(): resolved URL - title: \(track.title), quality: \(nextAudioQuality), source: offline")
+			playbackInfo.resolvedStream = ResolvedStream(
+				trackId: track.id,
+				quality: nextAudioQuality,
+				isDolbyAtmos: offlineStream.isDolbyAtmos
+			)
+			return offlineStream.url
+		}
+
+		if let stream = await session.playableStream(
+			for: track,
+			quality: nextAudioQuality,
+			preferDolbyAtmos: preferDolbyAtmos
+		) {
+			let source = stream.isHiResStereo ? "hi-res" : "online"
+			print("Play \(track.title) from \(source) URL: \(stream.url)")
+			print("[PLAYBACK] avSetItem(): resolved URL - title: \(track.title), quality: \(stream.isHiResStereo ? "hi-res stereo" : "\(stream.quality)"), source: \(source)")
+			guard loadID == itemLoadID else {
+				return nil
+			}
+			isPlayingHiResStereo = stream.isHiResStereo
+			currentHiResBitDepth = stream.hiResBitDepth
+			playbackInfo.resolvedStream = ResolvedStream(
+				trackId: track.id,
+				quality: stream.quality,
+				isDolbyAtmos: stream.isDolbyAtmos,
+				hiResBitDepth: stream.hiResBitDepth,
+				hiResSampleRate: stream.hiResSampleRate
+			)
+			return stream.url
+		}
+
+		guard loadID == itemLoadID else {
+			return nil
+		}
+		print("No URL so skipping \(track.title)")
+		print("[PLAYBACK] avSetItem(): no URL - title: \(track.title), id: \(track.id), failedItems: \(failedItems), queueCount: \(queueInfo.queue.count)")
+		playbackInfo.failedTrackIds.insert(track.id)
+		skipFailedItem(resumeAfterSet: resumeAfterSet)
+		return nil
 	}
+
+	private func skipFailedItem(resumeAfterSet: Bool) {
+		failedItems += 1
+		if failedItems == queueInfo.queue.count {
+			print("[PLAYBACK] all tracks in queue failed to play")
+			pause()
+			seek(to: 0)
+		} else {
+			advance(resumeAfterSet: resumeAfterSet)
+		}
+	}
+
+	/// A failed or stalled item posts no end notification, so its status is observed
+	/// directly; the identity check drops a late failure for an item since replaced.
+	private func installCurrentItem(_ item: AVPlayerItem) {
+		NotificationCenter.default.removeObserver(self, name: NSNotification.Name.AVPlayerItemDidPlayToEndTime, object: avPlayer.currentItem)
+		NotificationCenter.default.removeObserver(self, name: NSNotification.Name.AVPlayerItemFailedToPlayToEndTime, object: avPlayer.currentItem)
+		NotificationCenter.default.addObserver(self, selector: #selector(self.playerDidFinishPlaying(sender:)), name: NSNotification.Name.AVPlayerItemDidPlayToEndTime, object: item)
+		NotificationCenter.default.addObserver(self, selector: #selector(self.playerItemFailedToPlayToEndTime(sender:)), name: NSNotification.Name.AVPlayerItemFailedToPlayToEndTime, object: item)
+		itemStatusObservation?.invalidate()
+		itemStatusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
+			guard item.status == .failed else { return }
+			let description = item.error.map { String(describing: $0) }
+			let itemID = ObjectIdentifier(item)
+			Task { @MainActor [weak self] in
+				guard let self, let current = self.avPlayer.currentItem, ObjectIdentifier(current) == itemID else { return }
+				self.playerItemFailed(reason: "item status .failed", errorDescription: description)
+			}
+		}
+		avPlayer.replaceCurrentItem(with: item)
+	}
+
+	@objc func playerDidFinishPlaying(sender: Notification) {
+		advance(resumeAfterSet: playbackInfo.playing)
+	}
+
+	/// The item failed after playback started. `AVPlayerItemDidPlayToEndTime` is not
+	/// posted then, so without this the queue would sit on an item that never plays.
+	@objc func playerItemFailedToPlayToEndTime(sender: Notification) {
+		guard let item = sender.object as? AVPlayerItem, item === avPlayer.currentItem else { return }
+		let description = (sender.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error)
+			.map { String(describing: $0) }
+		playerItemFailed(reason: "AVPlayerItemFailedToPlayToEndTime", errorDescription: description)
+	}
+
+	private func playerItemFailed(reason: String, errorDescription: String?) {
+		let track = queueInfo.currentItem?.track
+		print("[PLAYBACK] item failed - title: \(track?.title ?? "?"), id: \(track.map { String($0.id) } ?? "?"), reason: \(reason), error: \(errorDescription ?? "none"), failedItems: \(failedItems), queueCount: \(queueInfo.queue.count)")
+		if let track {
+			playbackInfo.failedTrackIds.insert(track.id)
+		}
+		failedItems += 1
+		if failedItems >= queueInfo.queue.count {
+			print("[PLAYBACK] all tracks in queue failed to play")
+			pause()
+			seek(to: 0)
+		} else {
+			advance(resumeAfterSet: playbackInfo.playing)
+		}
+	}
+
+	// MARK: Queue
 
 	func add(playlists: [Playlist], _ when: When, source: QueueSource? = nil) {
 		playlists.forEach { playlist in
@@ -338,7 +498,6 @@ class Player {
 
 	// playAt is only important when in Shuffle, so only items after the one at the index are shuffled.
 	private func addNow(tracks: [Track], playAt index: Int, source: QueueSource?) {
-//		print("addNow(): \(tracks.count)")
 		if tracks.isEmpty {
 			return
 		}
@@ -358,11 +517,9 @@ class Player {
 		if wasPlaying {
 			play()
 		}
-//		print("addNow() finished. Items in Queue: \(playbackInfo.queue.count)")
 	}
 
 	private func addNext(tracks: [Track], source: QueueSource?) {
-//		print("addNext(): \(tracks.count)")
 		if tracks.isEmpty {
 			return
 		}
@@ -376,11 +533,10 @@ class Player {
 			queueInfo.queue.insert(contentsOf: newQueueItems, at: queueInfo.currentIndex + 1)
 		}
 		queueInfo.assignQueueIndices()
-//		print("addNext() finished. Items in Queue: \(queueInfo.queue.count)")
+		prefetchUpcoming()
 	}
 
 	private func addLast(tracks: [Track], source: QueueSource?) {
-//		print("addLast(): \(tracks.count)")
 		if tracks.isEmpty {
 			return
 		}
@@ -397,7 +553,7 @@ class Player {
 			queueInfo.source = source
 			avSetItem(from: queueInfo.queue[queueInfo.currentIndex].track)
 		}
-//		print("addLast() finished. Items in Queue: \(queueInfo.queue.count)")
+		prefetchUpcoming()
 	}
 
 	func removeTrack(atIndex: Int) {
@@ -419,12 +575,13 @@ class Player {
 		if atIndex < queueInfo.currentIndex {
 			queueInfo.currentIndex -= 1
 		}
-		// Removing the current (possibly last) track can leave currentIndex at or
-		// past the new end; clamp so the queue lookup below can't trap.
+		// Removing the current track can leave currentIndex past the new end; clamp it so
+		// the queue lookup below can't trap.
 		if queueInfo.currentIndex >= queueInfo.queue.count {
 			queueInfo.currentIndex = max(0, queueInfo.queue.count - 1)
 		}
 		queueInfo.assignQueueIndices()
+		prefetchUpcoming()
 
 		if removedCurrent {
 			if !queueInfo.queue.isEmpty {
@@ -447,6 +604,7 @@ class Player {
 			queueInfo.nonShuffledQueue = queueInfo.queue
 			queueInfo.assignQueueIndices()
 		} else {
+			itemLoadID += 1
 			avPlayer.pause()
 			playbackInfo.playing = false
 			queueInfo.currentIndex = 0
@@ -455,11 +613,14 @@ class Player {
 			queueInfo.nonShuffledQueue.removeAll()
 			queueInfo.source = nil
 		}
+		prefetchUpcoming()
 	}
 
 	func queueCount() -> Int {
 		queueInfo.queue.count
 	}
+
+	// MARK: Time
 
 	func fraction() -> Double {
 		guard let totalTime = avPlayer.currentItem?.duration.seconds else {
@@ -470,13 +631,10 @@ class Player {
 		}
 
 		let r = avPlayer.currentTime().seconds / totalTime
-//		print("fraction(): r: \(r), currentTime: \(avPlayer.currentTime().seconds), totalTime: \(totalTime)")
 
 		return r
 	}
 
-	/// Current playback position in seconds, or 0 while no item is loaded or the
-	/// player reports a non-finite time.
 	private func currentPlaybackPosition() -> Double {
 		let seconds = avPlayer.currentTime().seconds
 		return seconds.isFinite ? seconds : 0
@@ -494,6 +652,8 @@ class Player {
 		let totalTimeString = secondsToHoursMinutesSecondsString(seconds: Int(totalTime))
 		return "\(currentTimeString) / \(totalTimeString)"
 	}
+
+	// MARK: Volume
 
 	func setVolume(to volume: Float) {
 		avPlayer.volume = volume
@@ -524,34 +684,57 @@ class Player {
 		}
 	}
 
+	// MARK: Quality Badge
+
 	func currentQualityString() -> String {
 		guard !queueInfo.queue.isEmpty else {
 			return ""
 		}
 		let track = queueInfo.queue[queueInfo.currentIndex].track
-		// Tidal reports Atmos tracks as `audioQuality: .low`, which would otherwise
-		// be shown as a bitrate; the stream itself is always Dolby Atmos.
-		if track.audioModes?.contains(.dolbyAtmos) ?? false {
+		// Describe the stream that plays, not what the track could offer: Tidal reports
+		// Atmos tracks as `audioQuality: .low`, and such a track plays stereo when the
+		// preference is off. Resolution is async, so a stored stream for another track
+		// means this one has not resolved yet — say nothing rather than mislabel it.
+		guard let stream = playbackInfo.resolvedStream, stream.trackId == track.id else {
+			return ""
+		}
+		if stream.isDolbyAtmos {
 			return "Dolby Atmos"
+		}
+		if isPlayingHiResStereo {
+			guard let bitDepth = stream.hiResBitDepth ?? currentHiResBitDepth else { return "Hi-Res" }
+			guard let sampleRate = stream.hiResSampleRate, sampleRate > 0 else { return "\(bitDepth)-bit" }
+			return "\(bitDepth)-bit \(Self.formattedSampleRate(sampleRate))"
 		}
 		guard let quality = track.audioQuality else {
 			return ""
 		}
 
-		var chosenQuality = currentAudioQuality
-//		print("\(chosenQuality) \(quality)")
+		return qualityToString(quality: Self.clampedQuality(stream.quality, advertised: quality))
+	}
 
-		if chosenQuality == .max && quality != .max {
-			chosenQuality = .high
+	/// The direct `streamUrl` fallback answers a HI_RES_LOSSLESS request with the
+	/// lossless 16-bit file, so a Max request that lands here is labelled High.
+	private static func clampedQuality(_ resolved: AudioQuality, advertised: AudioQuality) -> AudioQuality {
+		var quality = resolved
+		if quality == .max {
+			quality = .high
 		}
-		if chosenQuality == .high && (quality == .medium || quality == .low) {
-			chosenQuality = .medium
+		if quality == .high && (advertised == .medium || advertised == .low) {
+			quality = .medium
 		}
-		if chosenQuality == .medium && quality == .low {
-			chosenQuality = .low
+		if quality == .medium && advertised == .low {
+			quality = .low
 		}
+		return quality
+	}
 
-		return qualityToString(quality: chosenQuality)
+	private static func formattedSampleRate(_ sampleRate: Int) -> String {
+		let kilohertz = Double(sampleRate) / 1000
+		if kilohertz == kilohertz.rounded() {
+			return "\(Int(kilohertz))kHz"
+		}
+		return String(format: "%.1fkHz", kilohertz)
 	}
 
 	private func qualityToString(quality: AudioQuality) -> String {
@@ -563,6 +746,7 @@ class Player {
 		case .high:
 			return "16-bit 44.1kHz"
 		case .max:
+			// Never shown: `currentQualityString` clamps `.max` to `.high` above.
 			return "24-bit 192kHz"
 		}
 	}

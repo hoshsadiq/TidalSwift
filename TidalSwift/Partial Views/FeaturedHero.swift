@@ -28,8 +28,8 @@ struct FeaturedHero: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var viewState: ViewState
-	@EnvironmentObject var toastCenter: ToastCenter
+	@Environment(ViewState.self) private var viewState
+	@Environment(ToastCenter.self) private var toastCenter
 
 	private var items: [FeaturedPromotionItem] {
 		(module.items ?? []).enumerated().compactMap { index, item in

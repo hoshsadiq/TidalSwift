@@ -43,6 +43,9 @@ jobs:
       - name: Build library package
         run: mise run build-lib
 
+      - name: Test library package
+        run: mise run test-lib
+
   app:
     name: Build TidalSwift.app
     runs-on: macos-26

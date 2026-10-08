@@ -4,15 +4,35 @@
 //
 
 import SwiftUI
+import TidalSwiftLib
 
 struct PreferencesGeneralTab: View {
 	@AppStorage("SaveFavoritesOffline") public var saveFavoritesOffline = false
 	@AppStorage("UseLRCLIBFallback") public var useLRCLIBFallback = true
+	@AppStorage(TidalLinkHandlingPreferences.enabledKey) private var handleTidalLinks = TidalLinkHandlingPreferences.defaultEnabled
 
 	var body: some View {
 		Form {
 			Section("General") {
 				Toggle("Save Favorites Offline", isOn: $saveFavoritesOffline)
+			}
+
+			Section("Links") {
+				Toggle(isOn: Binding(
+					get: { handleTidalLinks },
+					set: { newValue in
+						handleTidalLinks = newValue
+						// Claim or hand back `tidal://` for the new value without a relaunch.
+						Task { await TidalLinkRegistration.applyCurrentRegistration() }
+					}
+				)) {
+					VStack(alignment: .leading) {
+						Text("Handle TIDAL links")
+						Text("Keeps tidal:// links opening in TidalSwift, and lets the browser login return here after you sign in. When off, links open in the official TIDAL app if you have it, and login uses a device code instead.")
+							.font(.caption)
+							.foregroundStyle(.secondary)
+					}
+				}
 			}
 
 			Section("Content") {

@@ -20,7 +20,7 @@ struct AlbumGridItem: View {
 	/// the Collection ▸ Albums cards. Off by default so other grids are unchanged.
 	var showsReleaseYear: Bool = false
 
-	@EnvironmentObject var viewState: ViewState
+	@Environment(ViewState.self) private var viewState
 	@Environment(\.colorScheme) private var colorScheme
 	@State private var isOffline: Bool = false
 
@@ -125,16 +125,12 @@ struct AlbumGridItem: View {
 		}
 		.padding(5)
 		.help(toolTipString)
-		.onTapGesture(count: 2) {
-			print("Second Click. \(album.title)")
-			player.add(album: album, .now, source: QueueSource(type: .album, title: album.title, id: String(album.id)))
-		}
-		.onTapGesture(count: 1) {
-			print("First Click. \(album.title)")
-			if (album.streamReady ?? false) || isOffline {
-				viewState.push(album: album)
-			}
-		}
+		.onTapGesture(count: 2, perform: play)
+		.onTapGesture(count: 1, perform: open)
+		.accessibilityElement(children: .combine)
+		.accessibilityAddTraits(.isButton)
+		.accessibilityAction(.default, open)
+		.accessibilityAction(named: "Play", play)
 		.contextMenu {
 			AlbumContextMenu(album: album, session: session, player: player)
 		}
@@ -143,7 +139,19 @@ struct AlbumGridItem: View {
 		}
 	}
 
-	var toolTipString: String {
+	private func open() {
+		print("First Click. \(album.title)")
+		if (album.streamReady ?? false) || isOffline {
+			viewState.push(album: album)
+		}
+	}
+
+	private func play() {
+		print("Second Click. \(album.title)")
+		player.add(album: album, .now, source: QueueSource(type: .album, title: album.title, id: String(album.id)))
+	}
+
+	private var toolTipString: String {
 		var s = album.title
 		if let artists = album.artists {
 			s += " – \(artists.formArtistString())"

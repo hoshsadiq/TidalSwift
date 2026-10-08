@@ -266,8 +266,8 @@ private struct SuggestionRow: View {
 	let session: Session
 	let player: Player
 
-	@EnvironmentObject var queueInfo: QueueInfo
-	@EnvironmentObject var playbackInfo: PlaybackInfo
+	@Environment(QueueInfo.self) private var queueInfo
+	@Environment(PlaybackInfo.self) private var playbackInfo
 
 	private var isPlaying: Bool {
 		guard !queueInfo.queue.isEmpty, queueInfo.queue.indices.contains(queueInfo.currentIndex) else { return false }
@@ -276,26 +276,37 @@ private struct SuggestionRow: View {
 
 	var body: some View {
 		HStack(spacing: 10) {
-			cover
-			VStack(alignment: .leading, spacing: 2) {
-				Text(track.title)
-					.fontWeight(.semibold)
-					.lineLimit(1)
-					.truncationMode(.tail)
-				Text(track.artists.formArtistString())
-					.font(.subheadline)
-					.foregroundColor(.secondary)
-					.lineLimit(1)
-					.truncationMode(.tail)
+			// The informational content is one VoiceOver element; the add-to-queue
+			// button merges into it as a named action. The trailing ellipsis menu
+			// can't be a named action, so it stays its own focusable element.
+			HStack(spacing: 10) {
+				cover
+				VStack(alignment: .leading, spacing: 2) {
+					Text(track.title)
+						.fontWeight(.semibold)
+						.lineLimit(1)
+						.truncationMode(.tail)
+					Text(track.artists.formArtistString())
+						.font(.subheadline)
+						.foregroundColor(.secondary)
+						.lineLimit(1)
+						.truncationMode(.tail)
+				}
 			}
+			.accessibilityElement(children: .combine)
+			.accessibilityLabel(accessibilityLabel)
+			.accessibilityAddTraits(.isButton)
+			.accessibilityAction(.default, play)
+			.accessibilityAction(named: "Add to queue", addToQueue)
 			Spacer(minLength: 8)
 			Button {
-				player.add(track: track, .last)
+				addToQueue()
 			} label: {
 				Image(systemName: "plus")
 					.secondaryIconColor()
 			}
 			.buttonStyle(.plain)
+			.accessibilityHidden(true)
 			.help("Add to queue")
 			.disabled(track.isUnavailable)
 			Menu {
@@ -318,12 +329,30 @@ private struct SuggestionRow: View {
 		.foregroundColor(track.isUnavailable || playbackInfo.failedTrackIds.contains(track.id) ? .secondary : .primary)
 		.help(toolTipString)
 		.onTapGesture {
-			guard !track.isUnavailable else { return }
-			player.add(track: track, .now)
+			play()
 		}
 		.contextMenu {
 			TrackContextMenu(track: track, session: session, player: player)
 		}
+	}
+
+	private func play() {
+		guard !track.isUnavailable else { return }
+		player.add(track: track, .now)
+	}
+
+	private func addToQueue() {
+		guard !track.isUnavailable else { return }
+		player.add(track: track, .last)
+	}
+
+	private var accessibilityLabel: String {
+		var parts = [track.title]
+		if let version = track.version {
+			parts.append(version)
+		}
+		parts.append(track.artists.formArtistString())
+		return parts.joined(separator: ", ")
 	}
 
 	@ViewBuilder

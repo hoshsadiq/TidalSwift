@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 #MISE description="Verify app binary has arm64 and x86_64 slices"
-# Env overrides: CONFIGURATION (default Release)
-set -eo pipefail
+# Guards the release build: a shipped build must run on both Apple silicon and Intel.
+set -Eeuo pipefail
 
-lipo ".build/DerivedData/Build/Products/${CONFIGURATION:-Release}/TidalSwift.app/Contents/MacOS/TidalSwift" -verify_arch arm64 x86_64
+# shellcheck source=mise/tasks/_lib.sh
+. "$(dirname -- "${BASH_SOURCE[0]}")/_lib.sh"
+
+main() {
+	cd -- "$(task_repo_root)"
+	lipo "$(task_app_path "${CONFIGURATION:-Release}")/Contents/MacOS/TidalSwift" -verify_arch arm64 x86_64
+}
+
+main "$@"

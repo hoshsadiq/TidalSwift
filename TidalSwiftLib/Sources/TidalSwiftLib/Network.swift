@@ -69,13 +69,9 @@ extension Network {
 			let urlString = request.url!.absoluteString + "?" + encodeParameters(parameters)
 			request.url = URL(string: urlString)
 		}
-		print("=== Network Request ===")
-		print("\(request.httpMethod!) Request with URL: \(request.url!.absoluteString)")
-		print("Headers: \(request.allHTTPHeaderFields!)")
-		if let httpBody = request.httpBody {
-			print("Body: \(String(data: httpBody, encoding: .utf8)!)")
-		}
-		print("=======================")
+		#if DEBUG
+		logRequest(request)
+		#endif
 
 		let (data, response) = try await URLSession.shared.data(for: request)
 
@@ -89,11 +85,9 @@ extension Network {
 			etag = Int(etagSubString)
 		}
 
-		if let responseString = String(data: data, encoding: .utf8) {
-			print("Response: \(responseString)")
-		} else {
-			print("Response is not UTF8")
-		}
+		#if DEBUG
+		logResponse(request, statusCode: statusCode)
+		#endif
 
 		return Response(data: data, statusCode: statusCode, etag: etag)
 	}
@@ -126,8 +120,20 @@ extension Network {
 
 	// MARK: - Downloads
 
-	// Path Structure example: path/to/file -> [path, to, file]. Cannot be empty
-	static func download(_ url: URL, path: URL, overwrite: Bool = false) async throws {
+	/// Downloads `url` to `path`. Path structure example: path/to/file -> [path, to, file].
+	/// Cannot be empty.
+	///
+	/// A non-2xx response is an error page, not the file, so it is refused and its
+	/// temporary download removed rather than stored.
+	///
+	/// `@concurrent`: the bytes are written off the caller's actor. The download is
+	/// the first half of the hi-res route, and the file moves that follow the await
+	/// used to run on the main actor.
+	///
+	/// `session` is injectable so a test can answer with a fixed status without a
+	/// live host.
+	@concurrent
+	static func download(_ url: URL, path: URL, overwrite: Bool = false, using session: URLSession = .shared) async throws {
 //		print("=== Network Download ===")
 //		print("Download URL: \(url)")
 //		print("Temp Local URL: \(dataUrl)")
@@ -141,7 +147,13 @@ extension Network {
 			return
 		}
 
-		let (downloadURL, _) = try await URLSession.shared.download(from: url)
+		let (downloadURL, response) = try await session.download(from: url)
+
+		// Otherwise an error page, e.g. for an expired URL, would be stored as the file
+		if let statusCode = (response as? HTTPURLResponse)?.statusCode, !(200..<300).contains(statusCode) {
+			try? FileManager.default.removeItem(at: downloadURL)
+			throw URLError(.badServerResponse)
+		}
 
 		// If we want to overwrite and the file exists, delete the existing file
 		if overwrite && FileManager.default.fileExists(atPath: path.relativePath) {
@@ -149,4 +161,19 @@ extension Network {
 		}
 		try FileManager.default.moveItem(at: downloadURL, to: path)
 	}
+
+	// MARK: - Logging
+
+	#if DEBUG
+	/// Everything the console may learn about a request: method, path, status. Never
+	/// a header and never a body — `Authorization` and `X-Tidal-Token` are
+	/// credentials, and a body or a signed URL carries one too.
+	private static func logRequest(_ request: URLRequest) {
+		print("[NET] \(request.httpMethod ?? "?") \(request.url?.path ?? "?")")
+	}
+
+	private static func logResponse(_ request: URLRequest, statusCode: Int?) {
+		print("[NET] \(request.httpMethod ?? "?") \(request.url?.path ?? "?") -> \(statusCode.map(String.init) ?? "no response")")
+	}
+	#endif
 }

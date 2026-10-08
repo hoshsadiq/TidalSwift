@@ -11,6 +11,13 @@ import XCTest
 
 @MainActor
 final class VideoImageURLTests: XCTestCase {
+	private nonisolated let offlineLibrary = TemporaryOfflineLibrary(label: "VideoImageURL")
+
+	override func tearDown() {
+		offlineLibrary.remove()
+		super.tearDown()
+	}
+
 	private func video(imageId: String) -> Video {
 		Video(
 			id: 1,
@@ -35,14 +42,14 @@ final class VideoImageURLTests: XCTestCase {
 	}
 
 	func testImageUrlWithoutResolutionYIsSquare() throws {
-		let session = Session(config: nil)
+		let session = offlineLibrary.makeSession()
 		let url = try XCTUnwrap(video(imageId: "9f90d256-d419-426c-93dd-62744ed89f20")
 			.imageUrl(session: session, resolution: 640))
 		XCTAssertTrue(url.absoluteString.hasSuffix("/640x640.jpg"), url.absoluteString)
 	}
 
 	func testImageUrlWithResolutionYIsSixteenByNine() throws {
-		let session = Session(config: nil)
+		let session = offlineLibrary.makeSession()
 		let url = try XCTUnwrap(video(imageId: "9f90d256-d419-426c-93dd-62744ed89f20")
 			.imageUrl(session: session, resolution: 640, resolutionY: 360))
 		XCTAssertTrue(url.absoluteString.hasSuffix("/640x360.jpg"), url.absoluteString)

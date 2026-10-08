@@ -7,7 +7,7 @@ import SwiftUI
 import TidalSwiftLib
 
 struct PreferencesView: View {
-	@EnvironmentObject private var appModel: TidalSwiftAppModel
+	@Environment(TidalSwiftAppModel.self) private var appModel
 
 	var body: some View {
 		TabView {
@@ -29,100 +29,113 @@ struct PreferencesView: View {
 }
 
 private struct PlaybackPreferencesTab: View {
-	@EnvironmentObject private var appModel: TidalSwiftAppModel
+	@Environment(TidalSwiftAppModel.self) private var appModel
+
+	@AppStorage("offlinePreferDolbyAtmos") private var offlinePreferDolbyAtmos = false
+	/// Read through the library's key so the player sees the same value without new wiring.
+	@AppStorage(HiResStreamingPreferences.prefetchDepthKey) private var prefetchDepth = HiResStreamingPreferences.defaultPrefetchDepth
+	@AppStorage(HiResStreamingPreferences.cacheSizeBytesKey) private var cacheSizeBytes = HiResStreamingPreferences.defaultCacheBytes
+	@State private var cacheUsageBytes = 0
+	@AppStorage(TidalSwiftAppModel.ignoreSubscriptionLimitsKey) private var ignoreSubscriptionLimits = false
+	/// `session.config` is not observable, so mirror its offline quality here.
+	@State private var offlineQuality: AudioQuality?
+	/// Streaming is what a user usually changes, so it is the default.
+	@State private var qualityTarget: QualityTarget = .playback
 
 	var body: some View {
 		Form {
 			Section {
-				HStack {
-					Button {
-						if appModel.audioQuality != .low && appModel.audioQuality != .medium {
-							appModel.setAudioQuality(.medium)
-						}
-					} label: {
-						HStack {
-							Image(systemName: (appModel.audioQuality == .low || appModel.audioQuality == .medium) ? "largecircle.fill.circle" : "circle")
-								.foregroundStyle((appModel.audioQuality == .low || appModel.audioQuality == .medium) ? Color.accentColor : Color.secondary)
-								.imageScale(.large)
+				Picker("Quality", selection: $qualityTarget) {
+					Text("Playback").tag(QualityTarget.playback)
+					Text("Offline").tag(QualityTarget.offline)
+				}
+				.pickerStyle(.segmented)
+				.labelsHidden()
 
-							VStack(alignment: .leading) {
-								Text("Low")
-									.foregroundStyle(.primary)
-								Text("Balance audio quality and data consumption")
-									.font(.caption)
-									.foregroundStyle(.secondary)
+				switch qualityTarget {
+				case .playback:
+					AudioQualityRows(
+						selection: appModel.audioQuality,
+						isAvailable: { appModel.isAudioQualityAvailable($0) },
+						select: { appModel.setAudioQuality($0) }
+					)
+					DolbyAtmosToggle(
+						isOn: Binding(
+							get: { appModel.player.preferDolbyAtmos },
+							set: { appModel.setPreferDolbyAtmos($0) }
+						),
+						help: "Play the Atmos version when a track has one. Only matters when Tidal also offers stereo."
+					)
+				case .offline:
+					AudioQualityRows(
+						selection: offlineQuality ?? appModel.session.config.offlineAudioQuality,
+						isAvailable: { appModel.isAudioQualityAvailable($0) },
+						select: { quality in
+							offlineQuality = quality
+							appModel.session.helpers.offline.setAudioQuality(to: quality)
+						}
+					)
+					DolbyAtmosToggle(
+						isOn: Binding(
+							get: { offlinePreferDolbyAtmos },
+							set: { newValue in
+								// Set offline first so its change guard still sees the old value and resyncs.
+								appModel.session.helpers.offline.setPreferDolbyAtmos(to: newValue)
+								offlinePreferDolbyAtmos = newValue
 							}
-							Spacer()
-						}
-						.contentShape(Rectangle())
-					}
-					.buttonStyle(.plain)
-
-					Picker("", selection: Binding<AudioQuality>(
-						get: {
-							(appModel.audioQuality == .low || appModel.audioQuality == .medium) ? appModel.audioQuality : .medium
-						},
-						set: { newValue in
-							appModel.setAudioQuality(newValue)
-						}
-					)) {
-						Text("96 kbps").tag(AudioQuality.low)
-						Text("320 kbps").tag(AudioQuality.medium)
-					}
-					.labelsHidden()
-					.fixedSize()
+						),
+						help: "Store the Atmos version when a track has one. Decides which file is saved offline."
+					)
 				}
 
-				Button {
-					appModel.setAudioQuality(.high)
+				Picker(selection: $prefetchDepth) {
+					ForEach(HiResStreamingPreferences.prefetchDepthOptions, id: \.self) { depth in
+						Text(Self.prefetchDepthLabel(depth)).tag(depth)
+					}
 				} label: {
-					HStack {
-						Image(systemName: appModel.audioQuality == .high ? "largecircle.fill.circle" : "circle")
-							.foregroundStyle(appModel.audioQuality == .high ? Color.accentColor : Color.secondary)
-							.imageScale(.large)
-
-						VStack(alignment: .leading) {
-							Text("High")
-								.foregroundStyle(.primary)
-							Text("16-bit, 44.1 kHz")
-								.font(.caption)
-								.foregroundStyle(.secondary)
-						}
-						Spacer()
+					VStack(alignment: .leading) {
+						Text("Prefetch tracks")
+						Text("Fetches tracks ahead of the one playing. Uses disk space and bandwidth in the background.")
+							.font(.caption)
+							.foregroundStyle(.secondary)
 					}
-					.contentShape(Rectangle())
 				}
-				.buttonStyle(.plain)
-				.disabled(!appModel.isAudioQualityAvailable(.high))
 
-				Button {
-					appModel.setAudioQuality(.max)
-				} label: {
-					HStack {
-						Image(systemName: appModel.audioQuality == .max ? "largecircle.fill.circle" : "circle")
-							.foregroundStyle(appModel.audioQuality == .max ? Color.accentColor : Color.secondary)
-							.imageScale(.large)
-
-						VStack(alignment: .leading) {
-							Text("Max")
-								.foregroundStyle(.primary)
-							Text("Up to 24-bit, 192 kHz")
-								.font(.caption)
-								.foregroundStyle(.secondary)
-						}
-						Spacer()
+				HStack(spacing: 8) {
+					VStack(alignment: .leading) {
+						Text("Cache size")
+						Text("How much space prepared tracks may use, in GB. Tracks you have not played recently are removed first. Currently using \(Self.gigabyteCount(cacheUsageBytes)).")
+							.font(.caption)
+							.foregroundStyle(.secondary)
 					}
-					.contentShape(Rectangle())
+					Spacer()
+					TextField("", value: cacheSizeGB, format: .number)
+						.frame(width: 56)
+						.multilineTextAlignment(.trailing)
+					Stepper("", value: cacheSizeGB, in: HiResStreamingPreferences.cacheSizeRange)
+						.labelsHidden()
 				}
-				.buttonStyle(.plain)
-				.disabled(!appModel.isAudioQualityAvailable(.max))
+
+				Toggle(isOn: $ignoreSubscriptionLimits) {
+					VStack(alignment: .leading) {
+						Text("Ignore subscription limits")
+						Text("Lets you pick a tier above what your subscription reports. Tidal may refuse it, and the app reports the failure if it does.")
+							.font(.caption)
+							.foregroundStyle(.secondary)
+					}
+				}
 			} header: {
-				Text("Audio quality")
+				Text("Quality")
 			} footer: {
 				VStack(alignment: .leading, spacing: 2) {
-					Text("Applies to the next track you play.")
-					if let highest = appModel.highestSoundQuality {
-						Text("Your subscription supports up to \(highest.shortTitle).")
+					switch qualityTarget {
+					case .playback:
+						Text("Applies to the next track you play.")
+						if let highest = appModel.highestSoundQuality {
+							Text("Your subscription supports up to \(highest.shortTitle).")
+						}
+					case .offline:
+						Text("Changing this re-checks your offline library and can re-download files.")
 					}
 				}
 			}
@@ -160,7 +173,141 @@ private struct PlaybackPreferencesTab: View {
 			}
 		}
 		.formStyle(.grouped)
-		.task { await appModel.loadHighestSoundQuality() }
+		.task {
+			await appModel.loadHighestSoundQuality()
+			cacheUsageBytes = HiResStreaming.cacheUsageBytes()
+		}
+	}
+
+	/// 0 is a state worth naming rather than leaving the user to infer from a number.
+	private static func prefetchDepthLabel(_ depth: Int) -> String {
+		switch depth {
+		case 0: return "Off"
+		case 1: return "Next track"
+		default: return "Next \(depth) tracks"
+		}
+	}
+
+	private var cacheSizeGB: Binding<Int> {
+		Binding(
+			get: { max(1, cacheSizeBytes / (1024 * 1024 * 1024)) },
+			set: { cacheSizeBytes = $0 * 1024 * 1024 * 1024 }
+		)
+	}
+
+	private static func gigabyteCount(_ bytes: Int) -> String {
+		let gigabytes = Double(bytes) / Double(1024 * 1024 * 1024)
+		if gigabytes >= 1 {
+			return "\(Int(gigabytes.rounded())) GB"
+		}
+		return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+	}
+}
+
+private enum QualityTarget: Hashable {
+	case playback
+	case offline
+}
+
+/// The Atmos preference for one target. Playback and offline each carry their own, so a
+/// user can stream stereo while storing Atmos or the reverse.
+private struct DolbyAtmosToggle: View {
+	@Binding var isOn: Bool
+	let help: String
+
+	var body: some View {
+		Toggle(isOn: $isOn) {
+			VStack(alignment: .leading) {
+				Text("Prefer Dolby Atmos")
+				Text(help)
+					.font(.caption)
+					.foregroundStyle(.secondary)
+			}
+		}
+	}
+}
+
+/// The quality tiers, shared by the streaming and offline pickers so both behave the
+/// same. Every tier stays visible; one the subscription does not allow is greyed.
+private struct AudioQualityRows: View {
+	let selection: AudioQuality
+	let isAvailable: (AudioQuality) -> Bool
+	let select: (AudioQuality) -> Void
+
+	var body: some View {
+		HStack {
+			Button {
+				if selection != .low && selection != .medium && isAvailable(.medium) {
+					select(.medium)
+				}
+			} label: {
+				HStack {
+					Image(systemName: (selection == .low || selection == .medium) ? "largecircle.fill.circle" : "circle")
+						.foregroundStyle((selection == .low || selection == .medium) ? Color.accentColor : Color.secondary)
+						.imageScale(.large)
+
+					VStack(alignment: .leading) {
+						Text("Low")
+							.foregroundStyle(.primary)
+						Text("Balance audio quality and data consumption")
+							.font(.caption)
+							.foregroundStyle(.secondary)
+					}
+					Spacer()
+				}
+				.contentShape(Rectangle())
+			}
+			.buttonStyle(.plain)
+
+			// Greyed per option: a 320 kbps cap still shows the 96 kbps row selectable.
+			Picker("", selection: Binding<AudioQuality>(
+				get: {
+					(selection == .low || selection == .medium) ? selection : .medium
+				},
+				set: { newValue in
+					guard isAvailable(newValue) else { return }
+					select(newValue)
+				}
+			)) {
+				Text("96 kbps")
+					.tag(AudioQuality.low)
+					.disabled(!isAvailable(.low))
+				Text("320 kbps")
+					.tag(AudioQuality.medium)
+					.disabled(!isAvailable(.medium))
+			}
+			.labelsHidden()
+			.fixedSize()
+		}
+
+		qualityRow(title: "High", subtitle: "16-bit, 44.1 kHz", quality: .high)
+		qualityRow(title: "Max", subtitle: "Up to 24-bit, 192 kHz", quality: .max)
+	}
+
+	@ViewBuilder
+	private func qualityRow(title: String, subtitle: String, quality: AudioQuality) -> some View {
+		let isSelected = selection == quality
+		Button {
+			select(quality)
+		} label: {
+			HStack {
+				Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+					.foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+					.imageScale(.large)
+
+				VStack(alignment: .leading) {
+					Text(title)
+						.foregroundStyle(.primary)
+					Text(subtitle)
+						.font(.caption)
+						.foregroundStyle(.secondary)
+				}
+				Spacer()
+			}
+			.contentShape(Rectangle())
+		}
+		.buttonStyle(.plain)
+		.disabled(!isAvailable(quality))
 	}
 }
 

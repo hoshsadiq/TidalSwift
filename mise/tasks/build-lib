@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 #MISE description="Build TidalSwiftLib package"
-set -eo pipefail
+# Builds the package on its own, without Xcode, the same way CI's library job does.
+set -Eeuo pipefail
 
-cd TidalSwiftLib
-exec swift build
+# shellcheck source=mise/tasks/_lib.sh
+. "$(dirname -- "${BASH_SOURCE[0]}")/_lib.sh"
+
+main() {
+	task_in_lib swift build
+}
+
+main "$@"
