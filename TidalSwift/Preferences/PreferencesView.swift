@@ -33,8 +33,8 @@ private struct PlaybackPreferencesTab: View {
 
 	@AppStorage("offlinePreferDolbyAtmos") private var offlinePreferDolbyAtmos = false
 	/// Read through the library's key so the player sees the same value without new wiring.
-	@AppStorage(HiResStreamingPreferences.prefetchDepthKey) private var prefetchDepth = HiResStreamingPreferences.defaultPrefetchDepth
-	@AppStorage(HiResStreamingPreferences.cacheSizeBytesKey) private var cacheSizeBytes = HiResStreamingPreferences.defaultCacheBytes
+	@AppStorage(PlaybackCachePreferences.prefetchDepthKey) private var prefetchDepth = PlaybackCachePreferences.defaultPrefetchDepth
+	@AppStorage(PlaybackCachePreferences.cacheSizeBytesKey) private var cacheSizeBytes = PlaybackCachePreferences.defaultCacheBytes
 	@State private var cacheUsageBytes = 0
 	@AppStorage(TidalSwiftAppModel.ignoreSubscriptionLimitsKey) private var ignoreSubscriptionLimits = false
 	/// `session.config` is not observable, so mirror its offline quality here.
@@ -89,7 +89,7 @@ private struct PlaybackPreferencesTab: View {
 				}
 
 				Picker(selection: $prefetchDepth) {
-					ForEach(HiResStreamingPreferences.prefetchDepthOptions, id: \.self) { depth in
+					ForEach(PlaybackCachePreferences.prefetchDepthOptions, id: \.self) { depth in
 						Text(Self.prefetchDepthLabel(depth)).tag(depth)
 					}
 				} label: {
@@ -112,7 +112,7 @@ private struct PlaybackPreferencesTab: View {
 					TextField("", value: cacheSizeGB, format: .number)
 						.frame(width: 56)
 						.multilineTextAlignment(.trailing)
-					Stepper("", value: cacheSizeGB, in: HiResStreamingPreferences.cacheSizeRange)
+					Stepper("", value: cacheSizeGB, in: PlaybackCachePreferences.cacheSizeRange)
 						.labelsHidden()
 				}
 
@@ -175,7 +175,7 @@ private struct PlaybackPreferencesTab: View {
 		.formStyle(.grouped)
 		.task {
 			await appModel.loadHighestSoundQuality()
-			cacheUsageBytes = HiResStreaming.cacheUsageBytes()
+			cacheUsageBytes = PlaybackCache.usageBytes()
 		}
 	}
 

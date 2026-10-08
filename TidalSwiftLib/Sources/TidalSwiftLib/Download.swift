@@ -69,27 +69,17 @@ public class Download {
 		let filename = formFileName(track)
 		print("Downloading: \(filename)")
 
-		// At a FLAC tier the encrypted rendition is downloaded and decrypted, so the file
-		// on disk is a playable FLAC. At Medium/Low the branch below assembles the DASH.
-		if HiResStreaming.usesHiResStereo(
-			for: track,
-			session: session,
-			quality: audioQuality,
-			preferDolbyAtmos: session.helpers.offline.preferDolbyAtmos
-		),
-		   case .resolved(let manifest) = await session.hiResStereoStream(trackId: track.id) {
-			return await save(track, named: filename, parentFolder: parentFolder, pathExtension: "flac") { path in
-				try await HiResStreaming.downloadAndDecrypt(manifest, to: path)
-			}
-		}
-
-		// At High/Low `streamUrl` is refused; the desktop endpoint answers an unencrypted
-		// AAC DASH manifest, which fills only the plain stereo tiers.
-		let wantsAtmos = track.hasDolbyAtmos && (session.helpers.offline.preferDolbyAtmos || !track.hasStereo)
-		if audioQuality == .medium || audioQuality == .low, track.hasStereo, !wantsAtmos,
-		   let manifest = await session.dashAudioManifest(trackId: track.id, audioQuality: audioQuality) {
+		// HLS serves every stereo tier and the Atmos rendition, so the file on disk is the
+		// assembled fMP4 variant for the requested quality (or the next lower tier when it is
+		// refused), with the Atmos preference putting the Atmos rung first.
+		if PlaybackRoutingPolicy.usesHLS(sessionHasDesktopPlaybackAccess: session.hasDesktopPlaybackAccess), let playlistURL = try? await session.hlsPlaylistURL(
+			trackId: track.id,
+			audioQuality: audioQuality,
+			preferDolbyAtmos: session.helpers.offline.preferDolbyAtmos,
+			trackHasDolbyAtmos: track.hasDolbyAtmos
+		) {
 			return await save(track, named: filename, parentFolder: parentFolder, pathExtension: "m4a") { path in
-				try await DashAudio.assemble(manifest, to: path)
+				try await HLSStreaming.download(playlistURL, to: path, fetch: HLSStreaming.defaultFetch(userAgent: AuthInformation.tidalClientUserAgent))
 			}
 		}
 

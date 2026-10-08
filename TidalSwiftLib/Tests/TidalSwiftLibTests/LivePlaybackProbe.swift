@@ -5,9 +5,9 @@
 //  skipped and makes no network call.
 //
 //  Safety: the session is passed in through the environment, so no test reads the
-//  developer's stored session, and every prepared or assembled file is written into a
-//  temporary directory the test creates and removes. Nothing here reads or writes the
-//  offline library, and nothing deletes from the real playback cache at
+//  developer's stored session, and every downloaded file is written into a temporary
+//  directory the test creates and removes. Nothing here reads or writes the offline
+//  library, and nothing deletes from the real playback cache at
 //  `~/Library/Caches/TidalSwift/stream/`.
 //
 
@@ -98,13 +98,11 @@ final class LivePlaybackProbe: XCTestCase {
 		return directory
 	}
 
-	/// Hazlett, "fast like you": stereo *and* Atmos renditions. Built by hand so the
-	/// probe does not need a fully signed-in session for the catalogue call.
-	private func dualFormatTrack() -> Track {
-		let id = 433_645_363
-		return Track(
+	/// A track built by hand so a probe needs no catalogue call.
+	private func probeTrack(id: Int, title: String, albumId: Int, albumTitle: String, audioModes: [AudioMode] = [.stereo, .dolbyAtmos]) -> Track {
+		Track(
 			id: id,
-			title: "fast like you",
+			title: title,
 			duration: 224,
 			replayGain: 0,
 			peak: nil,
@@ -123,12 +121,12 @@ final class LivePlaybackProbe: XCTestCase {
 			editable: false,
 			explicit: false,
 			audioQuality: .max,
-			audioModes: [.stereo, .dolbyAtmos],
+			audioModes: audioModes,
 			artist: nil,
 			artists: [],
 			album: Album(
-				id: 433_645_358,
-				title: "last night you said you missed me",
+				id: albumId,
+				title: albumTitle,
 				duration: nil,
 				streamReady: nil,
 				streamStartDate: nil,
@@ -162,113 +160,272 @@ final class LivePlaybackProbe: XCTestCase {
 		)
 	}
 
-	func testTidalsRouteProducesADecryptedPlayableFileAtMax() async throws {
+	/// The point of the freeze fix: downloading an HLS track must not hold the main actor while
+	/// it fetches and concatenates the segments. The monitor's largest wait is the stall.
+	func testDownloadingAnHLSTrackDoesNotStallTheMainActor() async throws {
 		let session = try liveSession()
-		let track = dualFormatTrack()
+		let trackId = 98_156_344
 		let cacheDirectory = try makeTemporaryCacheDirectory()
 		defer { try? FileManager.default.removeItem(at: cacheDirectory) }
-
-		let start = Date()
-		let fileURL = await HiResStreaming.prepareFile(
-			for: track, session: session, quality: .max, cacheDirectory: cacheDirectory
-		)
-		let elapsed = Date().timeIntervalSince(start)
-		let resolved = HiResStreaming.describe(try XCTUnwrap(fileURL, "Tidal's route produced no file"))
-
-		let file = try AVAudioFile(forReading: resolved.url)
-		let format = file.fileFormat
-		let bits = resolved.bitDepth.map(String.init) ?? "unknown"
-		print("[LIVE] Max: \(resolved.url.lastPathComponent) in \(String(format: "%.2f", elapsed))s — \(Int(format.sampleRate)) Hz, \(bits) bit, \(format.channelCount) ch, \(file.length) frames")
-
-		XCTAssertEqual(Int(format.sampleRate), 44_100)
-		XCTAssertEqual(resolved.bitDepth, 24)
-		XCTAssertEqual(format.channelCount, 2)
-		XCTAssertGreaterThan(file.length, 0)
-	}
-
-	func testTidalsRouteServesSixteenBitAtLossless() async throws {
-		let session = try liveSession()
-		let track = dualFormatTrack()
-		let cacheDirectory = try makeTemporaryCacheDirectory()
-		defer { try? FileManager.default.removeItem(at: cacheDirectory) }
-
-		let fileURL = await HiResStreaming.prepareFile(
-			for: track, session: session, quality: .high, cacheDirectory: cacheDirectory
-		)
-		let resolved = HiResStreaming.describe(try XCTUnwrap(fileURL, "Tidal's route produced no file at Lossless"))
-		let bits = resolved.bitDepth.map(String.init) ?? "unknown"
-		let rate = resolved.sampleRate.map(String.init) ?? "unknown"
-		print("[LIVE] Lossless: \(resolved.url.lastPathComponent) — \(rate) Hz, \(bits) bit")
-
-		XCTAssertEqual(resolved.bitDepth, 16)
-	}
-
-	/// The point of the freeze fix: preparing a hi-res track must not hold the main actor while it
-	/// downloads and decrypts. The monitor's largest wait is the stall.
-	func testPreparingAHiResTrackDoesNotStallTheMainActor() async throws {
-		let session = try liveSession()
-		let track = dualFormatTrack()
-		let cacheDirectory = try makeTemporaryCacheDirectory()
-		defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+		let playlistURL = try await session.hlsPlaylistURL(trackId: trackId, audioQuality: .max)
 
 		let monitor = MainQueueLatencyMonitor()
 		monitor.start()
 		try? await Task.sleep(for: .milliseconds(50))
 		let start = Date()
-		let url = await HiResStreaming.prepareFile(
-			for: track, session: session, quality: .max, cacheDirectory: cacheDirectory
+		let destination = try await HLSStreaming.downloadToCache(
+			playlistURL, forTrackId: trackId, rung: .stereo(.max), cacheDirectory: cacheDirectory,
+			fetch: HLSStreaming.defaultFetch(userAgent: AuthInformation.tidalClientUserAgent)
 		)
 		let elapsed = Date().timeIntervalSince(start)
 		monitor.stop()
 
-		XCTAssertNotNil(url, "Tidal's route produced no file")
-		print("[LIVE] hi-res prepare: \(String(format: "%.2f", elapsed))s wall, main-actor stall \(String(format: "%.3f", monitor.maxLatencySeconds))s")
-		print("[LIVE] hi-res prepare gaps: \(monitor.sampleLog)")
-		XCTAssertLessThan(monitor.maxLatencySeconds, 0.25, "preparing a hi-res track must not block the main actor")
+		XCTAssertTrue(FileManager.default.fileExists(atPath: destination.path), "the HLS route produced no file")
+		print("[LIVE] hls download: \(String(format: "%.2f", elapsed))s wall, main-actor stall \(String(format: "%.3f", monitor.maxLatencySeconds))s")
+		print("[LIVE] hls download gaps: \(monitor.sampleLog)")
+		XCTAssertLessThan(monitor.maxLatencySeconds, 0.25, "downloading an HLS track must not block the main actor")
 	}
 
-	/// The same measurement for the DASH path, whose assembly was already off the main actor, so
-	/// this pins that it stays that way.
-	func testAssemblingADashTrackDoesNotStallTheMainActor() async throws {
+	/// The HLS route end to end, against Tidal: resolve the Max manifest, download and
+	/// concatenate the variant, then load the file with AVFoundation and assert it is
+	/// playable FLAC. Track 98,156,344 is a measured 24-bit track.
+	func testHLSManifestDownloadProducesPlayableFLACAtMax() async throws {
 		let session = try liveSession()
-		let track = dualFormatTrack()
+		let trackId = 98_156_344
 		let cacheDirectory = try makeTemporaryCacheDirectory()
 		defer { try? FileManager.default.removeItem(at: cacheDirectory) }
-		let destination = cacheDirectory.appendingPathComponent("\(track.id)-medium.aac.m4a")
-		// Assembling straight into the temp directory forces the assembly instead of a cached hit.
-		let manifestResult = await session.dashAudioManifest(trackId: track.id, audioQuality: .medium)
-		let manifest = try XCTUnwrap(manifestResult, "Tidal served no DASH manifest")
 
-		let monitor = MainQueueLatencyMonitor()
-		monitor.start()
-		try? await Task.sleep(for: .milliseconds(50))
+		print("[PLAYBACK] hls probe: resolving the Max manifest for track \(trackId)")
+		let playlistURL = try await session.hlsPlaylistURL(trackId: trackId, audioQuality: .max)
+		print("[PLAYBACK] hls probe: playlist on \(playlistURL.host ?? "unknown host")")
+
 		let start = Date()
-		try await DashAudio.assemble(manifest, to: destination)
+		let destination = try await HLSStreaming.downloadToCache(
+			playlistURL, forTrackId: trackId, rung: .stereo(.max), cacheDirectory: cacheDirectory,
+			fetch: HLSStreaming.defaultFetch(userAgent: AuthInformation.tidalClientUserAgent)
+		)
 		let elapsed = Date().timeIntervalSince(start)
-		monitor.stop()
+		let size = (try? FileManager.default.attributesOfItem(atPath: destination.path)[.size] as? NSNumber)?.intValue ?? 0
+		print("[PLAYBACK] hls probe: wrote \(destination.lastPathComponent), \(size) bytes in \(String(format: "%.2f", elapsed))s")
 
-		XCTAssertTrue(FileManager.default.fileExists(atPath: destination.path), "the DASH route produced no file")
-		print("[LIVE] dash assemble: \(String(format: "%.2f", elapsed))s wall, main-actor stall \(String(format: "%.3f", monitor.maxLatencySeconds))s")
-		XCTAssertLessThan(monitor.maxLatencySeconds, 0.25, "assembling a DASH track must not block the main actor")
+		let asset = AVURLAsset(url: destination)
+		let duration = try await asset.load(.duration)
+		let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+		let audio = try XCTUnwrap(audioTracks.first, "the concatenated file has no audio track")
+		let descriptions = try await audio.load(.formatDescriptions)
+		let subtype = descriptions.first.flatMap { description -> String? in
+			var code = CMFormatDescriptionGetMediaSubType(description).bigEndian
+			return String(bytes: withUnsafeBytes(of: &code) { Data($0) }, encoding: .ascii)
+		} ?? "unknown"
+		print("[PLAYBACK] hls probe: duration \(String(format: "%.2f", CMTimeGetSeconds(duration)))s, audio codec \(subtype)")
+
+		XCTAssertGreaterThan(CMTimeGetSeconds(duration), 0)
+		XCTAssertEqual(audioTracks.count, 1)
+		XCTAssertEqual(subtype, "flac")
 	}
 
-	func testADashTierAssemblesPlayableAudio() async throws {
+	/// Stage 2 end to end, against Tidal: AVPlayer plays the resolved playlist directly,
+	/// the cache fills behind the play, and the next play reads the cached file without
+	/// resolving the manifest again. Muted throughout; never sound.
+	func testHLSPlaylistPlaysMutedAndTheCachedFileTakesOver() async throws {
 		let session = try liveSession()
-		let track = dualFormatTrack()
+		let track = probeTrack(id: 98_156_344, title: "hls probe", albumId: 98_156_344, albumTitle: "hls probe")
 		let cacheDirectory = try makeTemporaryCacheDirectory()
 		defer { try? FileManager.default.removeItem(at: cacheDirectory) }
-		let destination = cacheDirectory.appendingPathComponent("\(track.id)-medium.aac.m4a")
-		let manifestResult = await session.dashAudioManifest(trackId: track.id, audioQuality: .medium)
-		let manifest = try XCTUnwrap(manifestResult, "Tidal served no DASH manifest")
 
-		let start = Date()
-		try await DashAudio.assemble(manifest, to: destination)
-		let elapsed = Date().timeIntervalSince(start)
+		let resolvedSource = await HLSStreaming.playbackSource(
+			for: track, session: session, quality: .max, cacheDirectory: cacheDirectory
+		)
+		let first = try XCTUnwrap(resolvedSource, "the HLS manifest produced no source")
+		print("[PLAYBACK] hls: step 1 resolves \(first.url.host ?? "unknown host")")
 
-		let file = try AVAudioFile(forReading: destination)
-		print("[LIVE] High: \(destination.lastPathComponent) in \(String(format: "%.2f", elapsed))s — \(Int(file.fileFormat.sampleRate)) Hz, \(file.fileFormat.channelCount) ch, \(file.length) frames")
+		let advancedFromPlaylist = try await playMuted(first.url)
+		print("[PLAYBACK] hls: step 1 playlist advanced to \(String(format: "%.1f", advancedFromPlaylist))s")
+		XCTAssertGreaterThan(advancedFromPlaylist, 0, "the playlist must advance while playing")
 
-		XCTAssertEqual(file.fileFormat.channelCount, 2)
-		XCTAssertGreaterThan(file.length, 0)
+		let cached = await first.backgroundDownload?.value
+		print("[PLAYBACK] hls: step 2 cached \(cached?.lastPathComponent ?? "nothing")")
+		let cachedFile = try XCTUnwrap(cached, "the background cache write produced no file")
+
+		var resolvedAgain = false
+		let secondSource = await HLSStreaming.playbackSource(
+			for: track, session: session, quality: .max, cacheDirectory: cacheDirectory,
+			resolvePlaylist: { _, _ in
+				resolvedAgain = true
+				throw HLSStreamError.requestFailed
+			}
+		)
+		let second = try XCTUnwrap(secondSource, "the cached file was not served")
+		XCTAssertEqual(second.url, cachedFile)
+		XCTAssertNil(second.backgroundDownload, "a cached play must not start another download")
+		XCTAssertFalse(resolvedAgain, "a cached play must not resolve the manifest again")
+		print("[PLAYBACK] hls: step 2 badge \(HLSStreaming.badge(for: .max, sampleRate: second.sampleRate))")
+
+		let advancedFromFile = try await playMuted(second.url)
+		print("[PLAYBACK] hls: step 2 cached file advanced to \(String(format: "%.1f", advancedFromFile))s")
+		XCTAssertGreaterThan(advancedFromFile, 0, "the cached file must advance while playing")
+	}
+
+	/// The quality ladder against Tidal: track 1,228,498 is refused `FLAC_HIRES` (measured
+	/// 2026-10-06, `CLIENT_NOT_ENTITLED`), so a play at Max must step down to the next tier
+	/// and still play. The badge must report the tier actually served, never Max. Muted.
+	func testMaxOnARefusedHiResTrackStepsDownAndStillPlays() async throws {
+		let session = try liveSession()
+		let track = probeTrack(id: 1_228_498, title: "ladder probe", albumId: 1_228_498, albumTitle: "ladder probe")
+		let cacheDirectory = try makeTemporaryCacheDirectory()
+		defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+
+		let sourceValue = await HLSStreaming.playbackSource(
+			for: track, session: session, quality: .max, cacheDirectory: cacheDirectory
+		)
+		let source = try XCTUnwrap(sourceValue, "every stereo tier was refused for 1228498")
+		print("[LIVE] ladder: track 1228498 asked HI_RES_LOSSLESS and was served \(source.rung.format)")
+		print("[LIVE] ladder: badge \(HLSStreaming.badge(for: source.rung, sampleRate: source.sampleRate))")
+
+		let advanced = try await playMuted(source.url)
+		print("[LIVE] ladder: playlist advanced to \(String(format: "%.1f", advanced))s")
+		XCTAssertGreaterThan(advanced, 0, "the stepped-down tier must still play")
+		XCTAssertNotEqual(
+			HLSStreaming.badge(for: source.rung),
+			HLSStreaming.badge(for: .max),
+			"the badge must report the served tier, not Max"
+		)
+	}
+
+	/// The regression this lane fixes: track 241,647,167 advertises DOLBY_ATMOS and no STEREO,
+	/// and the v1 `streamUrl` route refuses it at every quality. It resolves through HLS and
+	/// plays. Muted throughout.
+	func testAnAtmosAdvertisedTrackPlaysThroughHLSAtMax() async throws {
+		let session = try liveSession()
+		let track = probeTrack(
+			id: 241_647_167, title: "atmos probe", albumId: 241_647_167, albumTitle: "atmos probe",
+			audioModes: [.dolbyAtmos]
+		)
+		let cacheDirectory = try makeTemporaryCacheDirectory()
+		defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+
+		let sourceValue = await HLSStreaming.playbackSource(
+			for: track, session: session, quality: .max, cacheDirectory: cacheDirectory
+		)
+		let source = try XCTUnwrap(sourceValue, "track 241647167 must resolve through HLS")
+		print("[LIVE] atmos: preference off served \(source.rung.format), badge \(HLSStreaming.badge(for: source.rung, sampleRate: source.sampleRate))")
+
+		let advanced = try await playMuted(source.url)
+		print("[LIVE] atmos: playlist advanced to \(String(format: "%.1f", advanced))s")
+		XCTAssertGreaterThan(advanced, 0, "the resolved rung must advance while playing")
+
+		let cached = await source.backgroundDownload?.value
+		print("[LIVE] atmos: preference off cached \(cached?.lastPathComponent ?? "nothing")")
+		XCTAssertNotNil(cached, "the served rung must reach the cache")
+	}
+
+	/// The same track with the Atmos preference on takes the Atmos rung, which is the whole
+	/// meaning of the preference: it chooses between rungs, it never removes a route.
+	func testAnAtmosAdvertisedTrackTakesTheAtmosRungWhenPreferred() async throws {
+		let session = try liveSession()
+		let track = probeTrack(
+			id: 241_647_167, title: "atmos probe", albumId: 241_647_167, albumTitle: "atmos probe",
+			audioModes: [.stereo, .dolbyAtmos]
+		)
+		let cacheDirectory = try makeTemporaryCacheDirectory()
+		defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+
+		let sourceValue = await HLSStreaming.playbackSource(
+			for: track, session: session, quality: .max, preferDolbyAtmos: true, cacheDirectory: cacheDirectory
+		)
+		let source = try XCTUnwrap(sourceValue, "the Atmos rung must resolve for track 241647167")
+		print("[LIVE] atmos: preference on served \(source.rung.format), badge \(HLSStreaming.badge(for: source.rung, sampleRate: source.sampleRate))")
+		XCTAssertEqual(source.rung, .dolbyAtmos, "the preference must take the Atmos rung")
+
+		let advanced = try await playMuted(source.url)
+		print("[LIVE] atmos: playlist advanced to \(String(format: "%.1f", advanced))s")
+		XCTAssertGreaterThan(advanced, 0, "the Atmos rung must advance while playing")
+
+		let cachedValue = await source.backgroundDownload?.value
+		let cached = try XCTUnwrap(cachedValue, "the Atmos rung must reach the cache")
+		print("[LIVE] atmos: preference on cached \(cached.lastPathComponent)")
+		XCTAssertEqual(cached.lastPathComponent, "241647167-DOLBY_ATMOS.m4a")
+
+		// A second play reads the cached file with no resolve, which is the point of caching.
+		var resolvedAgain = false
+		let replayValue = await HLSStreaming.playbackSource(
+			for: track, session: session, quality: .max, preferDolbyAtmos: true, cacheDirectory: cacheDirectory,
+			resolvePlaylist: { _, _ in
+				resolvedAgain = true
+				throw HLSStreamError.requestFailed
+			}
+		)
+		let replay = try XCTUnwrap(replayValue, "the cached Atmos file must be served")
+		XCTAssertEqual(replay.url, cached)
+		XCTAssertFalse(resolvedAgain, "a cached play must not resolve the manifest again")
+		let fromFile = try await playMuted(replay.url)
+		print("[LIVE] atmos: second play from the cached file advanced to \(String(format: "%.1f", fromFile))s")
+		XCTAssertGreaterThan(fromFile, 0, "the cached Atmos file must play")
+	}
+
+	/// The offline end state for an Atmos track: the sync downloads the E-AC-3 rendition into
+	/// the temporary offline library, names it for the rendition, and serves that file.
+	func testAnAtmosTrackDownloadsIntoTheOfflineLibrary() async throws {
+		let session = try liveSession()
+		let track = probeTrack(
+			id: 241_647_167, title: "atmos offline probe", albumId: 241_647_167, albumTitle: "atmos offline probe",
+			audioModes: [.dolbyAtmos]
+		)
+		let offline = session.helpers.offline
+		offline.setPreferDolbyAtmos(to: true)
+		offline.setOfflineTracksForTesting([track])
+		await offline.awaitOngoingSync()
+
+		let libraryDirectory = offlineLibrary.root.appendingPathComponent("TidalSwift Offline Library")
+		let files = ((try? FileManager.default.contentsOfDirectory(atPath: libraryDirectory.path)) ?? []).sorted()
+		print("[LIVE] atmos offline: library holds \(files)")
+		XCTAssertEqual(files, ["241647167.atmos.m4a"], "the Atmos rendition must land under its marker")
+
+		let streamValue = await offline.stream(for: track)
+		let stream = try XCTUnwrap(streamValue, "the stored Atmos file must be served offline")
+		XCTAssertEqual(stream.url.lastPathComponent, "241647167.atmos.m4a")
+		XCTAssertTrue(stream.isDolbyAtmos, "the stored file must be served as Atmos")
+		let advanced = try await playMuted(stream.url)
+		print("[LIVE] atmos offline: stored file advanced to \(String(format: "%.1f", advanced))s")
+		XCTAssertGreaterThan(advanced, 0, "the stored Atmos file must play from disk")
+	}
+
+	/// The stereo entry for the same song still prefers stereo with the preference off: no
+	/// Atmos rung is asked for a track that does not advertise it.
+	func testTheStereoTrackPrefersStereoWithThePreferenceOff() async throws {
+		let session = try liveSession()
+		let track = probeTrack(
+			id: 5_872_412, title: "stereo probe", albumId: 5_872_412, albumTitle: "stereo probe",
+			audioModes: [.stereo]
+		)
+		let cacheDirectory = try makeTemporaryCacheDirectory()
+		defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+
+		let sourceValue = await HLSStreaming.playbackSource(
+			for: track, session: session, quality: .max, cacheDirectory: cacheDirectory
+		)
+		let source = try XCTUnwrap(sourceValue, "track 5872412 must resolve through HLS")
+		print("[LIVE] atmos: stereo entry served \(source.rung.format), badge \(HLSStreaming.badge(for: source.rung, sampleRate: source.sampleRate))")
+		XCTAssertFalse(source.rung.isDolbyAtmos, "a stereo-only track must not take the Atmos rung")
+
+		let advanced = try await playMuted(source.url)
+		XCTAssertGreaterThan(advanced, 0, "the stereo rung must advance while playing")
+	}
+
+	/// Plays `url` muted until its position passes half a second, then stops. Returns the
+	/// position reached, so a caller can assert the time advanced; the volume stays at
+	/// zero, so this never makes sound.
+	private func playMuted(_ url: URL, timeout: Double = 20) async throws -> Double {
+		let player = AVPlayer(url: url)
+		player.isMuted = true
+		player.play()
+		defer { player.pause() }
+		let deadline = Date().addingTimeInterval(timeout)
+		while Date() < deadline {
+			let seconds = CMTimeGetSeconds(player.currentTime())
+			if seconds.isFinite, seconds > 0.5 { return seconds }
+			try await Task.sleep(for: .milliseconds(250))
+		}
+		return CMTimeGetSeconds(player.currentTime())
 	}
 }

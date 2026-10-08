@@ -631,4 +631,38 @@ final class TagWriterTests: XCTestCase {
 		let afterSize = try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int
 		XCTAssertGreaterThan(afterSize ?? 0, beforeSize ?? 0, "expected the file to grow, \(beforeSize ?? -1) -> \(afterSize ?? -1)")
 	}
+
+	/// A Max download is FLAC inside an MP4 container, written as `.m4a`, so `Metadata` routes it
+	/// through `MP4TagWriter` rather than `FLACTagWriter`. This pins that the passthrough export
+	/// carries the tags onto a FLAC payload, so a downloaded Max track is tagged, not just
+	/// written.
+	@MainActor
+	func testMP4TagsAFLACPayloadInAnMP4Container() async throws {
+		let url = try temporaryCopy(ofFixture: "silent-flac", extension: "m4a")
+		defer { removeCopy(url) }
+		try await MP4TagWriter.write(fullTags(cover: try coverData()), to: url)
+
+		let bytes = [UInt8](try Data(contentsOf: url))
+		let ilst = try XCTUnwrap(ilstAtom(bytes), "no moov > udta > meta > ilst on the FLAC payload")
+		XCTAssertEqual(metadataString(bytes, in: ilst, type: Self.nam), "Jóga (Album Version)")
+		XCTAssertEqual(metadataString(bytes, in: ilst, type: Self.art), "Björk")
+		XCTAssertEqual(metadataString(bytes, in: ilst, type: Self.alb), "Homogénic Live")
+		XCTAssertEqual(metadataString(bytes, in: ilst, type: Self.aART), "ALBUM")
+		XCTAssertEqual(metadataString(bytes, in: ilst, type: Self.day), "1997-09-22")
+
+		// The tagging rewrite keeps the FLAC payload: the file still loads as one FLAC audio
+		// track, so a Max download is never re-encoded or left unplayable.
+		let asset = AVURLAsset(url: url)
+		let tracks = try await asset.loadTracks(withMediaType: .audio)
+		XCTAssertEqual(tracks.count, 1, "the tagged FLAC payload must still hold one audio track")
+		let audio = try XCTUnwrap(tracks.first)
+		let descriptions = try await audio.load(.formatDescriptions)
+		let subtype = descriptions.first.flatMap { description -> String? in
+			var code = CMFormatDescriptionGetMediaSubType(description).bigEndian
+			return String(bytes: withUnsafeBytes(of: &code) { Data($0) }, encoding: .ascii)
+		}
+		XCTAssertEqual(subtype, "flac", "the tagging rewrite must not change the audio codec")
+		let duration = try await asset.load(.duration)
+		XCTAssertGreaterThan(CMTimeGetSeconds(duration), 0)
+	}
 }

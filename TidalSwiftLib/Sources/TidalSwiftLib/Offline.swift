@@ -239,14 +239,15 @@ public final class Offline {
 	}
 
 	/// Middle path components: "<track ID>.atmos.m4a", "<track ID>.hires.flac",
-	/// "<track ID>.<audio quality>.<extension>".
+	/// "<track ID>.<audio quality>.m4a".
 	private let dolbyAtmosFileMarker = "atmos"
-	private let hiResStereoFileMarker = "hires"
+	/// The hi-res stereo files written before the HLS rewrite; a library that predates it
+	/// still holds them, so the marker must be recognised or they are misread as lossless.
+	private let hiresFileMarker = "hires"
 
 	/// What a file on disk holds; nil quality for m4a files stored before it was in the name.
 	private enum FileVariant: Equatable, Hashable {
 		case dolbyAtmos
-		case hiResStereo
 		case stereo(AudioQuality?)
 	}
 
@@ -261,11 +262,9 @@ public final class Offline {
 	/// Test seam: the app leaves it nil and uses the track's own stream.
 	var resolveOfflineStream: ((Track) async -> AudioStream?)?
 
-	/// Test seam for the hi-res branch: an encrypted source and its wrapped key.
-	var resolveHiResOfflineStream: ((Track) async -> AcceptedHiResManifest?)?
-
-	/// Test seam for the DASH branch: the manifest a sync would assemble.
-	var resolveOfflineDashManifest: ((Track) async -> DashAudioManifest?)?
+	/// Test seam for the HLS branch: resolves one rung's playlist, so the sync's own ladder
+	/// runs for real and a test can refuse the configured tier to see the step down.
+	var resolveOfflineHLSPlaylist: ((Track, HLSRung) async throws -> URL)?
 
 	/// Test seam: seeds the wanted set through the favourite source the app derives it from.
 	func setOfflineTracksForTesting(_ tracks: [Track]) {
@@ -378,22 +377,22 @@ public final class Offline {
 		startSync()
 	}
 
-	/// Same choice as streaming; at the FLAC tiers the hi-res stereo route upgrades the wish.
+	/// Same choice as streaming: the Atmos preference or a track with no stereo picks Atmos,
+	/// otherwise the file holds the configured quality.
 	private func wantedVariant(of track: Track) -> FileVariant {
 		if track.hasDolbyAtmos && (preferDolbyAtmos || !track.hasStereo) {
 			return .dolbyAtmos
-		}
-		if HiResStreaming.usesHiResStereo(for: track, session: session, quality: session.config.offlineAudioQuality, preferDolbyAtmos: preferDolbyAtmos) {
-			return .hiResStereo
 		}
 		return .stereo(session.config.offlineAudioQuality)
 	}
 
 	/// Every variant on disk that satisfies the wish for this track.
 	///
-	/// Tidal decides the rendition, not us: an Atmos-capable track that also declares stereo
-	/// is refused by `streamUrl` at every tier and answered with the Atmos rendition even
-	/// with the preference off (see `Track.audioStream`), so either file must count.
+	/// The configured tier is a ceiling, not "any tier at or below it": the exact wanted
+	/// variant is the wish, so a Low file never satisfies a Max wish. Tidal still decides the
+	/// rendition, so an Atmos-capable stereo track with the preference off may have been served
+	/// the Atmos rung when every stereo rung was refused (see `HLSStreaming.rungs`), and that
+	/// file must count too.
 	private func acceptableVariants(of track: Track) -> Set<FileVariant> {
 		var variants: Set<FileVariant> = [wantedVariant(of: track)]
 		if track.hasDolbyAtmos && track.hasStereo && !preferDolbyAtmos {
@@ -404,12 +403,14 @@ public final class Offline {
 
 	private func variant(of url: URL, track: Track) -> FileVariant {
 		let marker = url.deletingPathExtension().pathExtension
-		if marker == hiResStereoFileMarker {
-			return .hiResStereo
-		}
-		// Atmos-only tracks were stored without the marker before, but can't be anything else
-		if marker == dolbyAtmosFileMarker || (track.hasDolbyAtmos && !track.hasStereo) {
+		// Legacy Atmos-only tracks were stored without a marker; every marked name is read
+		// from its marker alone, because the HLS route now serves stereo for such a track.
+		if marker == dolbyAtmosFileMarker || (marker.isEmpty && track.hasDolbyAtmos && !track.hasStereo) {
 			return .dolbyAtmos
+		}
+		// The pre-rewrite hi-res stereo file: a Max FLAC the current tier naming cannot say
+		if marker == hiresFileMarker {
+			return .stereo(.max)
 		}
 		if let audioQuality = AudioQuality(rawValue: marker.uppercased()) {
 			return .stereo(audioQuality)
@@ -422,10 +423,9 @@ public final class Offline {
 		stream.isDolbyAtmos ? .dolbyAtmos : .stereo(session.config.offlineAudioQuality)
 	}
 
-	/// What it lands on disk is decrypted, never the encrypted stream; a refused tier falls
-	/// back to DASH.
+	/// What it lands on disk is the assembled HLS file for the tier that was served, or the
+	/// direct stream for a track the HLS route cannot serve.
 	private func downloadOfflineTrack(_ track: Track, existingFiles: [URL]) async -> Bool {
-		print("Offline: Downloading \(track.title)")
 		guard let source = await downloadSource(for: track) else {
 			reportMissingDownloadSource(for: track, existingFiles: existingFiles)
 			return false
@@ -436,6 +436,7 @@ public final class Offline {
 			print("Offline: Keeping existing file of \(track.title)")
 			return false
 		}
+		print("Offline: Downloading \(track.title)")
 		let pathExtension = pathExtension(of: source)
 		let name = "\(track.id).\(fileMarker(of: source))"
 		guard let path = offlinePath(parentFolder: mainPath, name: name, pathExtension: pathExtension) else {
@@ -462,24 +463,26 @@ public final class Offline {
 		return true
 	}
 
-	/// DASH is the fallback only when nothing else resolved, so an Atmos or hi-res rendition wins.
+	/// HLS serves the tier ladder, so the file takes the tier that was served; the direct
+	/// stream is the fallback for a track it cannot serve, so an Atmos or otherwise-refused
+	/// rendition still lands.
 	private func downloadSource(for track: Track) async -> OfflineDownloadSource? {
-		var source: OfflineDownloadSource?
-		if HiResStreaming.usesHiResStereo(for: track, session: session, quality: session.config.offlineAudioQuality, preferDolbyAtmos: preferDolbyAtmos),
-		   let hiRes = await resolveHiResSource(for: track) {
-			source = .hiRes(hiRes)
-		} else if let resolveOfflineStream {
-			source = await resolveOfflineStream(track).map(OfflineDownloadSource.stream)
-		} else {
-			source = await track.audioStream(session: session, audioQuality: session.config.offlineAudioQuality, preferDolbyAtmos: preferDolbyAtmos).map(OfflineDownloadSource.stream)
+		if PlaybackRoutingPolicy.usesHLS(sessionHasDesktopPlaybackAccess: session.hasDesktopPlaybackAccess),
+		   let manifest = await resolveHLSPlaylist(for: track) {
+			return .hls(manifest)
 		}
-		if source != nil { return source }
-		return await resolveDashSource(for: track).map(OfflineDownloadSource.dash)
+		if let resolveOfflineStream {
+			return await resolveOfflineStream(track).map(OfflineDownloadSource.stream)
+		}
+		return await track.audioStream(session: session, audioQuality: session.config.offlineAudioQuality, preferDolbyAtmos: preferDolbyAtmos).map(OfflineDownloadSource.stream)
 	}
 
 	/// A cancelled sync gives up quietly, so "remove all offline content" does not toast.
 	private func reportMissingDownloadSource(for track: Track, existingFiles: [URL]) {
 		if Task.isCancelled { return }
+		// A stereo file at or below the ceiling is the best available tier already settled on;
+		// a resolve that fails (usually offline) keeps it quietly rather than crying failure.
+		if existingFiles.contains(where: { isSettledStereoFile($0, for: track) }) { return }
 		if !existingFiles.isEmpty {
 			// The old file stays, so a refused quality never shrinks the library
 			displayError(title: "Offline: Error while loading offline track", content: "Couldn't get Audio URL for \(track.title). Keeping the existing file.")
@@ -488,79 +491,93 @@ public final class Offline {
 		}
 	}
 
+	/// A stereo file whose tier is on the current ceiling's ladder. The sync only reaches here
+	/// when the exact wanted tier is not on disk, so this is a stepped-down best-available file.
+	private func isSettledStereoFile(_ url: URL, for track: Track) -> Bool {
+		guard case .stereo(let quality) = variant(of: url, track: track), let quality else { return false }
+		return HLSStreaming.qualityLadder(for: session.config.offlineAudioQuality).contains(quality)
+	}
+
 	private func write(_ source: OfflineDownloadSource, to path: URL) async throws {
 		switch source {
-		case .hiRes(let manifest):
-			try await HiResStreaming.downloadAndDecrypt(manifest, to: path)
-		case .dash(let manifest):
-			try await DashAudio.assemble(manifest, to: path)
+		case .hls(let manifest):
+			try await HLSStreaming.download(manifest.playlistURL, to: path, fetch: HLSStreaming.defaultFetch(userAgent: AuthInformation.tidalClientUserAgent))
 		case .stream(let stream):
 			try await Network.download(stream.url, path: path, overwrite: true)
 		}
 	}
 
 	private enum OfflineDownloadSource {
-		case hiRes(AcceptedHiResManifest)
-		case dash(DashAudioManifest)
+		case hls(HLSManifest)
 		case stream(AudioStream)
 	}
 
 	private func variant(of source: OfflineDownloadSource) -> FileVariant {
 		switch source {
-		case .hiRes:
-			.hiResStereo
-		case .dash:
-			.stereo(session.config.offlineAudioQuality)
+		case .hls(let manifest):
+			variant(of: manifest.rung)
 		case .stream(let stream):
 			variant(of: stream)
 		}
 	}
 
+	/// The disk variant a served HLS rung lands as.
+	private func variant(of rung: HLSRung) -> FileVariant {
+		switch rung {
+		case .stereo(let quality):
+			.stereo(quality)
+		case .dolbyAtmos:
+			.dolbyAtmos
+		}
+	}
+
 	private func pathExtension(of source: OfflineDownloadSource) -> String {
 		switch source {
-		case .hiRes:
-			"flac"
-		case .dash:
+		case .hls:
 			"m4a"
 		case .stream(let stream):
 			stream.pathExtension
 		}
 	}
 
+	/// The name carries the rung the source actually holds. For HLS that is the rung Tidal
+	/// served (the ladder may have stepped down from the ceiling, or to the Atmos rung), so
+	/// the file and the variant check read the same thing and the sync can tell what is on
+	/// disk.
 	private func fileMarker(of source: OfflineDownloadSource) -> String {
 		switch source {
-		case .hiRes:
-			hiResStereoFileMarker
-		case .dash:
-			session.config.offlineAudioQuality.rawValue.lowercased()
+		case .hls(let manifest):
+			switch manifest.rung {
+			case .stereo(let quality):
+				return quality.rawValue.lowercased()
+			case .dolbyAtmos:
+				return dolbyAtmosFileMarker
+			}
 		case .stream(let stream):
-			stream.isDolbyAtmos ? dolbyAtmosFileMarker : session.config.offlineAudioQuality.rawValue.lowercased()
+			return stream.isDolbyAtmos ? dolbyAtmosFileMarker : session.config.offlineAudioQuality.rawValue.lowercased()
 		}
 	}
 
-	/// A test substitutes `resolveHiResOfflineStream`, so the encrypted fixture needs no account.
-	private func resolveHiResSource(for track: Track) async -> AcceptedHiResManifest? {
-		if let resolveHiResOfflineStream {
-			return await resolveHiResOfflineStream(track)
+	/// A test substitutes `resolveOfflineHLSPlaylist`, so the sync needs no account. The
+	/// configured offline quality is a ceiling: the ladder steps down when it is refused, so
+	/// a track added offline at Max downloads its best available tier rather than failing. The
+	/// served rung comes back with the playlist, so the file is named for what it holds.
+	private func resolveHLSPlaylist(for track: Track) async -> HLSManifest? {
+		let resolve: (Int, HLSRung) async throws -> URL
+		if let resolveOfflineHLSPlaylist {
+			resolve = { _, rung in try await resolveOfflineHLSPlaylist(track, rung) }
+		} else {
+			resolve = { trackId, rung in try await self.session.hlsManifestRequest(trackId: trackId, rung: rung) }
 		}
-		guard case .resolved(let manifest) = await session.hiResStereoStream(trackId: track.id) else {
-			return nil
-		}
-		return manifest
-	}
-
-	/// Only the stereo tiers Tidal serves as DASH. A test substitutes
-	/// `resolveOfflineDashManifest`, and one that substituted `resolveOfflineStream` must not
-	/// hit the network here either.
-	private func resolveDashSource(for track: Track) async -> DashAudioManifest? {
-		guard case .stereo(let quality) = wantedVariant(of: track), let quality, quality == .medium || quality == .low else {
-			return nil
-		}
-		if let resolveOfflineDashManifest {
-			return await resolveOfflineDashManifest(track)
-		}
-		guard resolveOfflineStream == nil else { return nil }
-		return await session.dashAudioManifest(trackId: track.id, audioQuality: quality)
+		return try? await HLSStreaming.resolveManifest(
+			trackId: track.id,
+			rungs: HLSStreaming.rungs(
+				for: session.config.offlineAudioQuality,
+				preferDolbyAtmos: preferDolbyAtmos,
+				trackHasDolbyAtmos: track.hasDolbyAtmos
+			),
+			resolve: resolve
+		)
 	}
 
 	// These always show the goal state (planned), after all downloads have finished
@@ -730,6 +747,7 @@ public final class Offline {
 		print("Offline: DB IDs: \(dbTracks.map { $0.id })")
 		print("Offline: Track IDs: \(Array(localFiles.keys))")
 
+		removeOrphanedTemporaryFiles()
 		let plan = syncPlan(dbTracks: dbTracks, localFiles: localFiles)
 
 		// Download first, so nothing is deleted before its replacement is on disk.
@@ -782,6 +800,21 @@ public final class Offline {
 			}
 		}
 		return plan
+	}
+
+	/// Removes the hidden temporary siblings `HLSStreaming.assemble` writes while it
+	/// downloads a track. Its `defer` removes one on the normal error paths, but a hard
+	/// crash mid-download skips it: `localFilesByTrackId` cannot parse the leading dot and
+	/// `removeAll` iterates only indexed files, so without this the file sits in the
+	/// library forever.
+	private func removeOrphanedTemporaryFiles() {
+		guard let path = offlinePath(parentFolder: nil, name: mainPath, pathExtension: nil),
+			  let contents = try? FileManager.default.contentsOfDirectory(at: path, includingPropertiesForKeys: nil, options: []) else {
+			return
+		}
+		for url in contents where HLSStreaming.isTemporarySibling(url) {
+			try? FileManager.default.removeItem(at: url)
+		}
 	}
 
 	/// Prunes the variants a successful re-download made stale, so one file per track remains.

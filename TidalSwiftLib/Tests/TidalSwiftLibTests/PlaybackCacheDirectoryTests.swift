@@ -1,17 +1,17 @@
 //
-//  HiResStreamCacheDirectoryTests.swift
+//  PlaybackCacheDirectoryTests.swift
 //  TidalSwiftLibTests
 //
 
 import XCTest
 @testable import TidalSwiftLib
 
-/// Pins `HiResStreamCache.directory` itself: `pruneCache()` deletes from it, and the offline
+/// Pins `PlaybackCache.directory` itself: pruning deletes from it, and the offline
 /// library lives under `~/Music`, so a default resolving inside it would let pruning delete
 /// the user's downloaded music.
-final class HiResStreamCacheDirectoryTests: XCTestCase {
+final class PlaybackCacheDirectoryTests: XCTestCase {
 	func testDefaultCacheDirectoryIsNotInsideTheOfflineLibrary() {
-		let cachePath = HiResStreamCache.directory.standardizedFileURL.path
+		let cachePath = PlaybackCache.directory.standardizedFileURL.path
 		let musicPath = FileManager.default.homeDirectoryForCurrentUser
 			.appendingPathComponent("Music", isDirectory: true)
 			.standardizedFileURL.path

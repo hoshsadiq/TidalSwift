@@ -8,6 +8,7 @@
 
 import SwiftUI
 import AVFoundation
+import CoreMedia
 import TidalSwiftLib
 
 class Player {
@@ -25,14 +26,11 @@ class Player {
 	// Incremented on every item change, so outdated async loads can be discarded.
 	private var itemLoadID = 0
 	private var itemStatusObservation: NSKeyValueObservation?
+	private var itemTracksObservation: NSKeyValueObservation?
 
 
 	private(set) var nextAudioQuality: AudioQuality
 	private(set) var preferDolbyAtmos: Bool
-	/// Plain, not observable: written just before `playbackInfo.resolvedStream` so the view
-	/// re-rendering on that write sees it.
-	private(set) var isPlayingHiResStereo = false
-	private(set) var currentHiResBitDepth: Int?
 
 	init(session: Session, audioQuality: AudioQuality, preferDolbyAtmos: Bool = false, autoplayAfterAddNow: Bool = true) {
 		self.session = session
@@ -40,7 +38,7 @@ class Player {
 		self.preferDolbyAtmos = preferDolbyAtmos
 		self.autoplayAfterAddNow = autoplayAfterAddNow
 
-		HiResStreaming.pruneCache()
+		PlaybackCache.pruneIfNeeded()
 
 		timeObserverToken = avPlayer.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1, preferredTimescale: 1), queue: nil) { [weak self] _ in
 			if let self {
@@ -59,21 +57,16 @@ class Player {
 	// MARK: Prefetching
 
 	/// Lazy because its closures read this player's live settings.
-	private lazy var prefetcher = HiResStreaming.makePrefetcher(
+	private lazy var prefetcher = PlaybackPrefetcher.make(
 		for: session,
-		qualityProvider: { [weak self] in self?.nextAudioQuality ?? .high }
-	) { [weak self] track in
-		self?.shouldPrefetch(track) ?? false
+		qualityProvider: { [weak self] in self?.nextAudioQuality ?? .high },
+		preferDolbyAtmosProvider: { [weak self] in self?.preferDolbyAtmos ?? false }
+	) { [weak self] _ in
+		self?.shouldPrefetch() ?? false
 	}
 
-	private func shouldPrefetch(_ track: Track) -> Bool {
-		HiResStreamingPolicy.usesLocalFile(
-			sessionHasHiResStereoAccess: session.hasHiResStereoAccess,
-			preferDolbyAtmos: track.hasDolbyAtmos && preferDolbyAtmos,
-			trackHasStereo: track.hasStereo,
-			trackHasDolbyAtmos: track.hasDolbyAtmos,
-			quality: nextAudioQuality
-		)
+	private func shouldPrefetch() -> Bool {
+		PlaybackRoutingPolicy.usesHLS(sessionHasDesktopPlaybackAccess: session.hasDesktopPlaybackAccess)
 	}
 
 	private func prefetchUpcoming() {
@@ -305,18 +298,59 @@ class Player {
 		let item = AVPlayerItem(url: url)
 		installCurrentItem(item)
 		playbackInfo.playbackPosition = 0
+		fillHLSStreamSampleRate(from: item, loadID: loadID)
 
 		if shouldResume {
 			play()
 		}
 	}
 
+	/// Fills the sample rate the player reports for a streamed HLS track, which the playlist
+	/// itself cannot supply, so a streamed track reads like a cached one. Only the track's
+	/// own resolved stream is touched, and only while it still describes this load.
+	///
+	/// A Tidal playlist's `item.asset.tracks` stays empty; the rate arrives with the item's
+	/// own `tracks` once the item is installed and loading begins, so observe them rather
+	/// than reading once.
+	private func fillHLSStreamSampleRate(from item: AVPlayerItem, loadID: Int) {
+		guard let stream = playbackInfo.resolvedStream, stream.isHLS, stream.sampleRate == nil else {
+			return
+		}
+		let trackId = stream.trackId
+		itemTracksObservation?.invalidate()
+		itemTracksObservation = item.observe(\.tracks, options: [.initial, .new]) { [weak self] item, _ in
+			Task { @MainActor [weak self] in
+				guard let self, loadID == self.itemLoadID, self.playbackInfo.resolvedStream?.trackId == trackId else { return }
+				guard let rate = await Self.sampleRate(of: item) else { return }
+				guard loadID == self.itemLoadID, self.playbackInfo.resolvedStream?.trackId == trackId else { return }
+				self.playbackInfo.resolvedStream?.sampleRate = rate
+				self.itemTracksObservation?.invalidate()
+				self.itemTracksObservation = nil
+			}
+		}
+	}
+
+	/// The first audio sample rate the item's own tracks report, or nil while it reports none.
+	private static func sampleRate(of item: AVPlayerItem) async -> Int? {
+		for itemTrack in item.tracks {
+			guard let assetTrack = itemTrack.assetTrack, assetTrack.mediaType == .audio else { continue }
+			guard let descriptions = try? await assetTrack.load(.formatDescriptions) else { continue }
+			for description in descriptions {
+				guard let basic = CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee else { continue }
+				let rate = Int(basic.mSampleRate)
+				if rate > 0 { return rate }
+			}
+		}
+		return nil
+	}
+
 	/// Resolves the URL that plays `track` — the offline copy first, then the policy's
 	/// online routes — and publishes the resolved stream. A rendition fetch can suspend
 	/// for a download, so the stale-load check repeats in every publishing path.
 	private func resolveStreamURL(for track: Track, loadID: Int, resumeAfterSet: Bool) async -> URL? {
-		isPlayingHiResStereo = false
-
+		// The cache write behind an online play prunes under this: the prefetch window, the
+		// current track and the queue, so a play never evicts what is about to play.
+		let protection = prefetcher.cacheProtection()
 		if let offlineStream = await session.helpers.offline.stream(for: track) {
 			guard loadID == itemLoadID else {
 				return nil
@@ -334,22 +368,22 @@ class Player {
 		if let stream = await session.playableStream(
 			for: track,
 			quality: nextAudioQuality,
-			preferDolbyAtmos: preferDolbyAtmos
+			preferDolbyAtmos: preferDolbyAtmos,
+			protecting: protection.protecting,
+			queueTrackIds: protection.queueTrackIds
 		) {
-			let source = stream.isHiResStereo ? "hi-res" : "online"
-			print("Play \(track.title) from \(source) URL: \(stream.url)")
-			print("[PLAYBACK] avSetItem(): resolved URL - title: \(track.title), quality: \(stream.isHiResStereo ? "hi-res stereo" : "\(stream.quality)"), source: \(source)")
 			guard loadID == itemLoadID else {
 				return nil
 			}
-			isPlayingHiResStereo = stream.isHiResStereo
-			currentHiResBitDepth = stream.hiResBitDepth
+			// A stream URL carries a signed token in its path and query, so only the host is logged.
+			print("Play \(track.title) from online URL on \(stream.url.host ?? "a local file")")
+			print("[PLAYBACK] avSetItem(): resolved URL - title: \(track.title), quality: \(stream.quality), source: online")
 			playbackInfo.resolvedStream = ResolvedStream(
 				trackId: track.id,
 				quality: stream.quality,
 				isDolbyAtmos: stream.isDolbyAtmos,
-				hiResBitDepth: stream.hiResBitDepth,
-				hiResSampleRate: stream.hiResSampleRate
+				sampleRate: stream.sampleRate,
+				isHLS: stream.isHLS
 			)
 			return stream.url
 		}
@@ -698,13 +732,12 @@ class Player {
 		guard let stream = playbackInfo.resolvedStream, stream.trackId == track.id else {
 			return ""
 		}
+		if stream.isHLS {
+			let rung: HLSRung = stream.isDolbyAtmos ? .dolbyAtmos : .stereo(stream.quality)
+			return HLSStreaming.badge(for: rung, sampleRate: stream.sampleRate)
+		}
 		if stream.isDolbyAtmos {
 			return "Dolby Atmos"
-		}
-		if isPlayingHiResStereo {
-			guard let bitDepth = stream.hiResBitDepth ?? currentHiResBitDepth else { return "Hi-Res" }
-			guard let sampleRate = stream.hiResSampleRate, sampleRate > 0 else { return "\(bitDepth)-bit" }
-			return "\(bitDepth)-bit \(Self.formattedSampleRate(sampleRate))"
 		}
 		guard let quality = track.audioQuality else {
 			return ""
@@ -727,14 +760,6 @@ class Player {
 			quality = .low
 		}
 		return quality
-	}
-
-	private static func formattedSampleRate(_ sampleRate: Int) -> String {
-		let kilohertz = Double(sampleRate) / 1000
-		if kilohertz == kilohertz.rounded() {
-			return "\(Int(kilohertz))kHz"
-		}
-		return String(format: "%.1fkHz", kilohertz)
 	}
 
 	private func qualityToString(quality: AudioQuality) -> String {

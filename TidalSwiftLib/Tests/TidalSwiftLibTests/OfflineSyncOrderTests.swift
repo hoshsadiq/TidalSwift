@@ -72,6 +72,28 @@ final class OfflineSyncOrderTests: XCTestCase {
 		XCTAssertEqual(files, ["\(trackId).high.flac"])
 	}
 
+	/// A quality move upward replaces a lower-tier file too; the sync must never accept a file
+	/// below the ceiling and leave the user on a worse tier than they chose.
+	func testQualityUpgradeReplacesALowerTierFile() async throws {
+		let trackId = 778_000_003
+		let libraryDirectory = try makeLibraryDirectory()
+		let existingFile = libraryDirectory.appendingPathComponent("\(trackId).low.flac")
+		try FileManager.default.copyItem(at: try silentFlacFixture(), to: existingFile)
+
+		let session = makeSession(offlineAudioQuality: .max)
+		let offline = session.helpers.offline
+		offline.setOfflineTracksForTesting([makeTrack(id: trackId)])
+		let fixture = try silentFlacFixture()
+		offline.resolveOfflineStream = { _ in
+			AudioStream(url: fixture, pathExtension: "flac", isDolbyAtmos: false)
+		}
+
+		await offline.awaitOngoingSync()
+
+		let files = try FileManager.default.contentsOfDirectory(atPath: libraryDirectory.path)
+		XCTAssertEqual(files, ["\(trackId).hi_res_lossless.flac"], "a 96 kbps file must not satisfy a Max wish")
+	}
+
 	// MARK: - Helpers
 
 	private func makeLibraryDirectory() throws -> URL {
