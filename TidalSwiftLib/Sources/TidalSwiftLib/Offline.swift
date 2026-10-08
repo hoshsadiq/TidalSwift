@@ -373,8 +373,8 @@ public final class Offline {
 		}
 		// The playable files are the ones a ceiling admits; more than one can be present, e.g.
 		// before a re-download prunes the old one. The sync decides what to keep over the unfiltered
-		// set, so a play can serve a file that same pass is about to prune: with the offline ceiling
-		// at High and the Atmos replacement still downloading, the stereo leftover is served here
+		// set, so a play can serve a file that same pass is about to prune: with the Stream setting
+		// at Low and the Atmos replacement still downloading, the stereo leftover is served here
 		// and pruned there. Closing that would mean giving the sync the play ceiling, which it has
 		// no access to.
 		let playable = files.filter { isAdmissible(variant(of: $0, track: track), at: ceiling) }
@@ -812,15 +812,24 @@ public final class Offline {
 
 	private var syncRunning = false
 	private var syncAgain = false
-	/// Set when a settings change asked for the sync: every file is re-checked against the new
-	/// wish rather than accepted as a below-ceiling tier. Persisted in the offline store, so the
-	/// wish survives a relaunch, and carried across the sync's own restart, so a pass already
-	/// running when the setting changed still re-checks. Sticky while a wish-rejected file still
-	/// failed to download, so a network error or a refused rung does not quietly cancel the
-	/// change; a rejected file the source only serves at a lower tier is kept and does not hold it.
+	/// Set when a settings change asked for the sync: the files the new wish rejects are re-checked
+	/// rather than accepted as a below-ceiling tier. Persisted in the offline store, so the wish
+	/// survives a relaunch, and carried across the sync's own restart, so a pass already running
+	/// when the setting changed still re-checks. Sticky while a rejected file still failed to
+	/// download, so a network error or a refused rung does not quietly cancel the change; a
+	/// rejected file the source only serves at a lower tier is kept and does not hold it.
 	private var redownloadBelowWanted: Bool {
 		get { defaults.bool(forKey: "offlineRedownloadBelowWanted") }
 		set { defaults.set(newValue, forKey: "offlineRedownloadBelowWanted") }
+	}
+
+	/// The tracks whose stored file the current wish rejected and has not replaced or settled yet.
+	/// The wish re-checks only these, so a replacement that keeps failing does not put the whole
+	/// below-wanted library back on the per-sync probe. Empty while a fresh settings change has not
+	/// been applied, which is how the first pass knows to re-check every file.
+	private var wishRejectedTrackIds: Set<Int> {
+		get { Set(defaults.array(forKey: "offlineWishRejectedTrackIds") as? [Int] ?? []) }
+		set { defaults.set(newValue.sorted(), forKey: "offlineWishRejectedTrackIds") }
 	}
 
 	private func sync() async {
@@ -834,6 +843,7 @@ public final class Offline {
 			displayError(title: "Offline: Sync Error", content: "Couldn't load Tracks from Disk")
 			syncAgain = false
 			redownloadBelowWanted = false
+			wishRejectedTrackIds = []
 			syncRunning = false
 			return
 		}
@@ -842,20 +852,27 @@ public final class Offline {
 		print("Offline: Track IDs: \(Array(localFiles.keys))")
 
 		removeOrphanedTemporaryFiles()
-		let plan = syncPlan(dbTracks: dbTracks, localFiles: localFiles, redownloadBelowWanted: redownloadBelowWanted)
+		let plan = syncPlan(
+			dbTracks: dbTracks,
+			localFiles: localFiles,
+			redownloadBelowWanted: redownloadBelowWanted,
+			wishRejectedTrackIds: wishRejectedTrackIds
+		)
 
 		// Download first, so nothing is deleted before its replacement is on disk.
 		// Only a file the wish itself rejected keeps the wish alive on a failed pass: a track
 		// that never had a file (a new add) failing, or one `reportMissingDownloadSource`
 		// deliberately keeps quietly, must not hold the whole library in re-check mode for ever.
-		var anyWishReplacementFailed = false
+		// A rejection that downloaded, or settled at the best tier the source serves, is no longer
+		// rejected.
+		var settledWishRejections: Set<Int> = []
 		for track in plan.toAdd {
 			// `removeAll()` cancels this sync; the rest of the pass would resolve every
 			// remaining track only to report a failed download.
 			if Task.isCancelled { break }
-			if await downloadOfflineTrack(track, existingFiles: localFiles[track.id] ?? []) == .failed,
-			   plan.wishRejected.contains(track.id) {
-				anyWishReplacementFailed = true
+			let outcome = await downloadOfflineTrack(track, existingFiles: localFiles[track.id] ?? [])
+			if plan.wishRejected.contains(track.id), outcome != .failed {
+				settledWishRejections.insert(track.id)
 			}
 		}
 
@@ -867,9 +884,10 @@ public final class Offline {
 			print("Offline: Something changed. Restarting Sync")
 			await sync()
 		} else {
-			// Keep a settings-change wish while the pass still failed to replace a file the wish
-			// rejected, so the next sync re-checks it instead of accepting the old tier for good.
-			if !anyWishReplacementFailed { redownloadBelowWanted = false }
+			// Keep the settings-change wish for the rejections the pass could not replace, so the next
+			// sync re-checks those alone instead of accepting the old tier for good.
+			wishRejectedTrackIds = plan.wishRejected.subtracting(settledWishRejections)
+			redownloadBelowWanted = !wishRejectedTrackIds.isEmpty
 			syncRunning = false
 			print("Offline: --- Finished Sync ---")
 		}
@@ -891,9 +909,16 @@ public final class Offline {
 	/// A plain sync accepts any tier the ceiling's ladder can serve, so a stepped-down file is kept
 	/// instead of re-resolved every pass (the per-sync upgrade probe was dropped by decision,
 	/// 2026-10-08). A settings change sets `redownloadBelowWanted`: then only the wanted variant is
-	/// accepted, so a lower tier or the other rendition is replaced, which is what "kept until the
-	/// quality setting changes" means.
-	private func syncPlan(dbTracks: [Track], localFiles: [Int: [URL]], redownloadBelowWanted: Bool) -> SyncPlan {
+	/// accepted for the tracks the wish rejected, so a lower tier or the other rendition is replaced,
+	/// which is what "kept until the quality setting changes" means. `wishRejectedTrackIds` is empty
+	/// on the first pass of a wish, which re-checks every file; afterwards the wish re-checks only
+	/// the tracks whose replacement still failed, leaving the rest on the broad acceptance.
+	private func syncPlan(
+		dbTracks: [Track],
+		localFiles: [Int: [URL]],
+		redownloadBelowWanted: Bool,
+		wishRejectedTrackIds: Set<Int>
+	) -> SyncPlan {
 		var plan = SyncPlan()
 		for trackId in localFiles.keys where !dbTracks.contains(where: { $0.id == trackId }) {
 			plan.toRemove.append(trackId)
@@ -903,10 +928,15 @@ public final class Offline {
 				plan.toAdd.append(track)
 				continue
 			}
+			// A settings change re-checks the whole library once (empty set) and afterwards only the
+			// tracks whose replacement still failed; every other track keeps the broad acceptance, so
+			// one stuck replacement cannot put the below-wanted library back on the per-sync probe.
+			let recheck = redownloadBelowWanted
+				&& (wishRejectedTrackIds.isEmpty || wishRejectedTrackIds.contains(track.id))
 			// Any acceptable variant already satisfies the wish; the rest are leftovers once a
 			// replacement is on disk. The kept file is the preferred one, so a second file is pruned
 			// deterministically.
-			let acceptable = redownloadBelowWanted
+			let acceptable = recheck
 				? Set([wantedVariant(of: track)])
 				: acceptableVariants(of: track)
 			if files.contains(where: { acceptable.contains(variant(of: $0, track: track)) }) {
@@ -914,7 +944,7 @@ public final class Offline {
 					plan.leftoverFiles += files.filter { $0 != keep }
 				}
 			} else {
-				if redownloadBelowWanted {
+				if recheck {
 					plan.wishRejected.insert(track.id)
 				}
 				plan.toAdd.append(track)
@@ -991,7 +1021,12 @@ public final class Offline {
 	private var syncTask: Task<Void, Never>?
 
 	private func startSync(redownloadBelowWanted: Bool = false) {
-		if redownloadBelowWanted { self.redownloadBelowWanted = true }
+		if redownloadBelowWanted {
+			self.redownloadBelowWanted = true
+			// A new settings change re-checks the whole library, so the previous wish's re-check set
+			// is stale: an empty set is how the next pass knows to look at every file.
+			self.wishRejectedTrackIds = []
+		}
 		if syncRunning {
 			syncAgain = true // If Sync is requested while running, do another one afterwards
 			return

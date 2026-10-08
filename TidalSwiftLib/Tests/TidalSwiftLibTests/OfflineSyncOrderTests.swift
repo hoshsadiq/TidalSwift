@@ -269,6 +269,116 @@ final class OfflineSyncOrderTests: XCTestCase {
 		)
 	}
 
+	/// The sticky wish re-checks the tracks it rejected and nothing else. One replacement that
+	/// cannot resolve must not put the whole below-wanted library back on the per-sync probe that
+	/// this branch removed, so the later pass resolves only the stuck one.
+	func testAStuckReplacementDoesNotReResolveTheRestOfTheLibrary() async throws {
+		let stuckId = 778_000_010
+		let settledIdA = 778_000_011
+		let settledIdB = 778_000_012
+		let libraryDirectory = try makeLibraryDirectory()
+		for trackId in [stuckId, settledIdA, settledIdB] {
+			try FileManager.default.copyItem(
+				at: try silentFlacFixture(),
+				to: libraryDirectory.appendingPathComponent("\(trackId).low.flac")
+			)
+		}
+
+		let session = makeSession(offlineAudioQuality: .low)
+		let offline = session.helpers.offline
+		let resolves = Counter()
+		offline.resolveOfflineStream = { track in
+			resolves.value += 1
+			// The stuck track's replacement cannot resolve; the other two are served only at the tier
+			// already on disk, so they settle rather than keep the wish alive.
+			guard track.id != stuckId else { return nil }
+			return AudioStream(
+				url: libraryDirectory.appendingPathComponent("\(track.id).low.flac"),
+				pathExtension: "flac",
+				isDolbyAtmos: false,
+				quality: .low
+			)
+		}
+		let tracks = [stuckId, settledIdA, settledIdB].map { makeTrack(id: $0) }
+		offline.setOfflineTracksForTesting(tracks)
+		await offline.awaitOngoingSync()
+		XCTAssertEqual(resolves.value, 0, "the launch sync keeps the below-ceiling files without resolving them")
+
+		offline.setAudioQuality(to: .max)
+		await offline.awaitOngoingSync()
+		XCTAssertEqual(resolves.value, 3, "the settings change re-checks every below-wanted file once")
+
+		offline.setOfflineTracksForTesting(tracks)
+		await offline.awaitOngoingSync()
+		XCTAssertEqual(
+			resolves.value, 4,
+			"a later pass must re-resolve only the stuck rejection, not the whole below-wanted library"
+		)
+		XCTAssertEqual(
+			try libraryFileNames(in: libraryDirectory),
+			["\(settledIdA).low.flac", "\(settledIdB).low.flac", "\(stuckId).low.flac"].sorted()
+		)
+	}
+
+	/// The offline ceiling refuses the Atmos rendition, so below High the stereo file is the wanted
+	/// variant and the Atmos file is the one pruned. The consequence is unservability, not a wrong
+	/// badge: with the Atmos file kept and the stereo file gone, every play ceiling below High
+	/// refuses the only file left, and the track cannot play at all.
+	func testALowOfflineCeilingKeepsTheStereoFileAndPrunesTheAtmosOne() async throws {
+		let trackId = 778_000_013
+		let libraryDirectory = try makeLibraryDirectory()
+		let track = makeDualFormatTrack(id: trackId)
+		let session = makeSession(offlineAudioQuality: .low)
+		let offline = session.helpers.offline
+		offline.resolveOfflineStream = { _ in nil }
+		offline.setOfflineTracksForTesting([track])
+		await offline.awaitOngoingSync()
+
+		// Both renditions on disk, as a ceiling drop from High would leave them.
+		try FileManager.default.copyItem(
+			at: try silentM4AFixture(),
+			to: libraryDirectory.appendingPathComponent("\(trackId).atmos.m4a")
+		)
+		try FileManager.default.copyItem(
+			at: try silentM4AFixture(),
+			to: libraryDirectory.appendingPathComponent("\(trackId).low.m4a")
+		)
+
+		offline.setPreferDolbyAtmos(to: true)
+		await offline.awaitOngoingSync()
+
+		let streamValue = await offline.stream(for: track, ceiling: .low)
+		let stream = try XCTUnwrap(
+			streamValue,
+			"the stereo file must survive the wish, or the kept Atmos file leaves the track unservable below High"
+		)
+		XCTAssertFalse(stream.isDolbyAtmos)
+		XCTAssertEqual(try libraryFileNames(in: libraryDirectory), ["\(trackId).low.m4a"])
+	}
+
+	/// A direct-stream download is named for the tier that path served, not the tier that was asked
+	/// for: a Max request the endpoint answers with the 16-bit lossless file must land as
+	/// `<id>.lossless.m4a`, or the name disagrees with the file and the next sync re-resolves it.
+	func testADirectStreamDownloadIsNamedForTheServedTier() async throws {
+		let trackId = 778_000_014
+		let libraryDirectory = try makeLibraryDirectory()
+		let session = makeSession(offlineAudioQuality: .max)
+		let offline = session.helpers.offline
+		let fixture = try silentM4AFixture()
+		offline.resolveOfflineStream = { _ in
+			// The 16-bit lossless answer to a Max request, the direct stream's measured behaviour.
+			AudioStream(url: fixture, pathExtension: "m4a", isDolbyAtmos: false, quality: .high)
+		}
+		offline.setOfflineTracksForTesting([makeTrack(id: trackId)])
+		await offline.awaitOngoingSync()
+
+		XCTAssertEqual(
+			try libraryFileNames(in: libraryDirectory),
+			["\(trackId).lossless.m4a"],
+			"the name must carry the tier that was served, not the configured Max ceiling"
+		)
+	}
+
 	// MARK: - Helpers
 
 	private final class Counter {
@@ -289,6 +399,10 @@ final class OfflineSyncOrderTests: XCTestCase {
 		try XCTUnwrap(Bundle.module.url(forResource: "silent", withExtension: "flac", subdirectory: "Fixtures"))
 	}
 
+	private func silentM4AFixture() throws -> URL {
+		try XCTUnwrap(Bundle.module.url(forResource: "silent", withExtension: "m4a", subdirectory: "Fixtures"))
+	}
+
 	/// The session owns the `Offline` the sync runs on (its reference is `unowned`), so
 	/// build both and hold the session in a local; setup must stay synchronous.
 	private func makeSession(offlineAudioQuality: AudioQuality) -> Session {
@@ -300,7 +414,7 @@ final class OfflineSyncOrderTests: XCTestCase {
 		))
 	}
 
-	private func makeTrack(id: Int) -> Track {
+	private func makeTrack(id: Int, audioModes: [AudioMode] = [.stereo]) -> Track {
 		let artist = Artist(
 			id: 1, name: "Tester", artistTypes: nil, url: nil, picture: nil,
 			popularity: nil, type: nil, banner: nil, relationType: nil
@@ -317,9 +431,15 @@ final class OfflineSyncOrderTests: XCTestCase {
 			allowStreaming: true, streamReady: true, streamStartDate: nil, premiumStreamingOnly: nil,
 			trackNumber: 1, volumeNumber: 1, version: nil, popularity: 1, copyright: nil,
 			description: nil, url: URL(string: "https://tidal.com/track/\(id)")!, isrc: nil,
-			editable: false, explicit: false, audioQuality: .high, audioModes: [.stereo],
+			editable: false, explicit: false, audioQuality: .high, audioModes: audioModes,
 			artist: artist, artists: [artist], album: album, mixes: nil, dateAdded: nil,
 			index: nil, itemUuid: nil, bpm: nil, key: nil, keyScale: nil
 		)
+	}
+
+	/// A track Tidal advertises as both STEREO and DOLBY_ATMOS, so both renditions are on its
+	/// ladder and one can be the wanted variant.
+	private func makeDualFormatTrack(id: Int) -> Track {
+		makeTrack(id: id, audioModes: [.stereo, .dolbyAtmos])
 	}
 }

@@ -33,9 +33,9 @@ Preferences → Quality sets the tier:
 - **High:** 16-bit FLAC at 44.1 kHz.
 - **Max:** up to 24-bit FLAC.
 
-When Tidal serves no stereo rendition for a track, the app falls back to the older direct stream, or to Dolby Atmos at High or Max.
+When Tidal serves no stereo rendition for a track, the app plays it as Dolby Atmos at High or Max, or falls back to the older direct stream.
 
-Dolby Atmos is a preference rather than a tier, and offline keeps its own copy of it. It only applies at High or Max quality: below that the Atmos rendition is never requested, and a track Tidal serves no stereo rendition for is skipped. At High or Max, a track with an Atmos version plays Atmos when the preference is on; with it off you get the stereo rendition, and the Atmos one is only used when the ceiling allows it and the track has nothing else.
+Dolby Atmos is a preference rather than a tier, and offline keeps its own copy of it. It only applies at High or Max quality: below that the Atmos rendition is never requested, and a track Tidal serves no stereo rendition for is skipped. At High or Max, a track with an Atmos version plays Atmos when the preference is on; with it off you get the stereo rendition, and the Atmos one is only used when the ceiling allows it and the track has nothing else. A copy already on your disk outranks the preference: an Atmos file you already have keeps playing with the preference off, because replacing it would mean re-resolving your library every time you flip the switch.
 
 The same pane holds "Ignore subscription limits", which lets you pick a tier above your subscription even when Tidal may refuse it, "Prefetch tracks", the number prepared ahead of the one playing (0 to 15, default 3), and "Cache size", the space prepared tracks may use in GB (default 2). Prepared tracks live in `~/Library/Caches/TidalSwift/`, so they start instantly.
 

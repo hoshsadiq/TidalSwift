@@ -510,7 +510,7 @@ final class HLSStreamingTests: XCTestCase {
 	}
 
 	/// The ceiling gates the Atmos rung: only High and Max admit it, so a Low or Medium ceiling
-	/// never places a ~768 kbps E-AC-3 stream under a 96/320 kbps cap (PD2, 2026-10-08).
+	/// never places a ~768 kbps E-AC-3 stream under a 96/320 kbps cap (decided 2026-10-08).
 	func testTheCeilingGatesTheAtmosRung() {
 		for quality in [AudioQuality.low, .medium] {
 			for prefer in [true, false] {

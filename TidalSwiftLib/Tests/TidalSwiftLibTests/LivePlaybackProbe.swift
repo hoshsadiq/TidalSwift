@@ -413,7 +413,7 @@ final class LivePlaybackProbe: XCTestCase {
 	}
 
 	/// A Low ceiling does not ask the Atmos rung, even with the preference on, so a 96 kbps setting
-	/// never plays a ~768 kbps E-AC-3 stream (PD2, 2026-10-08). Track 241,647,167 offers Atmos; at
+	/// never plays a ~768 kbps E-AC-3 stream (decided 2026-10-08). Track 241,647,167 offers Atmos; at
 	/// Low the only rung is the stereo 96 kbps one. Muted.
 	func testALowCeilingDoesNotPlayTheAtmosRungEvenWhenPreferred() async throws {
 		let session = try liveSession()
@@ -441,7 +441,7 @@ final class LivePlaybackProbe: XCTestCase {
 	}
 
 	/// A file below the ceiling is kept, so a second sync of an unchanged library makes no manifest
-	/// request (PD4, 2026-10-08). Track 1,228,498 is refused `FLAC_HIRES`, so the first sync steps
+	/// request (decided 2026-10-08). Track 1,228,498 is refused `FLAC_HIRES`, so the first sync steps
 	/// down to the lossless file; before this change the second sync re-resolved it.
 	func testASecondOfflineSyncMakesNoManifestRequestForAnUnchangedLibrary() async throws {
 		let session = try liveSession()
