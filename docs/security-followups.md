@@ -26,12 +26,12 @@ A test for it belongs with `LogoutPersistenceTests`: a stored UserDefaults token
 migrated to the Keychain once, a second read does not duplicate the item, and logout
 removes it.
 
-## The content decryption key is a public constant
+## The content decryption key is gone
 
-`AudioDecryption` unwraps Tidal's `OLD_AES` key id with a master key that is published in
-third-party Tidal clients and therefore public. This is not a leak in this repository, and
-there is no secret to move: the route to 24-bit stereo depends on it.
+The `AudioDecryption` route unwrapped Tidal's `OLD_AES` key id with a master key that is
+published in third-party Tidal clients and therefore public. That route was removed on
+2026-10-08: the app now streams Tidal's openapi HLS manifest, which its desktop-client
+session is answered with no key line, so nothing is decrypted and no published key is used.
 
-The honest statement of what it means: the app decrypts Tidal's content encryption with a
-key that is not secret, and anyone with a login can do the same. What it does not do is
-break the account's authentication or reach anything the account cannot already stream.
+What it means now: the app plays the stream Tidal hands it through AVFoundation's own
+path, so the DRM-circumvention question this section carried no longer applies.

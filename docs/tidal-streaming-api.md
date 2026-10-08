@@ -63,9 +63,11 @@ The master playlist only lists the requested `formats`: `FLAC` plus `FLAC_HIRES`
 
 | Request | Result |
 |---|---|
-| `manifestType=HLS` | FairPlay HLS master playlist, see below |
+| `manifestType=HLS` | HLS master playlist, see below |
 | `manifestType=MPEG_DASH` | DASH with Widevine, license at `api.tidal.com/v2/widevine` |
-| `formats=EAC3_JOC` | 403 `CLIENT_NOT_ENTITLED` |
+| `formats=EAC3_JOC` | Served: a master playlist naming an `E-AC-3 JOC` variant |
+
+**Corrected 2026-10-08.** An earlier version of this table said `formats=EAC3_JOC` is refused with 403 `CLIENT_NOT_ENTITLED`. Measured again with this app's desktop-client session and no `X-Tidal-Token`, `EAC3_JOC` is **served**: the master playlist names an E-AC-3 JOC variant, so the Atmos rendition is reachable through the manifest API, not only through v1.
 
 The response's `attributes` also contain `drmData` (`drmSystem: FAIRPLAY`, `licenseUrl: https://fp.fa.tidal.com/license`, `certificateUrl: https://fp.fa.tidal.com/certificate`, `initData: ["skd://…"]`) and ReplayGain data for album and track.
 
@@ -81,7 +83,7 @@ The HLS master playlist for Get Lucky:
 
 Variant playlists (on `im-fa.manifest.tidal.com`) are VOD fMP4 with 4-second segments on `sp-ad-fa.audio.tidal.com`, an `EXT-X-MAP` init segment and `EXT-X-KEY` with the same `skd://` URI. All playlist and segment URLs carry a time-limited `token` parameter, so manifests have to be fetched shortly before playback. Segment URLs also carry an `info` parameter, base64 for `PLAYBACK,<track ID>,3003,<user ID>`. The init segments aren't encrypted, so the FLAC `STREAMINFO` in `dfLa` shows the real bit depth and sample rate. The samples are `cbcs` encrypted.
 
-**This is the only path found that delivers Hi-Res (24 bit) to TidalSwift's client ID.**
+**Superseded (2026-10-08).** This is no longer the only path found: the same endpoint answers this app's desktop-client session unencrypted at 24 bit (see the HLS route below), so the FairPlay route is not required for Hi-Res.
 
 ## Official iOS app (HTTP Catcher capture)
 
@@ -108,41 +110,27 @@ On branch `Dolby-Atmos`:
 - **Offline sync:** stays stereo FLAC; Atmos only for Atmos-only tracks.
 - **Removed:** the offline URL type (`offlineUrl` returns 404).
 
-## Plan: FairPlay HLS playback
+## FairPlay HLS playback (for other clients)
 
-Goal: bring Low 96, Low 320 and Max back for streaming by playing the openapi HLS manifest the way the official app does, through Apple's FairPlay support in AVFoundation.
-
-One measurement changes the shape of this plan: this app's own session receives that playlist with no key line and no `drmData`, so the FairPlay steps are needed by other clients, not by us. See the 2026-10-06 sections at the end.
+The openapi HLS manifest is what this app streams now. For this app's desktop-client session it carries no key line at all, so nothing below is needed here. A device-client session is answered a manifest with `drmData` and an `EXT-X-SESSION-KEY`, and the steps are what such a client needs; they are kept as reference for other clients, not as a plan for this app.
 
 ### Scope and limits
 
-- **Streaming only.** Content stays encrypted. The keys are handled by the system's protected playback path, and TidalSwift never sees decrypted audio. Downloads and offline sync keep using the unencrypted v1 streams (High FLAC and Atmos). Hi-Res, Low 96 and Low 320 can't be downloaded, and decrypting them is out of scope.
-- Atmos stays on the v1 path, since openapi refuses `EAC3_JOC` for this client.
+- **Only a DRM-wrapped manifest needs this.** For a manifest with a key line, the content stays encrypted and the keys are handled by the system's protected playback path, so the client never sees decrypted audio. A manifest with no key line, which is what this app gets, needs none of it.
+- Atmos arrives through the manifest API too: `formats=EAC3_JOC` is served to this app's session (measured 2026-10-08), so the Atmos rendition is an HLS rung as well as the v1 `playbackinfopostpaywall` rendition.
 
-### Steps
+### What a FairPlay client needs
 
-1. **Prototype the license flow.** This is the main unknown: whether `fp.fa.tidal.com/license` accepts requests from TidalSwift. The SPC can only be created by AVFoundation, so the prototype has to be Swift (a small command-line tool or code in the app), not a script.
-   - Fetch `trackManifests` with `manifestType=HLS` and read `uri` and `drmData`.
-   - Create an `AVContentKeySession` for FairPlay Streaming and add the `AVURLAsset` as recipient.
-   - On a key request: load the certificate from `certificateUrl` (no `Authorization` needed; cache it per session), take the content identifier from the `skd://` URI, and create the SPC with `makeStreamingContentKeyRequestData`.
-   - `POST` the SPC as `application/octet-stream` to `licenseUrl` with `Authorization` and a fresh `x-tidal-streaming-session-id`, then pass the response (CKC) back as `AVContentKeyResponse(fairPlayStreamingKeyResponseData:)`.
-   - Try the raw SPC first, since the iOS app's body is `application/octet-stream`. If the server rejects it, compare with the capture's request size and headers.
-2. **Choose the quality.** Request only the wanted format in `formats` (e.g. only `FLAC_HIRES` for Max), so `AVPlayer` doesn't switch variants on its own. `adaptive=false` might do the same but is untested. Fall back to lower formats when a track lacks the requested one.
-3. **Integrate into `Player`.**
-   - Add a stream source in TidalSwiftLib next to `audioStream(session:audioQuality:preferDolbyAtmos:)` that returns the HLS URL plus DRM data.
-   - Order: offline file → Atmos (v1) → FairPlay HLS for the chosen quality → v1 FLAC as fallback.
-   - Keep the key session alive for the player's lifetime, and expire it on logout.
-   - Refresh the access token before fetching the manifest (`refreshAccessTokenIfNeeded()`), since openapi rejects expired tokens.
-   - Redact `token` and `info` when logging stream URLs; the player prints online URLs in full today.
-4. **Menu and labels.** Uncomment Low 96, Low 320 and Max in the menu and the `.max` case in `AudioQuality` (keeping the tolerant decoding). Make sure downloads with those qualities fall back to High instead of failing.
-5. **Top bar.** Report the variant that actually plays, e.g. from `AVPlayerItem.accessLog()` or the chosen format, instead of assuming the requested quality.
+1. **Choose the quality.** Request only the wanted format in `formats` (e.g. only `FLAC_HIRES` for Max), so `AVPlayer` doesn't switch variants on its own.
+2. **Create a key session.** An `AVContentKeySession` for FairPlay Streaming, with the `AVURLAsset` added as recipient.
+3. **Answer a key request.** Load the certificate from `certificateUrl` (no `Authorization` needed; cache it per session), take the content identifier from the `skd://` URI, and create the SPC with `makeStreamingContentKeyRequestData`.
+4. **Post the SPC.** `POST` it as `application/octet-stream` to `licenseUrl` with `Authorization` and a fresh `x-tidal-streaming-session-id`, then pass the response back as `AVContentKeyResponse(fairPlayStreamingKeyResponseData:)`.
 
 ### Open questions
 
-- Does the license server accept TidalSwift's client ID? The openapi manifest is served to it, which suggests yes, but it's unverified.
+- Does the license server accept a third-party client ID?
 - Does the license response need to be unwrapped (e.g. JSON or base64) or is it the raw CKC?
 - Is `x-tidal-streaming-session-id` required, and does it tie into playback reporting?
-- Do Hi-Res tracks above 48 kHz (e.g. 24/96, 24/192) play cleanly on macOS output devices at their native rate?
 - Does HLS playback count as a stream that stops playback on other official clients of the same account?
 
 ## Independent re-check (2026-10-04)
@@ -158,7 +146,7 @@ Re-probed the endpoints above on 2026-10-04 with a US premium account, a differe
 | `offlineUrl`, every quality | 404 `subStatus 2001` "Resource not found" |
 | Atmos-only track, post-paywall | unencrypted E-AC-3 BTS manifest, played by `AVPlayer`; no stereo rendition |
 
-The conclusion for these v1 endpoints stands: asking for `HI_RES_LOSSLESS` here does not unlock true hi-res. Tidal silently downgrades the request to the lossless stream instead of refusing it, and returns byte-identical audio, so no client-side flag can unlock Max on this path. `offlineUrl` is dead for every quality. Atmos stays a separate rendition: a track with only `DOLBY_ATMOS` has no stereo fallback of its own, and its post-paywall response is a playable E-AC-3 stream.
+The conclusion for these v1 endpoints stands: asking for `HI_RES_LOSSLESS` here does not unlock true hi-res. Tidal silently downgrades the request to the lossless stream instead of refusing it, and returns byte-identical audio, so no client-side flag can unlock Max on this path. `offlineUrl` is dead for every quality. On the v1 endpoints Atmos stays a separate rendition: a track with only `DOLBY_ATMOS` has no `streamUrl` stereo fallback, and its post-paywall response is a playable E-AC-3 stream. (The manifest API is different — it serves that same track stereo FLAC as well as `EAC3_JOC`; see the 2026-10-08 measurement below.)
 
 ## The desktop host serves more, to the right session (measured 2026-10-05)
 
@@ -171,9 +159,9 @@ The same request against `https://desktop.tidal.com/v1/tracks/{id}/playbackinfo`
 
 So the rendition is decided by the session, not by the request: identical calls with identical headers return Atmos or stereo depending only on which client the token belongs to. Same account in both cases, so it is not a subscription difference.
 
-The `OLD_AES` payload is AES-128-CTR encrypted, with the key wrapped in the manifest's `keyId` (64 bytes: a 16-byte IV, then the wrapped key and nonce). Unwrapping uses a publicly documented AES-256-CBC key; `AudioDecryption` implements both steps. Verified end to end: a 31,246,448-byte download decrypts to a file ffprobe reads as `flac, 44100 Hz, 2 ch, 24-bit, 1,116,554 bps`.
+The `OLD_AES` payload is AES-128-CTR encrypted, with the key wrapped in the manifest's `keyId` (64 bytes: a 16-byte IV, then the wrapped key and nonce). Unwrapping used a publicly documented AES-256-CBC key; the deleted `AudioDecryption` implemented both steps. Verified end to end: a 31,246,448-byte download decrypts to a file ffprobe reads as `flac, 44100 Hz, 2 ch, 24-bit, 1,116,554 bps`.
 
-The `HIGH` / `LOW` DASH manifest is documented as `cenc` by its namespace alone; it carries no `ContentProtection`, no `pssh`, no `senc`, and no `sinf`. The segments are plain fragmented AAC and play once assembled (`DashAudio`). The `cenc` declaration is vestigial.
+The `HIGH` / `LOW` DASH manifest is documented as `cenc` by its namespace alone; it carries no `ContentProtection`, no `pssh`, no `senc`, and no `sinf`. The segments are plain fragmented AAC and played once assembled (the deleted `DashAudio`). The `cenc` declaration is vestigial.
 
 The `cuk` claim is necessary for the desktop client's session but not sufficient on its own. It arrives when the login sends `client_unique_key` on both the authorize request and the token exchange, as the official app does, and our login now does that (`DesktopLogin`). It does not make a session the desktop client: a device-code session (`cid` 3003) that sent `client_unique_key` on both requests carried a `cuk` claim, and the same `playbackinfo` call still answered `LOW` / `DOLBY_ATMOS`. The client id decides, as the 2026-10-06 section below measures.
 
@@ -219,6 +207,49 @@ That playlist contains no `EXT-X-KEY` and no `EXT-X-SESSION-KEY` line, so the se
 
 The same request with a device-client token is answered differently: `drmData` with `drmSystem: FAIRPLAY`, `licenseUrl: https://fp.fa.tidal.com/license`, `certificateUrl: https://fp.fa.tidal.com/certificate`, and a `SAMPLE-AES` session key using `com.apple.streamingkeydelivery`. That is the case the plan below and the SDK's `FairPlayLicenseFetcher` handle, with the certificate fetched once and a server playback context posted per track.
 
-What this means for this app: streaming needs none of the current machinery. The download, the AES-128-CTR decrypt (`AudioDecryption`), the whole-file cache, the prefetch and the DASH assembly (`DashAudio`) exist to serve playback, and for a desktop-client session the endpoint hands over a playlist AVPlayer can play and seek as it is. It is not implemented, and the offline path would still need a route of its own: either Apple's `AVAssetDownloadURLSession` for HLS downloads, or the existing download path kept for offline only.
+What this means for this app: streaming needs none of the old machinery. As of 2026-10-08 the app streams the manifest directly and downloads the same manifest for the cache and for the offline library, so the decrypt, the DASH assembly and the whole-file-before-play step are gone; see "The HLS route as implemented" below.
 
 Two smaller consequences to settle when it is: the quality badge cannot read bit depth from a FLAC-in-fMP4 format description (`bitsPerChannel` comes back 0), so it would have to label from the chosen variant rather than from the decoded file; and TIDAL's developer documentation still states that the SDK's Player module is the only allowed way for third parties to play TIDAL content, which is a compliance question rather than a technical one.
+
+## The HLS route as implemented (2026-10-08)
+
+A play, a prefetch and an offline download all resolve the same openapi manifest and, when a file is wanted, download the variant it names and concatenate the initialization segment with the media segments into one fMP4. `HLSStreaming` is the client, and each rung names one format, so the playlist holds exactly that variant: `FLAC_HIRES` (Max), `FLAC` (Lossless), `AACLC` (320 kbps), `HEAACV1` (96 kbps) and `EAC3_JOC` (Dolby Atmos).
+
+**Route order for a play** (`PlaybackRoutingPolicy.routes`, first route that produces a stream wins):
+
+| track / session | routes |
+| --- | --- |
+| session with the desktop `cuk` claim | `hls`, then `directStream` |
+| session without it | `directStream` |
+
+HLS is gated only on the desktop session. It used to be gated on an advertised stereo rendition too, which was wrong: the catalogue omits `STEREO` for tracks the manifest API still serves FLAC for (measured 2026-10-08), so an Atmos-advertised track that has no advertised stereo was dropped to `directStream`, and the v1 `streamUrl` refuses those tracks with 401 `subStatus 4005`. Such a track now resolves and plays through HLS.
+
+**The rungs** (`HLSStreaming.rungs`) are the chosen stereo tier walking down, with the Atmos rung ordered by the preference:
+
+| preference | rungs (for Max) |
+| --- | --- |
+| on, track advertises Atmos | `EAC3_JOC`, then `FLAC_HIRES`, `FLAC`, `AACLC`, `HEAACV1` |
+| off, track advertises Atmos | `FLAC_HIRES`, `FLAC`, `AACLC`, `HEAACV1`, then `EAC3_JOC` |
+| track does not advertise Atmos | the stereo tiers only |
+
+The preference chooses the order, it never removes a rung, so an Atmos-only track plays either way. The `directStream` fallback stays last: it is the v1 `streamUrl` ladder with the Atmos rendition on `playbackinfopostpaywall`, and is reached only when every HLS rung is refused.
+
+**Measured 2026-10-08 (track 241,647,167, the developer's “The Show Goes On”).** The catalogue carries two entries for this track, both `audioModes: [DOLBY_ATMOS]` and no `STEREO`, yet:
+
+| endpoint | result |
+| --- | --- |
+| v1 `streamUrl`, every quality | 401 `subStatus 4005` "Asset is not ready for playback" — the route that refuses it |
+| v1 `playbackinfopostpaywall` with this app's headers | nothing usable |
+| manifest `FLAC_HIRES` | refused `CLIENT_NOT_ENTITLED` |
+| manifest `FLAC` / `AACLC` / `HEAACV1` | served — stereo exists |
+| manifest `EAC3_JOC` | served — Atmos exists |
+
+Two conclusions. `audioModes` is not a stereo test: the catalogue omits `STEREO` while the manifest API serves FLAC stereo, so gating HLS on the advertised modes broke every track shaped like this. And Atmos comes through the manifest API: `EAC3_JOC` is served, not refused, so Atmos is an HLS rung and the old claim that only the v1 post-paywall endpoint serves Atmos is out of date. Live probes confirm it: with the preference off this track serves `FLAC` (badge `16-bit`), with the preference on it serves `EAC3_JOC` (badge `Dolby Atmos`), and playback advances in both cases; the stereo entry `5,872,412` serves `FLAC` with the preference off.
+
+**Stream, cache behind the play, prefetch ahead.** A play streams the playlist at once, so there is no download before it starts; the same playlist is written into the cache by a detached task behind the play. The prefetcher prepares the upcoming tracks through that same write, so a prefetched track is exactly a cached track and the next play reads the file with no manifest request. The cache lives at `~/Library/Caches/TidalSwift/stream/<trackId>-<rung>.m4a` (`<rung>` is `FLAC_HIRES`/`FLAC`/`AACLC`/`HEAACV1`/`DOLBY_ATMOS`) and keeps files until the configured limit, pruned by the LRU in `PlaybackCacheEviction`: files untouched for a week are dropped, then the least recently used until under the budget, evicting down to 80% of it. The track playing now, the prefetch window and anything mid-download are protected. The prune enumerates only the cache directory and never reaches the offline library under `~/Music`.
+
+**Offline** downloads the same manifest to `<trackId>.<quality>.m4a` in `~/Music/TidalSwift Offline Library`, and the served rung names the file: a stereo tier by its quality, the Atmos `EAC3_JOC` rung as `<trackId>.atmos.m4a`. An Atmos-advertised track with the preference on asks the Atmos rung first and stores the Atmos file; with the preference off the stereo ladder is asked first and the Atmos rung is the fallback. The wanted variant follows the offline quality and the Atmos preference, and a file of another variant is replaced on the next sync. The offline library was empty when this landed, so no migration was needed.
+
+**Quality badge.** FLAC in fMP4 reports `bitsPerChannel` as 0, so the badge is read from the served rung (`HLSStreaming.badge(for:sampleRate:)`): 24-bit for `FLAC_HIRES`, 16-bit for `FLAC`, 320 kbps for `AACLC`, 96 kbps for `HEAACV1`, and `Dolby Atmos` for `EAC3_JOC`. The sample rate is appended when the stream reports one: a cached file reads it, and a streamed one has it filled from the item's own `tracks` once the item loads.
+
+**Deleted** (see `.omo/evidence/upstream-merge/hls-stage4.md`): `AudioDecryption` and its suite, `DashAudio` and its suite, the `hiResStereo` and `dash` routes with `Session.hiResStereoStream`, `Session.dashAudioManifest`, the `OLD_AES` manifest policy and the download-and-decrypt path. The type `HiResStreamCache` became `PlaybackCache`, `HiResStreamingPreferences` became `PlaybackCachePreferences`, and `HiResStreaming.swift` became `PlaybackRouting.swift` and `PlaybackCache.swift`.
