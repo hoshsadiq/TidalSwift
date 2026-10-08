@@ -63,7 +63,7 @@ final class OfflineHLSTests: XCTestCase {
 
 		await offline.awaitOngoingSync()
 
-		let streamValue = await offline.stream(for: makeTrack(id: trackId))
+		let streamValue = await offline.stream(for: makeTrack(id: trackId), ceiling: .high)
 		let stream = try XCTUnwrap(streamValue, "the stored file must be served offline")
 		XCTAssertEqual(stream.url.lastPathComponent, "\(trackId).lossless.m4a")
 		XCTAssertFalse(stream.isDolbyAtmos)
@@ -148,10 +148,67 @@ final class OfflineHLSTests: XCTestCase {
 			HLSStreaming.isPlayableMP4File(at: stored),
 			"the stored E-AC-3 file must verify, so the Atmos download is not left unplayable"
 		)
-		let streamValue = await offline.stream(for: makeTrack(id: trackId, audioModes: [.dolbyAtmos]))
+		let streamValue = await offline.stream(for: makeTrack(id: trackId, audioModes: [.dolbyAtmos]), ceiling: .high)
 		let stream = try XCTUnwrap(streamValue, "the stored Atmos file must be served offline")
 		XCTAssertEqual(stream.url.lastPathComponent, "\(trackId).atmos.m4a")
 		XCTAssertTrue(stream.isDolbyAtmos, "the stored Atmos file must be served as Atmos")
+	}
+
+	/// The offline copy is a source, not an exception to the settings: an Atmos file stays on
+	/// disk but is not played below High, and the track is skipped the same way the streaming
+	/// route skips a rendition it cannot serve. Dropping the gate in `Offline.stream(for:ceiling:)`
+	/// serves the file again at a Low ceiling.
+	func testAStoredAtmosFileIsNotServedAtALowPlayCeiling() async throws {
+		let trackId = 779_000_041
+		let libraryDirectory = try makeLibraryDirectory()
+		let stored = libraryDirectory.appendingPathComponent("\(trackId).atmos.m4a")
+		try eac3InitFixture().write(to: stored)
+
+		let session = try makeSession(quality: .high)
+		let offline = session.helpers.offline
+		let track = makeTrack(id: trackId, audioModes: [.dolbyAtmos])
+		offline.setOfflineTracksForTesting([track])
+		await offline.awaitOngoingSync()
+		XCTAssertEqual(try libraryFileNames(), ["\(trackId).atmos.m4a"], "the stored Atmos file must survive the sync")
+
+		let atLow = await offline.stream(for: track, ceiling: .low)
+		XCTAssertNil(atLow, "an Atmos file must not be served below a High play ceiling")
+		let atHigh = await offline.stream(for: track, ceiling: .high)
+		let served = try XCTUnwrap(atHigh, "a High play ceiling serves the stored Atmos file")
+		XCTAssertTrue(served.isDolbyAtmos)
+		XCTAssertTrue(
+			FileManager.default.fileExists(atPath: stored.path),
+			"refusing to serve it must not delete the file"
+		)
+	}
+
+	/// The offline ceiling governs the library too: with the Download setting lowered and no
+	/// replacement resolved, the Atmos file is kept and its wish retried, but it is not served.
+	func testAStoredAtmosFileIsNotServedWhenTheOfflineCeilingDrops() async throws {
+		let trackId = 779_000_042
+		let libraryDirectory = try makeLibraryDirectory()
+		let stored = libraryDirectory.appendingPathComponent("\(trackId).atmos.m4a")
+		try eac3InitFixture().write(to: stored)
+
+		let session = try makeSession(quality: .low)
+		let offline = session.helpers.offline
+		let track = makeTrack(id: trackId, audioModes: [.dolbyAtmos])
+		// Nothing can replace the Atmos file at a Low offline ceiling, so the sync keeps it.
+		offline.resolveOfflineHLSPlaylist = { _, _ in throw HLSStreamError.requestRefused(status: 403) }
+		offline.resolveOfflineStream = { _ in nil }
+		offline.setOfflineTracksForTesting([track])
+		await offline.awaitOngoingSync()
+		XCTAssertEqual(
+			try libraryFileNames(),
+			["\(trackId).atmos.m4a"],
+			"a rejected file is kept until a replacement resolves"
+		)
+
+		let atHigh = await offline.stream(for: track, ceiling: .high)
+		XCTAssertNil(
+			atHigh,
+			"the kept Atmos file must not be served when the offline ceiling no longer admits Atmos"
+		)
 	}
 
 	// MARK: - Quality ladder
@@ -295,7 +352,7 @@ final class OfflineHLSTests: XCTestCase {
 		offline.setOfflineTracksForTesting([makeTrack(id: trackId)])
 		await offline.awaitOngoingSync()
 
-		let streamValue = await offline.stream(for: makeTrack(id: trackId))
+		let streamValue = await offline.stream(for: makeTrack(id: trackId), ceiling: .max)
 		let stream = try XCTUnwrap(streamValue)
 		XCTAssertEqual(stream.url.lastPathComponent, "\(trackId).hires.flac")
 		XCTAssertEqual(stream.quality, .max, "the stream must carry the file's tier, not the advertised LOSSLESS")
@@ -322,7 +379,7 @@ final class OfflineHLSTests: XCTestCase {
 
 		// Max's ladder is [max, high, medium, low]; `.lossless` (high) is the best tier present and
 		// must win, whatever the directory order.
-		let streamValue = await offline.stream(for: makeTrack(id: trackId))
+		let streamValue = await offline.stream(for: makeTrack(id: trackId), ceiling: .max)
 		let stream = try XCTUnwrap(streamValue)
 		XCTAssertEqual(stream.url.lastPathComponent, "\(trackId).lossless.m4a", "the best tier on the ladder must win deterministically")
 		XCTAssertEqual(stream.quality, .high)

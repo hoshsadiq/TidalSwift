@@ -351,7 +351,7 @@ class Player {
 		// The cache write behind an online play prunes under this: the prefetch window, the
 		// current track and the queue, so a play never evicts what is about to play.
 		let protection = prefetcher.cacheProtection()
-		if let offlineStream = await session.helpers.offline.stream(for: track) {
+		if let offlineStream = await session.helpers.offline.stream(for: track, ceiling: nextAudioQuality) {
 			guard loadID == itemLoadID else {
 				return nil
 			}

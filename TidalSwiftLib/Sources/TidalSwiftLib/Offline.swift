@@ -355,16 +355,27 @@ public final class Offline {
 		return path
 	}
 
-	public func stream(for track: Track) async -> AudioStream? {
+	/// The offline file to play for `track` at the play ceiling, or nil when no stored file may
+	/// be served.
+	///
+	/// The library is a source, not an exception to the settings: a stored file is served only
+	/// when a ceiling admits its rendition. The play ceiling (`ceiling`, the Stream setting)
+	/// governs this play and the offline ceiling governs the library, so an Atmos file needs both
+	/// to admit Atmos. Below High it is kept on disk — until a settings change re-checks it, the
+	/// policy the sync follows — but not played: the track is skipped the same way the streaming
+	/// route skips a rendition it cannot serve. Refusing it here never prunes the file.
+	public func stream(for track: Track, ceiling: AudioQuality) async -> AudioStream? {
 		if !db.tracks.contains(track) {
 			return nil
 		}
 		guard let files = localFilesByTrackId()?[track.id], !files.isEmpty else {
 			return nil
 		}
-		// More than one file can be present, e.g. before a re-download prunes the old one.
-		// `preferredFile` picks deterministically, so the played file is always the kept one.
-		guard let url = preferredFile(for: track, in: files) else {
+		// The playable files are the ones a ceiling admits; more than one can be present, e.g.
+		// before a re-download prunes the old one. `preferredFile` picks deterministically, so the
+		// played file is always the kept one.
+		let playable = files.filter { isAdmissible(variant(of: $0, track: track), at: ceiling) }
+		guard let url = preferredFile(for: track, in: playable) else {
 			return nil
 		}
 		let fileVariant = variant(of: url, track: track)
@@ -374,6 +385,15 @@ public final class Offline {
 			isDolbyAtmos: fileVariant == .dolbyAtmos,
 			quality: fileVariant.quality
 		)
+	}
+
+	/// Whether a stored file's rendition may be served at the play ceiling. A stereo file always
+	/// plays: the offline library is what a play falls back to. An Atmos file needs the play
+	/// ceiling and the offline ceiling to admit Atmos, so it is not played below High from either
+	/// setting.
+	private func isAdmissible(_ variant: FileVariant, at ceiling: AudioQuality) -> Bool {
+		guard variant == .dolbyAtmos else { return true }
+		return ceiling.admitsDolbyAtmos && session.config.offlineAudioQuality.admitsDolbyAtmos
 	}
 
 	/// Replaces offline files in other qualities on the next sync

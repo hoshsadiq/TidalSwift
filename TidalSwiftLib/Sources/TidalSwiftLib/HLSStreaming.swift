@@ -294,16 +294,9 @@ public nonisolated enum HLSStreaming {
 	/// refused `FLAC_HIRES`), so a refusal at the chosen tier is the common path and the next
 	/// lower rendition is the answer.
 	public static func qualityLadder(for quality: AudioQuality) -> [AudioQuality] {
-		switch quality {
-		case .max:
-			return [.max, .high, .medium, .low]
-		case .high:
-			return [.high, .medium, .low]
-		case .medium:
-			return [.medium, .low]
-		case .low:
-			return [.low]
-		}
+		let descending = Array(AudioQualityPolicy.ladder.reversed())
+		guard let index = descending.firstIndex(of: quality) else { return [] }
+		return Array(descending[index...])
 	}
 
 	/// The rungs a play asks for, in order.
@@ -632,7 +625,7 @@ extension Session {
 		request.setValue(AuthInformation.tidalClientUserAgent, forHTTPHeaderField: "User-Agent")
 		request.setValue("application/vnd.api+json", forHTTPHeaderField: "Accept")
 		do {
-			let (data, response) = try await URLSession.shared.data(for: request)
+			let (data, response) = try await requestSession.data(for: request)
 			return Response(data: data, statusCode: (response as? HTTPURLResponse)?.statusCode, etag: nil)
 		} catch {
 			if HLSStreaming.isCancellation(error) { throw error }

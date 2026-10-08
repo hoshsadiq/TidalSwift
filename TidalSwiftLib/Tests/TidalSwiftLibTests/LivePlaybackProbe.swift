@@ -381,7 +381,7 @@ final class LivePlaybackProbe: XCTestCase {
 		print("[LIVE] atmos offline: library holds \(files)")
 		XCTAssertEqual(files, ["241647167.atmos.m4a"], "the Atmos rendition must land under its marker")
 
-		let streamValue = await offline.stream(for: track)
+		let streamValue = await offline.stream(for: track, ceiling: session.config.offlineAudioQuality)
 		let stream = try XCTUnwrap(streamValue, "the stored Atmos file must be served offline")
 		XCTAssertEqual(stream.url.lastPathComponent, "241647167.atmos.m4a")
 		XCTAssertTrue(stream.isDolbyAtmos, "the stored file must be served as Atmos")
