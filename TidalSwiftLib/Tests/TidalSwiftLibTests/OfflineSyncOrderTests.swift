@@ -72,9 +72,11 @@ final class OfflineSyncOrderTests: XCTestCase {
 		XCTAssertEqual(files, ["\(trackId).high.flac"])
 	}
 
-	/// A quality move upward replaces a lower-tier file too; the sync must never accept a file
-	/// below the ceiling and leave the user on a worse tier than they chose.
-	func testQualityUpgradeReplacesALowerTierFile() async throws {
+	/// A file below the ceiling is kept, not probed for an upgrade: the per-sync re-resolve was
+	/// dropped by decision (2026-10-08), so the sync must not resolve a track whose stored file is
+	/// a tier its ceiling's ladder can serve. (This test previously asserted the opposite — that an
+	/// upward quality move replaced the lower-tier file; that probe was the cost being removed.)
+	func testALowerTierFileIsKeptInsteadOfProbedForAnUpgrade() async throws {
 		let trackId = 778_000_003
 		let libraryDirectory = try makeLibraryDirectory()
 		let existingFile = libraryDirectory.appendingPathComponent("\(trackId).low.flac")
@@ -84,17 +86,24 @@ final class OfflineSyncOrderTests: XCTestCase {
 		let offline = session.helpers.offline
 		offline.setOfflineTracksForTesting([makeTrack(id: trackId)])
 		let fixture = try silentFlacFixture()
+		let downloads = Counter()
 		offline.resolveOfflineStream = { _ in
-			AudioStream(url: fixture, pathExtension: "flac", isDolbyAtmos: false)
+			downloads.value += 1
+			return AudioStream(url: fixture, pathExtension: "flac", isDolbyAtmos: false)
 		}
 
 		await offline.awaitOngoingSync()
 
+		XCTAssertEqual(downloads.value, 0, "a below-ceiling file must be kept, not re-resolved every sync")
 		let files = try FileManager.default.contentsOfDirectory(atPath: libraryDirectory.path)
-		XCTAssertEqual(files, ["\(trackId).hi_res_lossless.flac"], "a 96 kbps file must not satisfy a Max wish")
+		XCTAssertEqual(files, ["\(trackId).low.flac"], "the stored lower-tier file must stay")
 	}
 
 	// MARK: - Helpers
+
+	private final class Counter {
+		var value = 0
+	}
 
 	private func makeLibraryDirectory() throws -> URL {
 		let libraryDirectory = offlineLibrary.root.appendingPathComponent("TidalSwift Offline Library")

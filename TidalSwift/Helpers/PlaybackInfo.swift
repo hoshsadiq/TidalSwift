@@ -56,6 +56,10 @@ struct ResolvedStream {
 	/// Set for the HLS stream, whose badge is read from the tier that served it since the
 	/// stream itself reports no bit depth.
 	var isHLS: Bool = false
+	/// The rung the stream was served at, when the source names one: HLS sets it from the served
+	/// rung and the offline library from the file's marker. The badge reads this so a stepped-down
+	/// or offline file never reports the ceiling. nil for the direct stream, whose badge clamps.
+	var rung: HLSRung?
 }
 
 /// Panels of the Now Playing drawer.

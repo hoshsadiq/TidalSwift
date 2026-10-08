@@ -249,6 +249,12 @@ public final class Offline {
 	private enum FileVariant: Equatable, Hashable {
 		case dolbyAtmos
 		case stereo(AudioQuality?)
+
+		/// The stereo tier the file holds; nil for the Atmos rendition and for an unnamed legacy file.
+		var quality: AudioQuality? {
+			if case .stereo(let quality) = self { return quality }
+			return nil
+		}
 	}
 
 	/// Built on first use, so the launch task and a redirect of `defaults` both land first.
@@ -356,10 +362,18 @@ public final class Offline {
 		guard let files = localFilesByTrackId()?[track.id], !files.isEmpty else {
 			return nil
 		}
-		// An older variant can be left over, e.g. when removing it after a download failed
-		let wantedVariant = wantedVariant(of: track)
-		let url = files.first(where: { variant(of: $0, track: track) == wantedVariant }) ?? files[0]
-		return AudioStream(url: url, pathExtension: url.pathExtension, isDolbyAtmos: variant(of: url, track: track) == .dolbyAtmos)
+		// More than one file can be present, e.g. before a re-download prunes the old one.
+		// `preferredFile` picks deterministically, so the played file is always the kept one.
+		guard let url = preferredFile(for: track, in: files) else {
+			return nil
+		}
+		let fileVariant = variant(of: url, track: track)
+		return AudioStream(
+			url: url,
+			pathExtension: url.pathExtension,
+			isDolbyAtmos: fileVariant == .dolbyAtmos,
+			quality: fileVariant.quality
+		)
 	}
 
 	/// Replaces offline files in other qualities on the next sync
@@ -367,38 +381,69 @@ public final class Offline {
 		guard audioQuality != session.config.offlineAudioQuality else { return }
 		session.config.offlineAudioQuality = audioQuality
 		session.saveConfig()
-		startSync()
+		// A settings change re-checks every file against the new ceiling, so a lower tier is
+		// replaced rather than kept; a plain sync would keep it (see `syncPlan`).
+		startSync(redownloadBelowWanted: true)
 	}
 
 	/// Replaces the offline files of tracks with Dolby Atmos on the next sync
 	public func setPreferDolbyAtmos(to preferDolbyAtmos: Bool) {
 		guard preferDolbyAtmos != self.preferDolbyAtmos else { return }
 		self.preferDolbyAtmos = preferDolbyAtmos
-		startSync()
+		startSync(redownloadBelowWanted: true)
 	}
 
 	/// Same choice as streaming: the Atmos preference or a track with no stereo picks Atmos,
-	/// otherwise the file holds the configured quality.
+	/// otherwise the file holds the configured quality. The ceiling gates Atmos here too, so a
+	/// Low or Medium offline quality stores stereo (see `AudioQuality.admitsDolbyAtmos`).
 	private func wantedVariant(of track: Track) -> FileVariant {
-		if track.hasDolbyAtmos && (preferDolbyAtmos || !track.hasStereo) {
+		if track.hasDolbyAtmos, session.config.offlineAudioQuality.admitsDolbyAtmos,
+		   preferDolbyAtmos || !track.hasStereo {
 			return .dolbyAtmos
 		}
 		return .stereo(session.config.offlineAudioQuality)
 	}
 
-	/// Every variant on disk that satisfies the wish for this track.
+	/// Every variant the sync's own rungs can land on.
 	///
-	/// The configured tier is a ceiling, not "any tier at or below it": the exact wanted
-	/// variant is the wish, so a Low file never satisfies a Max wish. Tidal still decides the
-	/// rendition, so an Atmos-capable stereo track with the preference off may have been served
-	/// the Atmos rung when every stereo rung was refused (see `HLSStreaming.rungs`), and that
-	/// file must count too.
+	/// The offline quality is a ceiling, so the ladder may step down when the chosen tier is
+	/// refused, and may serve the Atmos rendition where the ceiling admits it. The file the sync
+	/// would download is therefore the file it must accept, or it re-resolves every track on
+	/// every sync for nothing. That per-sync upgrade probe is gone by decision (2026-10-08): a
+	/// file below the ceiling is kept until the quality setting changes, the same policy the
+	/// playback cache follows.
 	private func acceptableVariants(of track: Track) -> Set<FileVariant> {
-		var variants: Set<FileVariant> = [wantedVariant(of: track)]
-		if track.hasDolbyAtmos && track.hasStereo && !preferDolbyAtmos {
-			variants.insert(.dolbyAtmos)
-		}
+		let rungs = HLSStreaming.rungs(
+			for: session.config.offlineAudioQuality,
+			preferDolbyAtmos: preferDolbyAtmos,
+			trackHasDolbyAtmos: track.hasDolbyAtmos
+		)
+		var variants = Set(rungs.map(variant(of:)))
+		// The direct-stream fallback, reached when the session has no HLS or every HLS rung is
+		// refused, names the file for the tier that path serves.
+		variants.insert(.stereo(session.config.offlineAudioQuality.servedByDirectStream(advertised: track.audioQuality)))
 		return variants
+	}
+
+	/// The file the library should keep and play when more than one is present. The wanted
+	/// variant wins, then the best stereo tier the ceiling's ladder can serve, then the file name,
+	/// so the same library always resolves to the same file rather than to directory order.
+	private func preferredFile(for track: Track, in files: [URL]) -> URL? {
+		files.min { rank(of: $0, for: track) < rank(of: $1, for: track) }
+	}
+
+	private func rank(of url: URL, for track: Track) -> (tier: Int, name: String) {
+		let fileVariant = variant(of: url, track: track)
+		let ladder = HLSStreaming.qualityLadder(for: session.config.offlineAudioQuality)
+		let tier: Int
+		if case .stereo(let quality) = fileVariant, let quality, let index = ladder.firstIndex(of: quality) {
+			tier = index
+		} else {
+			// The Atmos rendition and an unnamed legacy file outrank nothing on the ladder.
+			tier = ladder.count
+		}
+		let wanted = fileVariant == wantedVariant(of: track) ? 0 : 1
+		return (wanted * 100 + tier, url.lastPathComponent)
 	}
 
 	private func variant(of url: URL, track: Track) -> FileVariant {
@@ -420,7 +465,7 @@ public final class Offline {
 	}
 
 	private func variant(of stream: AudioStream) -> FileVariant {
-		stream.isDolbyAtmos ? .dolbyAtmos : .stereo(session.config.offlineAudioQuality)
+		stream.isDolbyAtmos ? .dolbyAtmos : .stereo(stream.quality ?? session.config.offlineAudioQuality)
 	}
 
 	/// What it lands on disk is the assembled HLS file for the tier that was served, or the
@@ -554,7 +599,11 @@ public final class Offline {
 				return dolbyAtmosFileMarker
 			}
 		case .stream(let stream):
-			return stream.isDolbyAtmos ? dolbyAtmosFileMarker : session.config.offlineAudioQuality.rawValue.lowercased()
+			guard !stream.isDolbyAtmos else { return dolbyAtmosFileMarker }
+			// The tier the direct-stream path served, not the tier that was configured: a `HI_RES_LOSSLESS`
+			// request is answered with the 16-bit lossless file, so the name must say `lossless`.
+			let served = stream.quality ?? session.config.offlineAudioQuality
+			return served.rawValue.lowercased()
 		}
 	}
 
@@ -729,6 +778,10 @@ public final class Offline {
 
 	private var syncRunning = false
 	private var syncAgain = false
+	/// Set when a settings change asked for the sync: every file is re-checked against the new
+	/// wish rather than accepted as a below-ceiling tier. Carried across a restart, so a pass that
+	/// was already running when the setting changed still re-checks.
+	private var redownloadBelowWanted = false
 
 	private func sync() async {
 
@@ -740,6 +793,7 @@ public final class Offline {
 		guard let localFiles = localFilesByTrackId() else {
 			displayError(title: "Offline: Sync Error", content: "Couldn't load Tracks from Disk")
 			syncAgain = false
+			redownloadBelowWanted = false
 			syncRunning = false
 			return
 		}
@@ -748,7 +802,7 @@ public final class Offline {
 		print("Offline: Track IDs: \(Array(localFiles.keys))")
 
 		removeOrphanedTemporaryFiles()
-		let plan = syncPlan(dbTracks: dbTracks, localFiles: localFiles)
+		let plan = syncPlan(dbTracks: dbTracks, localFiles: localFiles, redownloadBelowWanted: redownloadBelowWanted)
 
 		// Download first, so nothing is deleted before its replacement is on disk.
 		for track in plan.toAdd {
@@ -766,6 +820,7 @@ public final class Offline {
 			print("Offline: Something changed. Restarting Sync")
 			await sync()
 		} else {
+			redownloadBelowWanted = false
 			syncRunning = false
 			print("Offline: --- Finished Sync ---")
 		}
@@ -780,7 +835,13 @@ public final class Offline {
 
 	/// A wanted track keeps at most one file, matching an acceptable variant; the rest is a
 	/// replacement or a stale file to prune.
-	private func syncPlan(dbTracks: [Track], localFiles: [Int: [URL]]) -> SyncPlan {
+	///
+	/// A plain sync accepts any tier the ceiling's ladder can serve, so a stepped-down file is kept
+	/// instead of re-resolved every pass (the per-sync upgrade probe was dropped by decision,
+	/// 2026-10-08). A settings change sets `redownloadBelowWanted`: then only the wanted variant is
+	/// accepted, so a lower tier or the other rendition is replaced, which is what "kept until the
+	/// quality setting changes" means.
+	private func syncPlan(dbTracks: [Track], localFiles: [Int: [URL]], redownloadBelowWanted: Bool) -> SyncPlan {
 		var plan = SyncPlan()
 		for trackId in localFiles.keys where !dbTracks.contains(where: { $0.id == trackId }) {
 			plan.toRemove.append(trackId)
@@ -791,10 +852,15 @@ public final class Offline {
 				continue
 			}
 			// Any acceptable variant already satisfies the wish; the rest are leftovers once a
-			// replacement is on disk.
-			let acceptable = acceptableVariants(of: track)
-			if let matchingFile = files.first(where: { acceptable.contains(variant(of: $0, track: track)) }) {
-				plan.leftoverFiles += files.filter { $0 != matchingFile }
+			// replacement is on disk. The kept file is the preferred one, so a second file is pruned
+			// deterministically.
+			let acceptable = redownloadBelowWanted
+				? Set([wantedVariant(of: track)])
+				: acceptableVariants(of: track)
+			if files.contains(where: { acceptable.contains(variant(of: $0, track: track)) }) {
+				if let keep = preferredFile(for: track, in: files) {
+					plan.leftoverFiles += files.filter { $0 != keep }
+				}
 			} else {
 				plan.toAdd.append(track)
 			}
@@ -869,7 +935,8 @@ public final class Offline {
 
 	private var syncTask: Task<Void, Never>?
 
-	private func startSync() {
+	private func startSync(redownloadBelowWanted: Bool = false) {
+		if redownloadBelowWanted { self.redownloadBelowWanted = true }
 		if syncRunning {
 			syncAgain = true // If Sync is requested while running, do another one afterwards
 			return

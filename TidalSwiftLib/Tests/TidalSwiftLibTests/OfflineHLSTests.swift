@@ -182,8 +182,10 @@ final class OfflineHLSTests: XCTestCase {
 		)
 	}
 
-	/// The served tier names the file, and the variant check agrees: the next sync re-resolves
-	/// (Max is not on disk) but finds the served-tier file and keeps it rather than re-downloading.
+	/// The served tier names the file, and the variant check agrees: the stored lossless file is a
+	/// tier the Max ladder can serve, so the next sync accepts it without resolving the track again.
+	/// (Before the 2026-10-08 decision this test asserted the opposite — that a second sync
+	/// re-resolved to allow an upgrade; that per-sync probe was the cost being removed.)
 	func testASteppedDownOfflineFileIsStoredAndKeptUnderTheServedTier() async throws {
 		let trackId = 779_000_021
 		let libraryDirectory = try makeLibraryDirectory()
@@ -213,10 +215,90 @@ final class OfflineHLSTests: XCTestCase {
 		offline.setOfflineTracksForTesting([makeTrack(id: trackId)])
 		await offline.awaitOngoingSync()
 
-		XCTAssertEqual(asked, [.stereo(.max), .stereo(.high)], "Max is not on disk, so the sync re-resolves to allow an upgrade")
+		XCTAssertTrue(asked.isEmpty, "the stored lossless file is a tier the Max ladder can serve, so a second sync must not resolve the track again")
 		XCTAssertEqual(try libraryFileNames(), ["\(trackId).lossless.m4a"], "the served-tier file must be recognised, not replaced")
 		let after = try FileManager.default.attributesOfItem(atPath: fileURL.path)[.modificationDate] as? Date
 		XCTAssertEqual(after, marker, "the sync must not rewrite a file it already has")
+	}
+
+	/// An Atmos-advertised track with the preference off is served the stereo rendition through the
+	/// ladder (the manifest API answers it FLAC, measured for 241,647,167). The old acceptance
+	/// counted only the Atmos variant, so this shape was re-resolved on every sync.
+	func testAnAtmosAdvertisedTrackStoredAsStereoIsAcceptedNextSync() async throws {
+		let trackId = 779_000_022
+		_ = try makeLibraryDirectory()
+		let playlist = try makeLocalPlaylist(in: offlineLibrary.root)
+
+		let session = try makeSession(quality: .max)
+		let offline = session.helpers.offline
+		var asked: [HLSRung] = []
+		offline.resolveOfflineHLSPlaylist = { _, rung in
+			asked.append(rung)
+			if rung == .stereo(.max) { throw HLSStreamError.requestRefused(status: 403) }
+			return playlist
+		}
+
+		// Atmos-only: no advertised stereo, but the manifest serves FLAC for it.
+		offline.setOfflineTracksForTesting([makeTrack(id: trackId, audioModes: [.dolbyAtmos])])
+		await offline.awaitOngoingSync()
+
+		XCTAssertEqual(asked, [.stereo(.max), .stereo(.high)], "the stereo ladder serves this track, so the file is stereo")
+		XCTAssertEqual(try libraryFileNames(), ["\(trackId).lossless.m4a"])
+
+		asked.removeAll()
+		offline.setOfflineTracksForTesting([makeTrack(id: trackId, audioModes: [.dolbyAtmos])])
+		await offline.awaitOngoingSync()
+
+		XCTAssertTrue(asked.isEmpty, "the stereo file the ladder served must be accepted, not re-resolved every sync")
+		XCTAssertEqual(try libraryFileNames(), ["\(trackId).lossless.m4a"])
+	}
+
+	/// The offline stream carries the tier the stored file holds, so the badge reads the file and
+	/// not the track's advertised quality. A 24-bit legacy file on a `LOSSLESS`-advertised track
+	/// must report 24-bit rather than 16-bit.
+	func testAnOfflineStreamReportsTheStoredFileTierNotTheAdvertisedOne() async throws {
+		let trackId = 779_000_024
+		let libraryDirectory = try makeLibraryDirectory()
+		// `makeTrack` advertises `.high`; the file is a legacy 24-bit FLAC.
+		try Data(repeating: 3, count: 600).write(to: libraryDirectory.appendingPathComponent("\(trackId).hires.flac"))
+
+		let session = try makeSession(quality: .max)
+		let offline = session.helpers.offline
+		offline.setOfflineTracksForTesting([makeTrack(id: trackId)])
+		await offline.awaitOngoingSync()
+
+		let streamValue = await offline.stream(for: makeTrack(id: trackId))
+		let stream = try XCTUnwrap(streamValue)
+		XCTAssertEqual(stream.url.lastPathComponent, "\(trackId).hires.flac")
+		XCTAssertEqual(stream.quality, .max, "the stream must carry the file's tier, not the advertised LOSSLESS")
+		XCTAssertEqual(HLSStreaming.badge(for: .stereo(try XCTUnwrap(stream.quality))), "24-bit")
+	}
+
+	/// Two files for one track resolve deterministically: the wanted variant first, then the best
+	/// stereo tier the ceiling's ladder can serve, then the file name. The sync keeps the same file
+	/// the stream would play.
+	func testTheOfflineFileForATrackIsChosenDeterministically() async throws {
+		let trackId = 779_000_025
+		let libraryDirectory = try makeLibraryDirectory()
+		// Write the lower tier first, so directory order would pick it if the rule were `files[0]`.
+		try Data(repeating: 4, count: 600).write(to: libraryDirectory.appendingPathComponent("\(trackId).high.m4a"))
+		try FileManager.default.copyItem(
+			at: try silentM4AFixture(),
+			to: libraryDirectory.appendingPathComponent("\(trackId).lossless.m4a")
+		)
+
+		let session = try makeSession(quality: .max)
+		let offline = session.helpers.offline
+		offline.setOfflineTracksForTesting([makeTrack(id: trackId)])
+		await offline.awaitOngoingSync()
+
+		// Max's ladder is [max, high, medium, low]; `.lossless` (high) is the best tier present and
+		// must win, whatever the directory order.
+		let streamValue = await offline.stream(for: makeTrack(id: trackId))
+		let stream = try XCTUnwrap(streamValue)
+		XCTAssertEqual(stream.url.lastPathComponent, "\(trackId).lossless.m4a", "the best tier on the ladder must win deterministically")
+		XCTAssertEqual(stream.quality, .high)
+		XCTAssertEqual(try libraryFileNames(), ["\(trackId).lossless.m4a"], "the sync must prune the file it did not keep")
 	}
 
 	// MARK: - Legacy files
