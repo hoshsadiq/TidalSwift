@@ -426,7 +426,6 @@ public final class Offline {
 	/// What it lands on disk is the assembled HLS file for the tier that was served, or the
 	/// direct stream for a track the HLS route cannot serve.
 	private func downloadOfflineTrack(_ track: Track, existingFiles: [URL]) async -> Bool {
-		print("Offline: Downloading \(track.title)")
 		guard let source = await downloadSource(for: track) else {
 			reportMissingDownloadSource(for: track, existingFiles: existingFiles)
 			return false
@@ -437,6 +436,7 @@ public final class Offline {
 			print("Offline: Keeping existing file of \(track.title)")
 			return false
 		}
+		print("Offline: Downloading \(track.title)")
 		let pathExtension = pathExtension(of: source)
 		let name = "\(track.id).\(fileMarker(of: source))"
 		guard let path = offlinePath(parentFolder: mainPath, name: name, pathExtension: pathExtension) else {

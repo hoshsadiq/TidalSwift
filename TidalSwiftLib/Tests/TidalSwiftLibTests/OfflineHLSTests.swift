@@ -120,8 +120,9 @@ final class OfflineHLSTests: XCTestCase {
 	/// as Atmos rather than failing the sync.
 	func testAnAtmosOnlyTrackResolvesThroughHLSAndStoresTheAtmosFile() async throws {
 		let trackId = 779_000_030
-		_ = try makeLibraryDirectory()
-		let playlist = try makeLocalPlaylist(in: offlineLibrary.root)
+		let libraryDirectory = try makeLibraryDirectory()
+		let initSegment = try eac3InitFixture()
+		let playlist = try makeLocalPlaylist(in: offlineLibrary.root, initData: initSegment)
 
 		let session = try makeSession()
 		let offline = session.helpers.offline
@@ -141,6 +142,16 @@ final class OfflineHLSTests: XCTestCase {
 			"the stereo rungs are refused, so the Atmos rung is the fallback that plays"
 		)
 		XCTAssertEqual(try libraryFileNames(), ["\(trackId).atmos.m4a"])
+
+		let stored = libraryDirectory.appendingPathComponent("\(trackId).atmos.m4a")
+		XCTAssertTrue(
+			HLSStreaming.isPlayableMP4File(at: stored),
+			"the stored E-AC-3 file must verify, so the Atmos download is not left unplayable"
+		)
+		let streamValue = await offline.stream(for: makeTrack(id: trackId, audioModes: [.dolbyAtmos]))
+		let stream = try XCTUnwrap(streamValue, "the stored Atmos file must be served offline")
+		XCTAssertEqual(stream.url.lastPathComponent, "\(trackId).atmos.m4a")
+		XCTAssertTrue(stream.isDolbyAtmos, "the stored Atmos file must be served as Atmos")
 	}
 
 	// MARK: - Quality ladder
@@ -276,16 +287,27 @@ final class OfflineHLSTests: XCTestCase {
 		try XCTUnwrap(Bundle.module.url(forResource: "silent", withExtension: "m4a", subdirectory: "Fixtures"))
 	}
 
+	/// The 588-byte `ftyp` + `moov` initialization segment Tidal serves for an `EAC3_JOC`
+	/// variant, so the Atmos download is exercised with real E-AC-3 bytes and no network.
+	private func eac3InitFixture() throws -> Data {
+		try Data(contentsOf: XCTUnwrap(Bundle.module.url(forResource: "eac3-init", withExtension: "mp4", subdirectory: "Fixtures")))
+	}
+
 	/// A local stand-in for Tidal's CDN: a master playlist, a variant playlist and the pieces of
 	/// a real m4a file split across an initialization segment and one media segment, so the
 	/// assembled result is the source file byte for byte and decodes.
-	private func makeLocalPlaylist(in root: URL) throws -> URL {
+	private func makeLocalPlaylist(in root: URL, initData: Data? = nil) throws -> URL {
 		let directory = root.appendingPathComponent("cdn-\(UUID().uuidString)", isDirectory: true)
 		try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-		let data = try Data(contentsOf: try silentM4AFixture())
-		let split = min(1024, data.count)
-		try data.prefix(split).write(to: directory.appendingPathComponent("init.mp4"))
-		try data.dropFirst(split).write(to: directory.appendingPathComponent("seg-1.mp4"))
+		if let initData {
+			try initData.write(to: directory.appendingPathComponent("init.mp4"))
+			try Data(repeating: 0xAB, count: 4096).write(to: directory.appendingPathComponent("seg-1.mp4"))
+		} else {
+			let data = try Data(contentsOf: try silentM4AFixture())
+			let split = min(1024, data.count)
+			try data.prefix(split).write(to: directory.appendingPathComponent("init.mp4"))
+			try data.dropFirst(split).write(to: directory.appendingPathComponent("seg-1.mp4"))
+		}
 		let mediaPlaylist = [
 			"#EXTM3U",
 			"#EXT-X-TARGETDURATION:4",

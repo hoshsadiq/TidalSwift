@@ -22,6 +22,12 @@ public nonisolated enum HLSStreamError: Error, Equatable, Sendable {
 	/// A media playlist had no `#EXT-X-MAP` initialization segment, so the media
 	/// segments alone would not form a playable file.
 	case missingInitializationSegment
+	/// A playlist carried an `#EXT-X-KEY` or `#EXT-X-SESSION-KEY` line, so its media is
+	/// encrypted. No key handling exists, so the rung is refused rather than the segments
+	/// concatenated into a file that cannot play. Tidal answers this app's desktop session
+	/// a playlist with no key line (measured 2026-10-06); this is the guard for the day
+	/// that changes.
+	case encryptedPlaylist
 	/// Only the host is kept, since a segment URL carries its own token.
 	case fetchFailed(host: String)
 	/// The concatenated bytes are not an MP4 stream, so they were discarded rather
@@ -38,6 +44,7 @@ public nonisolated enum HLSStreamError: Error, Equatable, Sendable {
 			(.malformedPlaylist, .malformedPlaylist),
 			(.noVariants, .noVariants),
 			(.missingInitializationSegment, .missingInitializationSegment),
+			(.encryptedPlaylist, .encryptedPlaylist),
 			(.notPlayableFile, .notPlayableFile),
 			(.writeFailed, .writeFailed):
 			return true
@@ -163,6 +170,11 @@ public nonisolated enum HLSPlaylistParser {
 				sawMediaTag = true
 			} else if line.hasPrefix("#EXTINF") || line.hasPrefix("#EXT-X-TARGETDURATION") || line.hasPrefix("#EXT-X-MEDIA-SEQUENCE") {
 				sawMediaTag = true
+			} else if line.hasPrefix("#EXT-X-KEY:") || line.hasPrefix("#EXT-X-SESSION-KEY:") {
+				// Encrypted media cannot be assembled into a file that plays, and no key
+				// handling exists, so the whole playlist is refused instead of its bytes
+				// written somewhere they can never play.
+				throw HLSStreamError.encryptedPlaylist
 			} else if line.hasPrefix("#") {
 				continue
 			} else if let bandwidth = pendingBandwidth {
@@ -280,6 +292,9 @@ public nonisolated enum HLSStreaming {
 	/// Resolves the first rung in order that is served, asking no rung after the one that
 	/// answered. A refusal at a rung is the next rung, not an error: only when every rung is
 	/// refused does this throw, and it throws the last refusal.
+	///
+	/// Cancellation is not a refusal: a cancelled resolve stops at once instead of asking the
+	/// remaining rungs, so a cancelled sync does not keep hitting the network.
 	static func resolveManifest(
 		trackId: Int,
 		rungs: [HLSRung],
@@ -287,13 +302,24 @@ public nonisolated enum HLSStreaming {
 	) async throws -> HLSManifest {
 		var lastError: Error = HLSStreamError.requestFailed
 		for rung in rungs {
+			if Task.isCancelled { throw CancellationError() }
 			do {
 				return HLSManifest(playlistURL: try await resolve(trackId, rung), rung: rung)
 			} catch {
+				if isCancellation(error) { throw error }
 				lastError = error
 			}
 		}
 		throw lastError
+	}
+
+	/// Whether `error` is a cancellation rather than a refusal, so a ladder stops instead of
+	/// walking on to the next rung. `URLSession` reports a cancelled request as
+	/// `URLError.cancelled`, and structured concurrency as `CancellationError`.
+	static func isCancellation(_ error: Error) -> Bool {
+		if error is CancellationError { return true }
+		if let urlError = error as? URLError, urlError.code == .cancelled { return true }
+		return false
 	}
 
 	/// With one format requested the multivariant playlist should hold a single variant;
@@ -377,6 +403,13 @@ public nonisolated enum HLSStreaming {
 			throw HLSStreamError.writeFailed(underlying: error)
 		}
 
+		// A temporary file that is gone after the write loop was removed from under the
+		// download, not written with bytes that cannot play. Asking the verifier about a file
+		// that was never written would blame the content for a write that never landed, so a
+		// missing file is a write failure and the verifier only judges bytes that are there.
+		guard FileManager.default.fileExists(atPath: temporary.path) else {
+			throw HLSStreamError.writeFailed(underlying: CocoaError(.fileNoSuchFile))
+		}
 		guard isPlayableMP4File(at: temporary) else { throw HLSStreamError.notPlayableFile }
 		do {
 			try install(temporary, at: destination)
@@ -465,6 +498,35 @@ public nonisolated enum HLSStreaming {
 	}
 }
 
+/// De-duplicates concurrent cache downloads of one track at one rung, so a play racing a
+/// prefetch of the same track fetches the bytes once instead of twice.
+///
+/// The key carries the cache directory, the track id and the rung: they name different files
+/// and must never share one download. A caller that arrives while the download for a key runs
+/// awaits that one; the entry is cleared when it finishes, so a later request starts fresh.
+actor HLSStreamPreparation {
+	static let shared = HLSStreamPreparation()
+	private var inFlight: [String: Task<URL?, Never>] = [:]
+
+	/// Runs `operation` once per `key`; a concurrent caller for the same key awaits the
+	/// running task's result instead of starting its own.
+	func run(key: String, operation: @escaping @Sendable () async -> URL?) async -> URL? {
+		if let existing = inFlight[key] {
+			return await existing.value
+		}
+		let task = Task { await operation() }
+		inFlight[key] = task
+		let result = await task.value
+		inFlight[key] = nil
+		return result
+	}
+
+	/// The key for one track's cache download at one rung.
+	static func key(trackId: Int, rung: HLSRung, cacheDirectory: URL) -> String {
+		"\(cacheDirectory.path)#\(trackId)#\(rung.fileMarker)"
+	}
+}
+
 extension Session {
 	/// Resolves a track's HLS multivariant (master) playlist through openapi's
 	/// `trackManifests`, walking the rung ladder and returning the first rung Tidal
@@ -539,6 +601,7 @@ extension Session {
 			let (data, response) = try await URLSession.shared.data(for: request)
 			return Response(data: data, statusCode: (response as? HTTPURLResponse)?.statusCode, etag: nil)
 		} catch {
+			if HLSStreaming.isCancellation(error) { throw error }
 			throw HLSStreamError.requestFailed
 		}
 	}
@@ -681,6 +744,9 @@ extension HLSStreaming {
 	/// The prune runs under the caller's protection: the track being cached is always
 	/// protected, plus whatever the play or the prefetcher passes (the current track, the
 	/// prefetch window and the queue), so a background write never evicts what plays next.
+	///
+	/// A concurrent request for the same track and rung shares one download through
+	/// `HLSStreamPreparation`, so a play racing a prefetch of the same track fetches it once.
 	@discardableResult
 	static func cacheInBackground(
 		_ playlistURL: URL,
@@ -691,23 +757,26 @@ extension HLSStreaming {
 		queueTrackIds: Set<Int> = [],
 		fetch: @escaping ResourceFetcher
 	) -> Task<URL?, Never> {
-		Task.detached(priority: .utility) {
-			do {
-				let destination = try await downloadToCache(
-					playlistURL,
-					forTrackId: trackId,
-					rung: rung,
-					cacheDirectory: cacheDirectory,
-					fetch: fetch
-				)
-				var protected = protecting
-				protected.insert(trackId)
-				PlaybackCache.pruneIfNeeded(in: cacheDirectory, protecting: protected, queueTrackIds: queueTrackIds)
-				print("[PLAYBACK] hls: cached track \(trackId) at \(rung.format)")
-				return destination
-			} catch {
-				print("[PLAYBACK] hls: background cache failed for track \(trackId): \(error)")
-				return nil
+		let key = HLSStreamPreparation.key(trackId: trackId, rung: rung, cacheDirectory: cacheDirectory)
+		return Task.detached(priority: .utility) {
+			await HLSStreamPreparation.shared.run(key: key) {
+				do {
+					let destination = try await downloadToCache(
+						playlistURL,
+						forTrackId: trackId,
+						rung: rung,
+						cacheDirectory: cacheDirectory,
+						fetch: fetch
+					)
+					var protected = protecting
+					protected.insert(trackId)
+					PlaybackCache.pruneIfNeeded(in: cacheDirectory, protecting: protected, queueTrackIds: queueTrackIds)
+					print("[PLAYBACK] hls: cached track \(trackId) at \(rung.format)")
+					return destination
+				} catch {
+					print("[PLAYBACK] hls: background cache failed for track \(trackId): \(error)")
+					return nil
+				}
 			}
 		}
 	}

@@ -313,6 +313,10 @@ final class LivePlaybackProbe: XCTestCase {
 		let advanced = try await playMuted(source.url)
 		print("[LIVE] atmos: playlist advanced to \(String(format: "%.1f", advanced))s")
 		XCTAssertGreaterThan(advanced, 0, "the resolved rung must advance while playing")
+
+		let cached = await source.backgroundDownload?.value
+		print("[LIVE] atmos: preference off cached \(cached?.lastPathComponent ?? "nothing")")
+		XCTAssertNotNil(cached, "the served rung must reach the cache")
 	}
 
 	/// The same track with the Atmos preference on takes the Atmos rung, which is the whole
@@ -336,6 +340,54 @@ final class LivePlaybackProbe: XCTestCase {
 		let advanced = try await playMuted(source.url)
 		print("[LIVE] atmos: playlist advanced to \(String(format: "%.1f", advanced))s")
 		XCTAssertGreaterThan(advanced, 0, "the Atmos rung must advance while playing")
+
+		let cachedValue = await source.backgroundDownload?.value
+		let cached = try XCTUnwrap(cachedValue, "the Atmos rung must reach the cache")
+		print("[LIVE] atmos: preference on cached \(cached.lastPathComponent)")
+		XCTAssertEqual(cached.lastPathComponent, "241647167-DOLBY_ATMOS.m4a")
+
+		// A second play reads the cached file with no resolve, which is the point of caching.
+		var resolvedAgain = false
+		let replayValue = await HLSStreaming.playbackSource(
+			for: track, session: session, quality: .max, preferDolbyAtmos: true, cacheDirectory: cacheDirectory,
+			resolvePlaylist: { _, _ in
+				resolvedAgain = true
+				throw HLSStreamError.requestFailed
+			}
+		)
+		let replay = try XCTUnwrap(replayValue, "the cached Atmos file must be served")
+		XCTAssertEqual(replay.url, cached)
+		XCTAssertFalse(resolvedAgain, "a cached play must not resolve the manifest again")
+		let fromFile = try await playMuted(replay.url)
+		print("[LIVE] atmos: second play from the cached file advanced to \(String(format: "%.1f", fromFile))s")
+		XCTAssertGreaterThan(fromFile, 0, "the cached Atmos file must play")
+	}
+
+	/// The offline end state for an Atmos track: the sync downloads the E-AC-3 rendition into
+	/// the temporary offline library, names it for the rendition, and serves that file.
+	func testAnAtmosTrackDownloadsIntoTheOfflineLibrary() async throws {
+		let session = try liveSession()
+		let track = probeTrack(
+			id: 241_647_167, title: "atmos offline probe", albumId: 241_647_167, albumTitle: "atmos offline probe",
+			audioModes: [.dolbyAtmos]
+		)
+		let offline = session.helpers.offline
+		offline.setPreferDolbyAtmos(to: true)
+		offline.setOfflineTracksForTesting([track])
+		await offline.awaitOngoingSync()
+
+		let libraryDirectory = offlineLibrary.root.appendingPathComponent("TidalSwift Offline Library")
+		let files = ((try? FileManager.default.contentsOfDirectory(atPath: libraryDirectory.path)) ?? []).sorted()
+		print("[LIVE] atmos offline: library holds \(files)")
+		XCTAssertEqual(files, ["241647167.atmos.m4a"], "the Atmos rendition must land under its marker")
+
+		let streamValue = await offline.stream(for: track)
+		let stream = try XCTUnwrap(streamValue, "the stored Atmos file must be served offline")
+		XCTAssertEqual(stream.url.lastPathComponent, "241647167.atmos.m4a")
+		XCTAssertTrue(stream.isDolbyAtmos, "the stored file must be served as Atmos")
+		let advanced = try await playMuted(stream.url)
+		print("[LIVE] atmos offline: stored file advanced to \(String(format: "%.1f", advanced))s")
+		XCTAssertGreaterThan(advanced, 0, "the stored Atmos file must play from disk")
 	}
 
 	/// The stereo entry for the same song still prefers stereo with the preference off: no

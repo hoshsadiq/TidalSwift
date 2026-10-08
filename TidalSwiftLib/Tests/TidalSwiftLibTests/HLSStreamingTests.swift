@@ -215,6 +215,52 @@ final class HLSStreamingTests: XCTestCase {
 		XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
 	}
 
+	/// The verifier must accept every rendition the manifest API serves, and the Atmos one is
+	/// an E-AC-3 fMP4 whose init segment is an `ftyp` box like the rest. A shorter file than the
+	/// completeness floor is still refused, so the check keeps rejecting a truncated download.
+	func testTheFileVerifierAcceptsARealEAC3InitSegmentAndRejectsATruncatedOne() throws {
+		let initSegment = try eac3InitFixture()
+		let accepted = directory.appendingPathComponent("eac3-init.mp4")
+		try initSegment.write(to: accepted)
+		XCTAssertEqual(String(bytes: initSegment.subdata(in: 4..<8), encoding: .ascii), "ftyp")
+		XCTAssertTrue(
+			HLSStreaming.isPlayableMP4File(at: accepted),
+			"a real E-AC-3 init segment must pass the verifier, so the Atmos rung can cache"
+		)
+
+		let truncated = directory.appendingPathComponent("eac3-init-truncated.mp4")
+		try initSegment.prefix(HLSStreaming.minimumPlayableFileBytes - 1).write(to: truncated)
+		XCTAssertFalse(
+			HLSStreaming.isPlayableMP4File(at: truncated),
+			"a file under the completeness floor must still be refused"
+		)
+	}
+
+	/// A temporary file that is gone after the write loop was removed from under the download;
+	/// that is a write failure, not a verdict on bytes that are not there.
+	func testATemporaryFileRemovedDuringTheDownloadIsAWriteFailure() async throws {
+		let source = try makeLocalPlaylist(segments: ["AAAA", "BBBB"])
+		let output = directory.appendingPathComponent("vanishing", isDirectory: true)
+		do {
+			_ = try await HLSStreaming.downloadToCache(
+				source.multivariantURL, forTrackId: 981_563_461, rung: .stereo(.max),
+				cacheDirectory: output,
+				fetch: { url in
+					// The last fetch tears the cache directory down, as a teardown or a clear does.
+					if url.lastPathComponent == "seg-2.mp4" {
+						try? FileManager.default.removeItem(at: output)
+					}
+					return try Data(contentsOf: url)
+				}
+			)
+			XCTFail("a download whose destination directory vanished must fail")
+		} catch let error as HLSStreamError {
+			guard case .writeFailed = error else {
+				return XCTFail("a vanished temporary file must be a write failure, got \(error)")
+			}
+		}
+	}
+
 	func testMediaPlaylistWithoutAnInitializationSegmentIsRefused() async throws {
 		let media = HLSMediaPlaylist(initializationURL: nil, segmentURLs: [URL(string: "https://cdn/seg-1.mp4")!])
 		do {
@@ -223,6 +269,53 @@ final class HLSStreamingTests: XCTestCase {
 		} catch {
 			XCTAssertEqual(error as? HLSStreamError, .missingInitializationSegment)
 		}
+	}
+
+	/// If a playlist ever carries a key line the media is encrypted, so it is refused with a
+	/// typed error instead of the segments assembled into a file nobody can play. Tidal answers
+	/// this app's desktop session no key line today; this is the guard for the day that changes.
+	func testAPlaylistCarryingAKeyLineIsRefused() {
+		let encryptedMedia = """
+		#EXTM3U
+		#EXT-X-TARGETDURATION:4
+		#EXT-X-KEY:METHOD=SAMPLE-AES,URI="skd://key",KEYFORMAT="com.apple.streamingkeydelivery"
+		#EXT-X-MAP:URI="init.mp4"
+		#EXTINF:4.000,
+		seg-1.mp4
+		#EXT-X-ENDLIST
+		"""
+		XCTAssertThrowsError(try parse(encryptedMedia)) { error in
+			XCTAssertEqual(error as? HLSStreamError, .encryptedPlaylist)
+		}
+
+		let sessionKeyPlaylist = """
+		#EXTM3U
+		#EXT-X-SESSION-KEY:METHOD=SAMPLE-AES,URI="skd://key"
+		#EXT-X-STREAM-INF:BANDWIDTH=1596037,CODECS="fLaC"
+		variant.m3u8
+		"""
+		XCTAssertThrowsError(try parse(sessionKeyPlaylist)) { error in
+			XCTAssertEqual(error as? HLSStreamError, .encryptedPlaylist)
+		}
+	}
+
+	/// The refusal is fail-closed: an encrypted variant never reaches the destination, so no
+	/// unplayable file is left in the cache for a later play to serve.
+	func testAnEncryptedVariantIsRefusedAndLeavesNoFile() async throws {
+		let source = try makeLocalPlaylist(segments: ["AAAA", "BBBB"], encrypted: true)
+		let output = directory.appendingPathComponent("out", isDirectory: true)
+		let destination = PlaybackCache.fileURL(forTrackId: 981_563_451, rung: .stereo(.max), in: output)
+
+		do {
+			_ = try await HLSStreaming.downloadToCache(
+				source.multivariantURL, forTrackId: 981_563_451, rung: .stereo(.max),
+				cacheDirectory: output, fetch: fileFetcher
+			)
+			XCTFail("an encrypted variant must be refused")
+		} catch {
+			XCTAssertEqual(error as? HLSStreamError, .encryptedPlaylist)
+		}
+		XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path), "an encrypted variant must leave nothing behind")
 	}
 
 	// MARK: - Cache
@@ -250,6 +343,47 @@ final class HLSStreamingTests: XCTestCase {
 			try Data(contentsOf: XCTUnwrap(cacheURL)), expected,
 			"the background write must be the assembled track"
 		)
+	}
+
+	/// The Atmos rung must reach the cache like a stereo rung: the assembled E-AC-3 fMP4
+	/// verifies and lands under its rung's name, so a second play reads it instead of streaming.
+	func testTheAtmosRungCachesTheEAC3File() async throws {
+		let trackId = 981_563_460
+		let initSegment = try eac3InitFixture()
+		let local = try makeLocalPlaylist(segments: ["AAAA", "BBBB"], initBytes: initSegment)
+		let output = directory.appendingPathComponent("atmos-cache", isDirectory: true)
+
+		let playback = await HLSStreaming.playbackSource(
+			for: makeTrack(id: trackId, audioModes: [.stereo, .dolbyAtmos]),
+			session: makeSession(), quality: .max, preferDolbyAtmos: true, cacheDirectory: output,
+			resolvePlaylist: { _, rung in
+				XCTAssertEqual(rung, .dolbyAtmos, "the preference must ask the Atmos rung")
+				return local.multivariantURL
+			},
+			fetch: fileFetcher
+		)
+
+		let source = try XCTUnwrap(playback)
+		XCTAssertEqual(source.rung, .dolbyAtmos)
+		let cachedValue = await source.backgroundDownload?.value
+		let cached = try XCTUnwrap(cachedValue, "the Atmos rung must reach the cache")
+		XCTAssertEqual(cached.lastPathComponent, "\(trackId)-DOLBY_ATMOS.m4a")
+		XCTAssertEqual(try Data(contentsOf: cached), initSegment + Data("AAAA".utf8) + Data("BBBB".utf8))
+		XCTAssertTrue(HLSStreaming.isPlayableMP4File(at: cached), "the cached E-AC-3 file must verify")
+
+		// A second play is answered from the file, with no resolve and no fetch.
+		let replay = await HLSStreaming.playbackSource(
+			for: makeTrack(id: trackId, audioModes: [.stereo, .dolbyAtmos]),
+			session: makeSession(), quality: .max, preferDolbyAtmos: true, cacheDirectory: output,
+			resolvePlaylist: { _, _ in
+				XCTFail("a cached Atmos file must not resolve a playlist")
+				throw HLSStreamError.requestFailed
+			},
+			fetch: { _ in throw HLSStreamError.requestFailed }
+		)
+		XCTAssertEqual(replay?.url, cached)
+		XCTAssertEqual(replay?.rung, .dolbyAtmos)
+		XCTAssertNil(replay?.backgroundDownload, "a cached Atmos play must not start another download")
 	}
 
 	/// Hermetic: the cache check runs before resolution, so a hit never opens a
@@ -419,6 +553,57 @@ final class HLSStreamingTests: XCTestCase {
 
 		XCTAssertEqual(asked, [.stereo(.max), .stereo(.high), .stereo(.medium), .stereo(.low)])
 		XCTAssertNil(source, "only every rung being refused may resolve no source")
+	}
+
+	/// A cancelled resolve stops at once instead of asking the remaining rungs, so a cancelled
+	/// sync does not keep hitting the network for the tracks it is abandoning.
+	func testCancellationStopsTheLadderInsteadOfAskingTheNextRung() async throws {
+		var asked: [HLSRung] = []
+		do {
+			_ = try await HLSStreaming.resolveManifest(trackId: 981_563_450, rungs: HLSStreaming.rungs(for: .max, preferDolbyAtmos: false, trackHasDolbyAtmos: false)) { _, rung in
+				asked.append(rung)
+				throw URLError(.cancelled)
+			}
+			XCTFail("a cancelled resolve must throw")
+		} catch {
+			XCTAssertTrue(HLSStreaming.isCancellation(error), "the cancellation must survive the ladder, got \(error)")
+		}
+		XCTAssertEqual(asked, [.stereo(.max)], "a cancelled resolve must not ask the remaining rungs")
+		XCTAssertTrue(HLSStreaming.isCancellation(CancellationError()))
+	}
+
+	/// A Max ceiling can never land on a lower rung than a Lossless ceiling for the same track:
+	/// Max's ladder is Lossless's with the Max rung prepended. Enumerate every refusal pattern so
+	/// it cannot stop holding.
+	func testAMaxCeilingNeverResolvesBelowALosslessCeiling() async throws {
+		let maxLadder = HLSStreaming.rungs(for: .max, preferDolbyAtmos: false, trackHasDolbyAtmos: false)
+		let losslessLadder = HLSStreaming.rungs(for: .high, preferDolbyAtmos: false, trackHasDolbyAtmos: false)
+		XCTAssertEqual(
+			Array(maxLadder.dropFirst()), losslessLadder,
+			"the Lossless ceiling must be the Max ceiling's own ladder without the Max rung"
+		)
+
+		let rank: [HLSRung: Int] = [.stereo(.max): 3, .stereo(.high): 2, .stereo(.medium): 1, .stereo(.low): 0]
+		let resolve: (Set<HLSRung>) -> (Int, HLSRung) async throws -> URL = { served in
+			{ _, rung in
+				guard served.contains(rung) else { throw HLSStreamError.requestRefused(status: 403) }
+				return URL(string: "https://im-fa.manifest.tidal.com/\(rung.format).m3u8")!
+			}
+		}
+
+		for mask in 0..<(1 << maxLadder.count) {
+			let served = Set(maxLadder.enumerated().filter { mask & (1 << $0.offset) != 0 }.map(\.element))
+			let maxResult = try? await HLSStreaming.resolveManifest(trackId: 1, rungs: maxLadder, resolve: resolve(served))
+			let losslessResult = try? await HLSStreaming.resolveManifest(trackId: 1, rungs: losslessLadder, resolve: resolve(served))
+
+			if let losslessManifest = losslessResult {
+				let maxManifest = try XCTUnwrap(maxResult, "a Max ceiling must serve whenever a Lossless ceiling does, for served \(served)")
+				XCTAssertGreaterThanOrEqual(
+					rank[maxManifest.rung] ?? -1, rank[losslessManifest.rung] ?? -1,
+					"a Max ceiling landed below a Lossless ceiling for served \(served)"
+				)
+			}
+		}
 	}
 
 	/// A stepped-down serve is cached under the tier that played and badged from it, so the
@@ -627,6 +812,47 @@ final class HLSStreamingTests: XCTestCase {
 		XCTAssertEqual(source?.url, local.multivariantURL, "a failed prefetch must not stop the track playing")
 	}
 
+	/// A play racing a prefetch of the same track fetches the bytes once: the second caller
+	/// awaits the first download instead of starting its own.
+	func testAPlayRacingAPrefetchOfOneTrackDownloadsItOnce() async throws {
+		let local = try makeLocalPlaylist(segments: ["AAAA", "BBBB"])
+		let trackId = 981_563_460
+		let cacheDirectory = directory!
+		let fetches = Counter()
+		let fetch: HLSStreaming.ResourceFetcher = { url in
+			if url.lastPathComponent == "init.mp4" {
+				await fetches.increment()
+				try? await Task.sleep(for: .milliseconds(200))
+			}
+			return try Data(contentsOf: url)
+		}
+
+		async let first = HLSStreaming.cacheInBackground(
+			local.multivariantURL, forTrackId: trackId, rung: .stereo(.max), cacheDirectory: cacheDirectory, fetch: fetch
+		)
+		async let second = HLSStreaming.cacheInBackground(
+			local.multivariantURL, forTrackId: trackId, rung: .stereo(.max), cacheDirectory: cacheDirectory, fetch: fetch
+		)
+		let (firstURL, secondURL) = await (first.value, second.value)
+		let fetchCount = await fetches.value
+
+		XCTAssertEqual(fetchCount, 1, "two concurrent downloads of one track and rung must fetch it once")
+		XCTAssertEqual(firstURL, secondURL, "both callers must be handed the same file")
+	}
+
+	/// The in-flight table is keyed per track and rung, so two rungs of one track are still two
+	/// downloads; a shared key would serve one rung's bytes as the other's.
+	func testTheInFlightKeySeparatesTracksAndRungs() async throws {
+		let trackId = 981_563_461
+		let sameRungOtherTrack = HLSStreamPreparation.key(trackId: trackId + 1, rung: .stereo(.max), cacheDirectory: directory)
+		let otherRung = HLSStreamPreparation.key(trackId: trackId, rung: .stereo(.high), cacheDirectory: directory)
+		let key = HLSStreamPreparation.key(trackId: trackId, rung: .stereo(.max), cacheDirectory: directory)
+
+		XCTAssertNotEqual(key, sameRungOtherTrack, "the track id must be part of the key")
+		XCTAssertNotEqual(key, otherRung, "the rung must be part of the key")
+		XCTAssertEqual(key, HLSStreamPreparation.key(trackId: trackId, rung: .stereo(.max), cacheDirectory: directory))
+	}
+
 	// MARK: - Badge
 
 	/// A streamed track reads like a cached one once the player reports the rate the
@@ -771,6 +997,13 @@ final class HLSStreamingTests: XCTestCase {
 		try Data(contentsOf: XCTUnwrap(Bundle.module.url(forResource: "silent", withExtension: "m4a", subdirectory: "Fixtures")))
 	}
 
+	/// The `#EXT-X-MAP` initialization segment Tidal's `EAC3_JOC` variant serves for a real
+	/// Atmos track, trimmed to the 588-byte `ftyp` + `moov` header. No audio, so the fixture
+	/// stays small; it is the exact bytes the verifier has to accept for the Atmos rung.
+	private func eac3InitFixture() throws -> Data {
+		try Data(contentsOf: XCTUnwrap(Bundle.module.url(forResource: "eac3-init", withExtension: "mp4", subdirectory: "Fixtures")))
+	}
+
 	/// Without a fixed sleep that would make the test flaky.
 	private func waitUntil(timeout: TimeInterval = 1.0, _ condition: () -> Bool) async {
 		let deadline = Date().addingTimeInterval(timeout)
@@ -782,11 +1015,13 @@ final class HLSStreamingTests: XCTestCase {
 
 	/// A local stand-in for Tidal's CDN: a master playlist, a variant playlist, an init
 	/// segment and the media segments, all written as real files so relative URIs resolve
-	/// exactly as they do over HTTPS.
+	/// exactly as they do over HTTPS. `encrypted` adds the key line an encrypted playlist
+	/// would carry.
 	private func makeLocalPlaylist(
 		segments: [String],
 		initBytes: Data? = nil,
-		topLevelIsMediaPlaylist: Bool = false
+		topLevelIsMediaPlaylist: Bool = false,
+		encrypted: Bool = false
 	) throws -> LocalPlaylist {
 		let root = directory.appendingPathComponent("cdn-\(UUID().uuidString)", isDirectory: true)
 		try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -795,7 +1030,9 @@ final class HLSStreamingTests: XCTestCase {
 		for (index, segment) in segments.enumerated() {
 			try Data(segment.utf8).write(to: root.appendingPathComponent("seg-\(index + 1).mp4"))
 		}
-		let mediaPlaylist = (["#EXTM3U", "#EXT-X-TARGETDURATION:4", "#EXT-X-MAP:URI=\"init.mp4\""]
+		let mediaPlaylist = (["#EXTM3U", "#EXT-X-TARGETDURATION:4"]
+			+ (encrypted ? ["#EXT-X-KEY:METHOD=SAMPLE-AES,URI=\"skd://key\",KEYFORMAT=\"com.apple.streamingkeydelivery\""] : [])
+			+ ["#EXT-X-MAP:URI=\"init.mp4\""]
 			+ segments.indices.flatMap { ["#EXTINF:4.000,", "seg-\($0 + 1).mp4"] }
 			+ ["#EXT-X-ENDLIST"]).joined(separator: "\n")
 		let topLevel = topLevelIsMediaPlaylist
@@ -811,6 +1048,15 @@ final class HLSStreamingTests: XCTestCase {
 
 	private var fileFetcher: HLSStreaming.ResourceFetcher {
 		{ url in try Data(contentsOf: url) }
+	}
+
+	/// Counts calls from `@Sendable` fetch closures without a data race.
+	private actor Counter {
+		private(set) var value = 0
+
+		func increment() {
+			value += 1
+		}
 	}
 
 	private func makeSession() -> Session {

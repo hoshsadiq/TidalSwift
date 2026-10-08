@@ -375,7 +375,8 @@ class Player {
 			guard loadID == itemLoadID else {
 				return nil
 			}
-			print("Play \(track.title) from online URL: \(stream.url)")
+			// A stream URL carries a signed token in its path and query, so only the host is logged.
+			print("Play \(track.title) from online URL on \(stream.url.host ?? "a local file")")
 			print("[PLAYBACK] avSetItem(): resolved URL - title: \(track.title), quality: \(stream.quality), source: online")
 			playbackInfo.resolvedStream = ResolvedStream(
 				trackId: track.id,
