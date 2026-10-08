@@ -19,7 +19,8 @@ enum AuthInformation {
 	// The authorize host is login.tidal.com; the exchange happens on auth.tidal.com.
 	static let DesktopTokenLocation = "https://auth.tidal.com/v1/oauth2/token"
 	// Tidal binds the session to a client unique key sent on the code exchange; without it
-	// the token has no `cuk` claim and Atmos-capable tracks fall back to the Atmos rendition.
+	// the token has no `cuk` claim and Atmos-capable tracks fall back to the Atmos rendition,
+	// which only a High or Max ceiling plays.
 	// Generated once per install and kept, as the server treats it as identifying this client.
 	static let DesktopUniqueKeyDefaultsKey = "desktopClientUniqueKey"
 	// Fixed by the desktop client registration; a loopback redirect is refused.

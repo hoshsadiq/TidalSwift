@@ -14,6 +14,16 @@ private func decodedBTSManifest(_ response: TrackPlaybackInfo) -> BTSManifest? {
 	return try? JSONDecoder().decode(BTSManifest.self, from: data)
 }
 
+/// Whether a BTS codec string names E-AC-3, the Atmos rendition's codec. The payload is
+/// recorded as `eac3`, but the guard must fail closed on the codec rather than trust the
+/// response's `audioMode` label: an answer whose codec is E-AC-3 under any spelling is
+/// treated as Atmos and let the ceiling decide.
+private func isEac3Codec(_ codecs: String?) -> Bool {
+	guard let codecs else { return false }
+	let normalized = codecs.lowercased().filter { $0.isLetter || $0.isNumber }
+	return normalized == "eac3" || normalized == "ec3" || normalized == "ac3"
+}
+
 struct AcceptedPlaybackManifest {
 	let url: URL
 	let isDolbyAtmos: Bool
@@ -22,8 +32,9 @@ struct AcceptedPlaybackManifest {
 enum PlaybackManifestPolicy {
 	/// Accepts only an unencrypted BTS manifest at a ceiling that admits its rendition. The
 	/// Atmos flag comes from the response, never assumed from the caller: a refused stereo
-	/// track lands here too and must not be labelled Atmos. An Atmos answer is refused at a
-	/// ceiling that does not admit it (`AudioQuality.admitsDolbyAtmos`) rather than accepted,
+	/// track lands here too and must not be labelled Atmos. A codec that names E-AC-3 is
+	/// Atmos whatever `audioMode` says, so an answer whose label is missing or mis-spelled is
+	/// still refused at a ceiling that does not admit it (`AudioQuality.admitsDolbyAtmos`),
 	/// because the ceiling gates the Atmos request too and the endpoint answers Atmos at any
 	/// quality. DASH and encrypted manifests are refused so `bestAudioUrl` keeps looking.
 	static func accept(_ response: TrackPlaybackInfo, ceiling: AudioQuality) -> AcceptedPlaybackManifest? {
@@ -35,8 +46,8 @@ enum PlaybackManifestPolicy {
 			return nil
 		}
 		guard let url = manifest.urls.first?.upgradedToHTTPS else { return nil }
-		let isDolbyAtmos = response.audioMode == .dolbyAtmos
-			&& (manifest.codecs == nil || manifest.codecs == "eac3")
+		let isDolbyAtmos = isEac3Codec(manifest.codecs)
+			|| (response.audioMode == .dolbyAtmos && manifest.codecs == nil)
 		guard !isDolbyAtmos || ceiling.admitsDolbyAtmos else { return nil }
 		return AcceptedPlaybackManifest(url: url, isDolbyAtmos: isDolbyAtmos)
 	}

@@ -413,8 +413,9 @@ public final class Offline {
 	/// every HLS rung is refused, needs no variant of its own: it is named by
 	/// `servedByDirectStream`, which never rises above the request and so always lands on this
 	/// ladder (`testTheDirectStreamTierIsAlreadyOnTheCeilingLadder`). That per-sync upgrade probe
-	/// is gone by decision (2026-10-08): a file below the ceiling is kept until the quality setting
-	/// changes, the same policy the playback cache follows.
+	/// is gone by decision (2026-10-08): a file below the ceiling is kept until a settings change
+	/// re-checks it and replaces what no longer matches. The playback cache has no such pass: it
+	/// serves a cached file whenever its rung is on the ladder and never replaces it.
 	private func acceptableVariants(of track: Track) -> Set<FileVariant> {
 		let rungs = HLSStreaming.rungs(
 			for: session.config.offlineAudioQuality,

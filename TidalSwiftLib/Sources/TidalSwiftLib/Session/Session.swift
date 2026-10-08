@@ -31,6 +31,11 @@ public class Session {
 	var activeTokenRefreshID: UUID?
 	var bestResolvedAudioQualities: [Int: AudioQuality] = [:]
 
+	/// The URL session every authenticated request this session makes goes through. A test
+	/// substitutes one whose `URLProtocol` answers fixed payloads, so the ceiling a call site
+	/// forwards can be exercised without a live host. Defaults to `.shared`.
+	var requestSession: URLSession = .shared
+
 	/// In-memory lyrics cache shared by every `LyricsResolver` built from this
 	/// session. Scoping it to the long-lived session (rather than a resolver
 	/// owned by a view) is what lets resolved lyrics survive the Now Playing

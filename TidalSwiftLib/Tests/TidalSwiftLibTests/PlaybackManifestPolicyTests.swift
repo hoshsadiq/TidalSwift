@@ -128,4 +128,28 @@ final class PlaybackManifestPolicyTests: XCTestCase {
 			PlaybackManifestPolicy.accept(response(audioMode: .stereo, manifest: noUrl), ceiling: .max)
 		)
 	}
+
+	/// The guard fails closed on the codec, not the label: an E-AC-3 answer under any spelling
+	/// is Atmos, so only a ceiling that admits Atmos may accept it. `eac3` is the recorded
+	/// spelling; the others are the shapes a label would take if Tidal ever varies it.
+	func testEveryEac3CodecSpellingIsTreatedAsAtmos() throws {
+		for codecs in ["eac3", "ec-3", "EAC3", "ac-3"] {
+			let atmos = response(audioMode: .stereo, manifest: try btsPayload(codecs: codecs))
+			XCTAssertNil(
+				PlaybackManifestPolicy.accept(atmos, ceiling: .low),
+				"\(codecs) must be treated as Atmos and refused at a Low ceiling"
+			)
+			XCTAssertTrue(
+				PlaybackManifestPolicy.accept(atmos, ceiling: .high)?.isDolbyAtmos ?? false,
+				"\(codecs) must be reported as Atmos at a High ceiling"
+			)
+		}
+	}
+
+	/// An absent `audioMode` is not evidence of stereo when the codec is E-AC-3.
+	func testAnAbsentAudioModeDoesNotMakeAnEac3AnswerStereo() throws {
+		let atmos = response(audioMode: nil, manifest: try btsPayload(codecs: "eac3"))
+		XCTAssertNil(PlaybackManifestPolicy.accept(atmos, ceiling: .low))
+		XCTAssertTrue(PlaybackManifestPolicy.accept(atmos, ceiling: .high)?.isDolbyAtmos ?? false)
+	}
 }

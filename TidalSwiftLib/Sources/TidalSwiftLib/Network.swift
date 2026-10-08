@@ -34,7 +34,7 @@ extension Network {
 		return components.percentEncodedQuery ?? ""
 	}
 
-	static func request(method: HttpMethod, url: URL, parameters: [String: String], etag: Int? = nil, accessToken: String?, xTidalToken: String?) async throws -> Response {
+	static func request(method: HttpMethod, url: URL, parameters: [String: String], etag: Int? = nil, accessToken: String?, xTidalToken: String?, using session: URLSession = .shared) async throws -> Response {
 		var request = URLRequest(url: url)
 		request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
 		request.setValue(AuthInformation.tidalClientUserAgent, forHTTPHeaderField: "User-Agent")
@@ -73,7 +73,7 @@ extension Network {
 		logRequest(request)
 		#endif
 
-		let (data, response) = try await URLSession.shared.data(for: request)
+		let (data, response) = try await session.data(for: request)
 
 		let statusCode = (response as? HTTPURLResponse)?.statusCode
 

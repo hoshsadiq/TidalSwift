@@ -569,7 +569,7 @@ extension Session {
 	/// The quality is a ceiling: a refusal at the chosen tier (hi-res is the common refusal)
 	/// steps to the next lower rendition rather than failing, so this returns a URL whenever
 	/// any stereo tier is available. A track that advertises Atmos is offered the Atmos rung
-	/// too; the preference puts it first. See `HLSStreaming.rungs`.
+	/// too when the ceiling admits it; the preference puts it first. See `HLSStreaming.rungs`.
 	public func hlsPlaylistURL(
 		trackId: Int,
 		audioQuality: AudioQuality,
