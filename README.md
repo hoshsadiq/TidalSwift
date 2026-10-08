@@ -24,7 +24,7 @@ xattr -d com.apple.quarantine /Applications/TidalSwift.app
 
 ## Audio quality
 
-Playback goes through Tidal's own playback service, the one the desktop app calls. The app logs in as the desktop client, and that is what makes the stereo renditions available at every tier; a session Tidal does not recognise is served Dolby Atmos instead. Tidal answers that at any quality, but the app only plays Atmos at High or Max: below that such a track is skipped rather than played.
+Playback goes through Tidal's own playback service, the one the desktop app calls. The app logs in as the desktop client, and that is what makes the stereo renditions available at every tier; a session Tidal does not recognise is served Dolby Atmos instead. Tidal answers that at any quality, but the app only plays Atmos at High or Max: below that it asks for the stereo rendition alone, and a track Tidal serves no stereo rendition for is skipped rather than played.
 
 Preferences → Quality sets the tier:
 
@@ -35,7 +35,7 @@ Preferences → Quality sets the tier:
 
 When Tidal serves no stereo rendition for a track, the app falls back to the older direct stream, or to Dolby Atmos at High or Max.
 
-Dolby Atmos is a preference rather than a tier, and offline keeps its own copy of it. It only applies at High or Max quality: below that the Atmos rendition is never requested, and a track with no other version is skipped. At High or Max, a track with an Atmos version plays Atmos when the preference is on; with it off you get the stereo rendition, and the Atmos one is only used when the ceiling allows it and the track has nothing else.
+Dolby Atmos is a preference rather than a tier, and offline keeps its own copy of it. It only applies at High or Max quality: below that the Atmos rendition is never requested, and a track Tidal serves no stereo rendition for is skipped. At High or Max, a track with an Atmos version plays Atmos when the preference is on; with it off you get the stereo rendition, and the Atmos one is only used when the ceiling allows it and the track has nothing else.
 
 The same pane holds "Ignore subscription limits", which lets you pick a tier above your subscription even when Tidal may refuse it, "Prefetch tracks", the number prepared ahead of the one playing (0 to 15, default 3), and "Cache size", the space prepared tracks may use in GB (default 2). Prepared tracks live in `~/Library/Caches/TidalSwift/`, so they start instantly.
 

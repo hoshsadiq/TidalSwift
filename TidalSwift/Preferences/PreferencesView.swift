@@ -65,7 +65,7 @@ private struct PlaybackPreferencesTab: View {
 							get: { appModel.player.preferDolbyAtmos },
 							set: { appModel.setPreferDolbyAtmos($0) }
 						),
-						help: "Plays the Atmos version when the track has one. Only used at High or Max quality: below that, Atmos is never played and a track with no other version is skipped."
+						help: "Plays the Atmos version when the track has one. Only used at High or Max quality: below that, Atmos is never played, and a track Tidal serves no stereo rendition for is skipped."
 					)
 				case .download:
 					AudioQualityRows(

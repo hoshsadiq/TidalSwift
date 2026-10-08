@@ -372,8 +372,11 @@ public final class Offline {
 			return nil
 		}
 		// The playable files are the ones a ceiling admits; more than one can be present, e.g.
-		// before a re-download prunes the old one. `preferredFile` picks deterministically, so the
-		// played file is always the kept one.
+		// before a re-download prunes the old one. The sync decides what to keep over the unfiltered
+		// set, so a play can serve a file that same pass is about to prune: with the offline ceiling
+		// at High and the Atmos replacement still downloading, the stereo leftover is served here
+		// and pruned there. Closing that would mean giving the sync the play ceiling, which it has
+		// no access to.
 		let playable = files.filter { isAdmissible(variant(of: $0, track: track), at: ceiling) }
 		guard let url = preferredFile(for: track, in: playable) else {
 			return nil
