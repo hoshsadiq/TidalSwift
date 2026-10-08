@@ -40,33 +40,34 @@ private struct PlaybackPreferencesTab: View {
 	/// `session.config` is not observable, so mirror its offline quality here.
 	@State private var offlineQuality: AudioQuality?
 	/// Streaming is what a user usually changes, so it is the default.
-	@State private var qualityTarget: QualityTarget = .playback
+	@State private var qualityTarget: QualityTarget = .stream
 
 	var body: some View {
 		Form {
 			Section {
 				Picker("Quality", selection: $qualityTarget) {
-					Text("Playback").tag(QualityTarget.playback)
-					Text("Offline").tag(QualityTarget.offline)
+					Text("Stream").tag(QualityTarget.stream)
+					Text("Download").tag(QualityTarget.download)
 				}
 				.pickerStyle(.segmented)
 				.labelsHidden()
 
 				switch qualityTarget {
-				case .playback:
+				case .stream:
 					AudioQualityRows(
 						selection: appModel.audioQuality,
 						isAvailable: { appModel.isAudioQualityAvailable($0) },
 						select: { appModel.setAudioQuality($0) }
 					)
 					DolbyAtmosToggle(
+						title: "Prefer Dolby Atmos for streaming",
 						isOn: Binding(
 							get: { appModel.player.preferDolbyAtmos },
 							set: { appModel.setPreferDolbyAtmos($0) }
 						),
-						help: "Play the Atmos version when a track has one. Only matters when Tidal also offers stereo."
+						help: "Plays the Atmos version when the track has one. Only used at High or Max quality, so a lower quality setting never plays Atmos."
 					)
-				case .offline:
+				case .download:
 					AudioQualityRows(
 						selection: offlineQuality ?? appModel.session.config.offlineAudioQuality,
 						isAvailable: { appModel.isAudioQualityAvailable($0) },
@@ -76,6 +77,7 @@ private struct PlaybackPreferencesTab: View {
 						}
 					)
 					DolbyAtmosToggle(
+						title: "Prefer Dolby Atmos for downloads",
 						isOn: Binding(
 							get: { offlinePreferDolbyAtmos },
 							set: { newValue in
@@ -84,7 +86,7 @@ private struct PlaybackPreferencesTab: View {
 								offlinePreferDolbyAtmos = newValue
 							}
 						),
-						help: "Store the Atmos version when a track has one. Decides which file is saved offline."
+						help: "Saves the Atmos version when the track has one. Decides which file is stored offline, not what plays."
 					)
 				}
 
@@ -129,12 +131,12 @@ private struct PlaybackPreferencesTab: View {
 			} footer: {
 				VStack(alignment: .leading, spacing: 2) {
 					switch qualityTarget {
-					case .playback:
+					case .stream:
 						Text("Applies to the next track you play.")
 						if let highest = appModel.highestSoundQuality {
 							Text("Your subscription supports up to \(highest.shortTitle).")
 						}
-					case .offline:
+					case .download:
 						Text("Changing this re-checks your offline library and can re-download files.")
 					}
 				}
@@ -205,20 +207,22 @@ private struct PlaybackPreferencesTab: View {
 }
 
 private enum QualityTarget: Hashable {
-	case playback
-	case offline
+	case stream
+	case download
 }
 
-/// The Atmos preference for one target. Playback and offline each carry their own, so a
-/// user can stream stereo while storing Atmos or the reverse.
+/// The Atmos preference for one target. Streaming and downloading each carry their own, so a
+/// user can play Atmos while storing stereo or the reverse; the title names which one an
+/// individual switch changes.
 private struct DolbyAtmosToggle: View {
+	let title: String
 	@Binding var isOn: Bool
 	let help: String
 
 	var body: some View {
 		Toggle(isOn: $isOn) {
 			VStack(alignment: .leading) {
-				Text("Prefer Dolby Atmos")
+				Text(title)
 				Text(help)
 					.font(.caption)
 					.foregroundStyle(.secondary)
