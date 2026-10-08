@@ -125,9 +125,13 @@ public struct Track: Codable, Equatable, Identifiable, Hashable {
 		streamReady && (audioModes?.contains { $0 != .sony360RealityAudio } ?? true)
 	}
 
-	/// Dolby Atmos is used when preferred or when the track has no stereo version
+	/// Dolby Atmos is used when preferred or when the track has no stereo version.
+	///
+	/// Atmos is also gated on the ceiling (`AudioQuality.admitsDolbyAtmos`): a Low or Medium
+	/// ceiling never asks for the ~768 kbps E-AC-3 rendition. The served tier is carried on the
+	/// stream, so a `HI_RES_LOSSLESS` request the endpoint downgrades is named for what it holds.
 	public func audioStream(session: Session, audioQuality: AudioQuality, preferDolbyAtmos: Bool) async -> AudioStream? {
-		if hasDolbyAtmos && (preferDolbyAtmos || !hasStereo) {
+		if hasDolbyAtmos, audioQuality.admitsDolbyAtmos, preferDolbyAtmos || !hasStereo {
 			if let url = await session.dolbyAtmosUrl(trackId: id) {
 				return AudioStream(url: url, pathExtension: "m4a", isDolbyAtmos: true)
 			}
@@ -135,8 +139,14 @@ public struct Track: Codable, Equatable, Identifiable, Hashable {
 				return nil
 			}
 		}
+		let servedQuality = audioQuality.servedByDirectStream(advertised: self.audioQuality)
 		if let url = await session.audioUrl(trackId: id, audioQuality: audioQuality) {
-			return AudioStream(url: url, pathExtension: session.pathExtension(for: audioQuality), isDolbyAtmos: false)
+			return AudioStream(
+				url: url,
+				pathExtension: session.pathExtension(for: audioQuality),
+				isDolbyAtmos: false,
+				quality: servedQuality
+			)
 		}
 		// `streamUrl` refuses an Atmos-capable track at every tier (HTTP 401,
 		// subStatus 4005 "Asset is not ready for playback"), and Tidal answers the
@@ -150,7 +160,8 @@ public struct Track: Codable, Equatable, Identifiable, Hashable {
 		return AudioStream(
 			url: manifest.url,
 			pathExtension: session.pathExtension(for: manifest.url, audioQuality: audioQuality),
-			isDolbyAtmos: manifest.isDolbyAtmos
+			isDolbyAtmos: manifest.isDolbyAtmos,
+			quality: manifest.isDolbyAtmos ? nil : servedQuality
 		)
 	}
 
@@ -180,6 +191,18 @@ public struct AudioStream {
 	public let pathExtension: String
 	/// Whether the stream is the Dolby Atmos rendition.
 	public let isDolbyAtmos: Bool
+	/// The stereo tier the stream holds, when the source knows it. A `streamUrl` request is
+	/// answered with a lower tier than asked (a `HI_RES_LOSSLESS` request gets the 16-bit
+	/// lossless file), and an offline file's tier is read from its name, so this is the served
+	/// tier, never the requested one. `nil` for the Atmos rendition and for an unnamed legacy file.
+	public let quality: AudioQuality?
+
+	public init(url: URL, pathExtension: String, isDolbyAtmos: Bool, quality: AudioQuality? = nil) {
+		self.url = url
+		self.pathExtension = pathExtension
+		self.isDolbyAtmos = isDolbyAtmos
+		self.quality = quality
+	}
 }
 
 struct AudioUrl: Decodable {

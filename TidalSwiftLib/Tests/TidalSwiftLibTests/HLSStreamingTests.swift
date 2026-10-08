@@ -509,6 +509,27 @@ final class HLSStreamingTests: XCTestCase {
 		)
 	}
 
+	/// The ceiling gates the Atmos rung: only High and Max admit it, so a Low or Medium ceiling
+	/// never places a ~768 kbps E-AC-3 stream under a 96/320 kbps cap (PD2, 2026-10-08).
+	func testTheCeilingGatesTheAtmosRung() {
+		for quality in [AudioQuality.low, .medium] {
+			for prefer in [true, false] {
+				XCTAssertEqual(
+					HLSStreaming.rungs(for: quality, preferDolbyAtmos: prefer, trackHasDolbyAtmos: true),
+					HLSStreaming.qualityLadder(for: quality).map(HLSRung.stereo),
+					"a \(quality.rawValue) ceiling must not ask the Atmos rung"
+				)
+			}
+		}
+		for quality in [AudioQuality.high, .max] {
+			for prefer in [true, false] {
+				let rungs = HLSStreaming.rungs(for: quality, preferDolbyAtmos: prefer, trackHasDolbyAtmos: true)
+				XCTAssertTrue(rungs.contains(.dolbyAtmos), "a \(quality.rawValue) ceiling must offer the Atmos rung")
+				XCTAssertEqual(rungs.first?.isDolbyAtmos ?? false, prefer, "the preference orders the Atmos rung")
+			}
+		}
+	}
+
 	/// The badge names the rung that was served, so the Atmos rung reads Dolby Atmos.
 	func testBadgeForTheAtmosRung() {
 		XCTAssertEqual(HLSStreaming.badge(for: .dolbyAtmos), "Dolby Atmos")

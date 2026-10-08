@@ -80,13 +80,14 @@ extension Session {
 	/// Resolves a track to a playable streaming URL.
 	///
 	/// When `preferDolbyAtmos` is set and an Atmos rendition exists, it wins even over
-	/// stereo. Atmos is not a tier in the ladder below, so it is attempted once and
-	/// never memoised; `isDolbyAtmos` reports the rendition that actually plays, not the
-	/// track's capabilities.
+	/// stereo, but only when the ceiling admits Atmos (`AudioQuality.admitsDolbyAtmos`): a
+	/// Low or Medium ceiling never plays the ~768 kbps E-AC-3 stream. Atmos is not a tier in
+	/// the ladder below, so it is attempted once and never memoised; `isDolbyAtmos` reports
+	/// the rendition that actually plays, not the track's capabilities.
 	public func bestAudioUrl(trackId: Int, preferredQuality: AudioQuality, preferDolbyAtmos: Bool = false) async -> (url: URL, quality: AudioQuality, isDolbyAtmos: Bool)? {
 		// Ask for the Atmos rendition explicitly (`immersiveaudio=true` inside
 		// `dolbyAtmosUrl`) before touching the ladder.
-		if preferDolbyAtmos, let atmosUrl = await dolbyAtmosUrl(trackId: trackId) {
+		if preferDolbyAtmos, preferredQuality.admitsDolbyAtmos, let atmosUrl = await dolbyAtmosUrl(trackId: trackId) {
 			return (atmosUrl, preferredQuality, true)
 		}
 		let descending: [AudioQuality] = [.max, .high, .medium, .low]
@@ -160,6 +161,27 @@ extension Session {
 	/// The URL's extension wins over the tier's: an Atmos track is served as an E-AC-3 MP4.
 	func pathExtension(for url: URL, audioQuality: AudioQuality) -> String {
 		url.pathExtension.isEmpty ? pathExtension(for: audioQuality) : url.pathExtension
+	}
+}
+
+extension AudioQuality {
+	/// The tier the direct `streamUrl` ladder really serves for a requested tier, so a file
+	/// name and a badge describe the bytes rather than the request.
+	///
+	/// A `HI_RES_LOSSLESS` request is answered with the 16-bit lossless file, byte-identical to
+	/// a Lossless request (measured 2026-10-04), so the served tier is never above High; and a
+	/// track whose catalogue quality is below the request cannot be served above what it
+	/// advertises.
+	public func servedByDirectStream(advertised: AudioQuality?) -> AudioQuality {
+		var quality: AudioQuality = self == .max ? .high : self
+		guard let advertised else { return quality }
+		if quality == .high, advertised == .medium || advertised == .low {
+			quality = .medium
+		}
+		if quality == .medium, advertised == .low {
+			quality = .low
+		}
+		return quality
 	}
 }
 

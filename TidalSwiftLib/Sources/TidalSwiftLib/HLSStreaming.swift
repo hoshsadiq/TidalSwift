@@ -280,12 +280,16 @@ public nonisolated enum HLSStreaming {
 	///
 	/// Stereo is never gated on the advertised modes: the catalogue omits STEREO for tracks
 	/// the manifest API still serves FLAC for (measured 2026-10-08), so the manifest decides
-	/// what exists. A track that advertises Atmos also gets that rung; the preference puts it
-	/// first, and without the preference it is the fallback, so an Atmos-only track plays
-	/// either way. The preference then chooses, it never removes a rung.
+	/// what exists. A track that advertises Atmos also gets that rung when the ceiling admits
+	/// it; the preference puts it first, and without the preference it is the fallback, so an
+	/// Atmos-only track plays either way. The preference chooses, it never removes a rung.
+	///
+	/// The ceiling also gates the Atmos rung: a Medium or Low ceiling only walks the stereo
+	/// ladder, so a 96 kbps setting never plays the ~768 kbps E-AC-3 rendition
+	/// (`AudioQuality.admitsDolbyAtmos`).
 	public static func rungs(for quality: AudioQuality, preferDolbyAtmos: Bool, trackHasDolbyAtmos: Bool) -> [HLSRung] {
 		let stereo = qualityLadder(for: quality).map(HLSRung.stereo)
-		guard trackHasDolbyAtmos else { return stereo }
+		guard trackHasDolbyAtmos, quality.admitsDolbyAtmos else { return stereo }
 		return preferDolbyAtmos ? [.dolbyAtmos] + stereo : stereo + [.dolbyAtmos]
 	}
 
