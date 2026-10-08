@@ -253,6 +253,34 @@ final class OfflineHLSTests: XCTestCase {
 		XCTAssertEqual(try libraryFileNames(), ["\(trackId).lossless.m4a"])
 	}
 
+	/// The direct-stream fallback's tier is always one the ceiling's ladder already holds, so
+	/// `acceptableVariants` needs no variant of its own: the stereo rungs are exactly the ladder,
+	/// and the served tier never rises above the request. Proven for every ceiling and preference.
+	func testTheDirectStreamTierIsAlreadyOnTheCeilingLadder() {
+		let advertisedQualities: [AudioQuality?] = [nil, .low, .medium, .high, .max]
+		for ceiling in AudioQuality.allCases {
+			for prefer in [false, true] {
+				let stereoRungs = HLSStreaming.rungs(
+					for: ceiling, preferDolbyAtmos: prefer, trackHasDolbyAtmos: true
+				).compactMap { rung -> AudioQuality? in
+					if case .stereo(let quality) = rung { return quality }
+					return nil
+				}
+				XCTAssertEqual(
+					Set(stereoRungs), Set(HLSStreaming.qualityLadder(for: ceiling)),
+					"the stereo rungs are the ceiling's ladder, whatever the Atmos preference"
+				)
+				for advertised in advertisedQualities {
+					let served = ceiling.servedByDirectStream(advertised: advertised)
+					XCTAssertTrue(
+						stereoRungs.contains(served),
+						"the \(served.rawValue) the direct stream serves under a \(ceiling.rawValue) ceiling must already be on the ladder"
+					)
+				}
+			}
+		}
+	}
+
 	/// The offline stream carries the tier the stored file holds, so the badge reads the file and
 	/// not the track's advertised quality. A 24-bit legacy file on a `LOSSLESS`-advertised track
 	/// must report 24-bit rather than 16-bit.

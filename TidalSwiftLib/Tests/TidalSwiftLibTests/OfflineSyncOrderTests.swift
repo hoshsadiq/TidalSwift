@@ -16,6 +16,7 @@ final class OfflineSyncOrderTests: XCTestCase {
 	private nonisolated let offlineLibrary = TemporaryOfflineLibrary(label: "OfflineSyncOrder")
 
 	override func tearDown() {
+		displayErrorHandler = nil
 		offlineLibrary.remove()
 		super.tearDown()
 	}
@@ -99,6 +100,100 @@ final class OfflineSyncOrderTests: XCTestCase {
 		XCTAssertEqual(files, ["\(trackId).low.flac"], "the stored lower-tier file must stay")
 	}
 
+	/// A raised Download setting downloads the newly wanted tier: the setting change is what
+	/// asks for the re-check, so the flag it sets is the whole mechanism.
+	func testRaisingTheQualitySettingDownloadsTheNewlyWantedTier() async throws {
+		let trackId = 778_000_004
+		let libraryDirectory = try makeLibraryDirectory()
+		let existingFile = libraryDirectory.appendingPathComponent("\(trackId).low.flac")
+		try FileManager.default.copyItem(at: try silentFlacFixture(), to: existingFile)
+
+		let session = makeSession(offlineAudioQuality: .low)
+		let offline = session.helpers.offline
+		offline.setOfflineTracksForTesting([makeTrack(id: trackId)])
+		await offline.awaitOngoingSync()
+		XCTAssertEqual(try libraryFileNames(in: libraryDirectory), ["\(trackId).low.flac"], "the low-ceiling sync keeps the low file")
+
+		let fixture = try silentFlacFixture()
+		offline.resolveOfflineStream = { _ in
+			AudioStream(url: fixture, pathExtension: "flac", isDolbyAtmos: false)
+		}
+		offline.setAudioQuality(to: .max)
+		await offline.awaitOngoingSync()
+
+		XCTAssertEqual(
+			try libraryFileNames(in: libraryDirectory),
+			["\(trackId).hi_res_lossless.flac"],
+			"raising the Download setting must replace the lower-tier file"
+		)
+	}
+
+	/// A wish the settings change asked for survives a pass that failed to fetch the new tier, so
+	/// the next sync retries it instead of accepting the old file for good.
+	func testAFailedQualityUpgradeIsRetriedOnTheNextSync() async throws {
+		let trackId = 778_000_005
+		let libraryDirectory = try makeLibraryDirectory()
+		let existingFile = libraryDirectory.appendingPathComponent("\(trackId).low.flac")
+		try FileManager.default.copyItem(at: try silentFlacFixture(), to: existingFile)
+
+		let session = makeSession(offlineAudioQuality: .low)
+		let offline = session.helpers.offline
+		offline.setOfflineTracksForTesting([makeTrack(id: trackId)])
+		await offline.awaitOngoingSync()
+
+		// This pass cannot resolve the wanted tier, as a network error or a refused rung would not.
+		offline.resolveOfflineStream = { _ in nil }
+		offline.setAudioQuality(to: .max)
+		await offline.awaitOngoingSync()
+		XCTAssertEqual(try libraryFileNames(in: libraryDirectory), ["\(trackId).low.flac"], "a failed upgrade keeps the old file")
+
+		// The next pass can, and must, land the wish rather than accept the old tier.
+		let fixture = try silentFlacFixture()
+		offline.resolveOfflineStream = { _ in
+			AudioStream(url: fixture, pathExtension: "flac", isDolbyAtmos: false)
+		}
+		offline.setOfflineTracksForTesting([makeTrack(id: trackId)])
+		await offline.awaitOngoingSync()
+
+		XCTAssertEqual(
+			try libraryFileNames(in: libraryDirectory),
+			["\(trackId).hi_res_lossless.flac"],
+			"a failed upgrade must be retried on the next sync, not forgotten"
+		)
+	}
+
+	/// A failed download's message must not carry the failing URL: its query holds a token, and
+	/// the message reaches the app's toast and the console.
+	func testAFailedDownloadMessageCarriesNoURL() async throws {
+		let trackId = 778_000_006
+		let sentinel = "SENTINEL-TOKEN-9f2c"
+
+		var messages: [String] = []
+		displayErrorHandler = { _, content in messages.append(content) }
+
+		let session = makeSession(offlineAudioQuality: .high)
+		let offline = session.helpers.offline
+		offline.setOfflineTracksForTesting([makeTrack(id: trackId)])
+		offline.resolveOfflineStream = { _ in
+			// A stand-in for a signed segment URL: the failure carries the full URL.
+			AudioStream(
+				url: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(sentinel).flac"),
+				pathExtension: "flac",
+				isDolbyAtmos: false
+			)
+		}
+
+		await offline.awaitOngoingSync()
+
+		XCTAssertFalse(messages.isEmpty, "the failed download must report an error")
+		// The message itself is deliberately not echoed: it is the thing under test, and a real one
+		// would carry a signed URL's token.
+		XCTAssertTrue(
+			messages.allSatisfy { !$0.contains(sentinel) && !$0.contains("://") },
+			"a failed download's message must not carry the failing URL"
+		)
+	}
+
 	// MARK: - Helpers
 
 	private final class Counter {
@@ -109,6 +204,10 @@ final class OfflineSyncOrderTests: XCTestCase {
 		let libraryDirectory = offlineLibrary.root.appendingPathComponent("TidalSwift Offline Library")
 		try FileManager.default.createDirectory(at: libraryDirectory, withIntermediateDirectories: true)
 		return libraryDirectory
+	}
+
+	private func libraryFileNames(in directory: URL) throws -> [String] {
+		try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted()
 	}
 
 	private func silentFlacFixture() throws -> URL {

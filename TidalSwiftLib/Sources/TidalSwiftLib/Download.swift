@@ -106,7 +106,9 @@ public class Download {
 		do {
 			try await write(path)
 		} catch {
-			displayError(title: "Error while downloading track", content: "Download failed for track \(track.title). Error: \(error)")
+			// `localizedDescription`, not the error itself: `String(describing:)` on a `URLError`
+			// appends the failing URL, whose query carries a token.
+			displayError(title: "Error while downloading track", content: "Download failed for track \(track.title). Error: \(error.localizedDescription)")
 			return false
 		}
 		await metadata.setMetadata(for: track, at: path)

@@ -54,4 +54,14 @@ final class PreferencesSettingsTests: XCTestCase {
 			"the help text must say a lower ceiling never plays Atmos"
 		)
 	}
+
+	/// The download switch is gated by the offline ceiling too, so its help must state the same
+	/// rule the streaming half does rather than leaving a switch that does nothing unexplained.
+	func testTheDownloadAtmosHelpStatesTheCeilingRule() throws {
+		let source = try preferencesSource()
+		XCTAssertTrue(
+			source.contains("so a lower quality setting never saves Atmos"),
+			"the download help text must say a lower ceiling never stores Atmos"
+		)
+	}
 }

@@ -56,6 +56,36 @@ public nonisolated enum HLSStreamError: Error, Equatable, Sendable {
 	}
 }
 
+extension HLSStreamError: LocalizedError {
+	/// A URL-free sentence for each case. A failure message must never carry the failing URL: a
+	/// segment URL's query holds its token, and `String(describing:)` on a wrapped `URLError`
+	/// would print it.
+	public var errorDescription: String? {
+		switch self {
+		case .requestRefused(let status):
+			"The server refused the request with HTTP \(status)."
+		case .requestFailed:
+			"The request did not complete."
+		case .missingPlaylistURL:
+			"The manifest carried no stream URL."
+		case .malformedPlaylist:
+			"The playlist could not be read."
+		case .noVariants:
+			"The manifest carried no playable variant."
+		case .missingInitializationSegment:
+			"The playlist carried no initialization segment."
+		case .encryptedPlaylist:
+			"The stream is encrypted, so this client cannot play it."
+		case .fetchFailed(let host):
+			"Could not fetch the stream from \(host)."
+		case .notPlayableFile:
+			"The downloaded stream is not a playable MP4 file."
+		case .writeFailed(let underlying):
+			"Could not write the downloaded file: \(underlying.localizedDescription)"
+		}
+	}
+}
+
 /// One entry of an HLS master playlist: a rendition and its bandwidth.
 public nonisolated struct HLSVariant: Equatable, Sendable {
 	public let bandwidth: Int
@@ -778,7 +808,9 @@ extension HLSStreaming {
 					print("[PLAYBACK] hls: cached track \(trackId) at \(rung.format)")
 					return destination
 				} catch {
-					print("[PLAYBACK] hls: background cache failed for track \(trackId): \(error)")
+					// `localizedDescription`: the error itself can carry the failing playlist URL (and
+					// its token) through `String(describing:)`.
+					print("[PLAYBACK] hls: background cache failed for track \(trackId): \(error.localizedDescription)")
 					return nil
 				}
 			}

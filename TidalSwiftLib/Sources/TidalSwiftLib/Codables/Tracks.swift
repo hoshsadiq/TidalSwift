@@ -150,9 +150,10 @@ public struct Track: Codable, Equatable, Identifiable, Hashable {
 		}
 		// `streamUrl` refuses an Atmos-capable track at every tier (HTTP 401,
 		// subStatus 4005 "Asset is not ready for playback"), and Tidal answers the
-		// same track through the manifest instead. Fall back at this tier only: an
-		// offline file is named after the configured quality, so degrading to a
-		// lower tier would store a file that claims to be lossless and is not.
+		// same track through the manifest instead. Fall back at this tier only: the
+		// file the offline sync writes is named for the tier this request serves
+		// (`servedByDirectStream`), so asking a lower tier here would store a file
+		// that claims a tier it does not hold.
 		// The rendition is read from the manifest, never assumed from the request.
 		guard let manifest = await session.playbackManifestUrl(trackId: id, audioQuality: audioQuality) else {
 			return nil

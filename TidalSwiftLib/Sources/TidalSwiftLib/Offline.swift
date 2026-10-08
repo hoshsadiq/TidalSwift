@@ -409,20 +409,19 @@ public final class Offline {
 	/// The offline quality is a ceiling, so the ladder may step down when the chosen tier is
 	/// refused, and may serve the Atmos rendition where the ceiling admits it. The file the sync
 	/// would download is therefore the file it must accept, or it re-resolves every track on
-	/// every sync for nothing. That per-sync upgrade probe is gone by decision (2026-10-08): a
-	/// file below the ceiling is kept until the quality setting changes, the same policy the
-	/// playback cache follows.
+	/// every sync for nothing. The direct-stream fallback, reached when the session has no HLS or
+	/// every HLS rung is refused, needs no variant of its own: it is named by
+	/// `servedByDirectStream`, which never rises above the request and so always lands on this
+	/// ladder (`testTheDirectStreamTierIsAlreadyOnTheCeilingLadder`). That per-sync upgrade probe
+	/// is gone by decision (2026-10-08): a file below the ceiling is kept until the quality setting
+	/// changes, the same policy the playback cache follows.
 	private func acceptableVariants(of track: Track) -> Set<FileVariant> {
 		let rungs = HLSStreaming.rungs(
 			for: session.config.offlineAudioQuality,
 			preferDolbyAtmos: preferDolbyAtmos,
 			trackHasDolbyAtmos: track.hasDolbyAtmos
 		)
-		var variants = Set(rungs.map(variant(of:)))
-		// The direct-stream fallback, reached when the session has no HLS or every HLS rung is
-		// refused, names the file for the tier that path serves.
-		variants.insert(.stereo(session.config.offlineAudioQuality.servedByDirectStream(advertised: track.audioQuality)))
-		return variants
+		return Set(rungs.map(variant(of:)))
 	}
 
 	/// The file the library should keep and play when more than one is present. The wanted
@@ -468,32 +467,42 @@ public final class Offline {
 		stream.isDolbyAtmos ? .dolbyAtmos : .stereo(stream.quality ?? session.config.offlineAudioQuality)
 	}
 
+	/// What one track's download attempt achieved, so the sync can tell a failed download
+	/// (worth retrying) from a file the source already serves (settled).
+	private enum DownloadOutcome {
+		case downloaded
+		case keptExistingFile
+		case failed
+	}
+
 	/// What it lands on disk is the assembled HLS file for the tier that was served, or the
 	/// direct stream for a track the HLS route cannot serve.
-	private func downloadOfflineTrack(_ track: Track, existingFiles: [URL]) async -> Bool {
+	private func downloadOfflineTrack(_ track: Track, existingFiles: [URL]) async -> DownloadOutcome {
 		guard let source = await downloadSource(for: track) else {
 			reportMissingDownloadSource(for: track, existingFiles: existingFiles)
-			return false
+			return .failed
 		}
 		// The Atmos stream can be unavailable, in which case the existing file can be what we'd download again
 		let streamVariant = variant(of: source)
 		if existingFiles.contains(where: { variant(of: $0, track: track) == streamVariant }) {
 			print("Offline: Keeping existing file of \(track.title)")
-			return false
+			return .keptExistingFile
 		}
 		print("Offline: Downloading \(track.title)")
 		let pathExtension = pathExtension(of: source)
 		let name = "\(track.id).\(fileMarker(of: source))"
 		guard let path = offlinePath(parentFolder: mainPath, name: name, pathExtension: pathExtension) else {
 			displayError(title: "Offline: Error while loading offline track", content: "Error while building path to: \(mainPath)/\(name).\(pathExtension)")
-			return false
+			return .failed
 		}
 		do {
 			try await write(source, to: path)
 		} catch {
-			if Task.isCancelled { return false }
-			displayError(title: "Offline: Error while loading offline track", content: "Network error: \(error)")
-			return false
+			if Task.isCancelled { return .failed }
+			// `localizedDescription`, not the error itself: `String(describing:)` on a
+			// `URLError` appends the failing URL, whose query carries a token.
+			displayError(title: "Offline: Error while loading offline track", content: "Network error: \(error.localizedDescription)")
+			return .failed
 		}
 		for file in existingFiles where file.standardizedFileURL != path.standardizedFileURL {
 			do {
@@ -505,7 +514,7 @@ public final class Offline {
 		print("Offline: Finished Download of \(track.title)")
 		invalidateOfflineTrackIdsCache()
 		uiRefreshFunc()
-		return true
+		return .downloaded
 	}
 
 	/// HLS serves the tier ladder, so the file takes the tier that was served; the direct
@@ -780,7 +789,8 @@ public final class Offline {
 	private var syncAgain = false
 	/// Set when a settings change asked for the sync: every file is re-checked against the new
 	/// wish rather than accepted as a below-ceiling tier. Carried across a restart, so a pass that
-	/// was already running when the setting changed still re-checks.
+	/// was already running when the setting changed still re-checks. Sticky while a pass still has
+	/// a failed download, so a network error or a refused rung does not quietly cancel the change.
 	private var redownloadBelowWanted = false
 
 	private func sync() async {
@@ -805,11 +815,14 @@ public final class Offline {
 		let plan = syncPlan(dbTracks: dbTracks, localFiles: localFiles, redownloadBelowWanted: redownloadBelowWanted)
 
 		// Download first, so nothing is deleted before its replacement is on disk.
+		var anyDownloadFailed = false
 		for track in plan.toAdd {
 			// `removeAll()` cancels this sync; the rest of the pass would resolve every
 			// remaining track only to report a failed download.
 			if Task.isCancelled { break }
-			_ = await downloadOfflineTrack(track, existingFiles: localFiles[track.id] ?? [])
+			if await downloadOfflineTrack(track, existingFiles: localFiles[track.id] ?? []) == .failed {
+				anyDownloadFailed = true
+			}
 		}
 
 		removeLeftoverFiles(plan.leftoverFiles)
@@ -820,7 +833,9 @@ public final class Offline {
 			print("Offline: Something changed. Restarting Sync")
 			await sync()
 		} else {
-			redownloadBelowWanted = false
+			// Keep a settings-change wish while the pass still has a failed download, so the next
+			// sync re-checks every file against the wish instead of accepting the old tier for good.
+			if !anyDownloadFailed { redownloadBelowWanted = false }
 			syncRunning = false
 			print("Offline: --- Finished Sync ---")
 		}
