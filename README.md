@@ -24,7 +24,7 @@ xattr -d com.apple.quarantine /Applications/TidalSwift.app
 
 ## Audio quality
 
-Playback goes through Tidal's own playback service, the one the desktop app calls. The app logs in as the desktop client, and that is what makes the stereo renditions available at every tier; a session Tidal does not recognise is served Dolby Atmos instead.
+Playback goes through Tidal's own playback service, the one the desktop app calls. The app logs in as the desktop client, and that is what makes the stereo renditions available at every tier; a session Tidal does not recognise is served Dolby Atmos instead, but only at High or Max quality.
 
 Preferences → Quality sets the tier:
 
@@ -32,9 +32,9 @@ Preferences → Quality sets the tier:
 - **High:** 16-bit FLAC at 44.1 kHz.
 - **Max:** up to 24-bit FLAC.
 
-The FLAC arrives encrypted and is decrypted on your Mac before it plays. When Tidal serves no stereo rendition for a track, the app falls back to Dolby Atmos or the older direct stream.
+When Tidal serves no stereo rendition for a track, the app falls back to the older direct stream, or to Dolby Atmos at High or Max.
 
-Dolby Atmos is a preference rather than a tier, and offline keeps its own copy of it. With it on, an Atmos track plays Atmos. With it off the app asks for stereo, which Tidal refuses for many Atmos-capable tracks, so they still play Atmos.
+Dolby Atmos is a preference rather than a tier, and offline keeps its own copy of it. It only applies at High or Max quality: below that Atmos is never played, and a track with no other version is skipped. At High or Max, a track with an Atmos version plays Atmos when the preference is on; with it off the app asks for stereo, which Tidal refuses for many Atmos-capable tracks, so they still play Atmos.
 
 The same pane holds "Ignore subscription limits", which lets you pick a tier above your subscription even when Tidal may refuse it, "Prefetch tracks", the number prepared ahead of the one playing (0 to 15, default 3), and "Cache size", the space prepared tracks may use in GB (default 2). Prepared tracks live in `~/Library/Caches/TidalSwift/`, so they start instantly.
 
@@ -50,7 +50,7 @@ Also, unlike the official app, it can display the Lyrics of the currently playin
 
 Unlike the official desktop app, TidalSwift supports offline playback. Downloaded albums, tracks and playlists appear in Collection alongside your favourites, and a "Downloaded only" toggle filters the list down to them. Items that are available offline show a cloud badge.
 
-Downloads follow the Offline preference, including its own Dolby Atmos setting. Logging out leaves the downloaded music in place; only the option in the logout dialog removes it.
+Downloads follow the Download quality setting, including its own Dolby Atmos setting. Logging out leaves the downloaded music in place; only the option in the logout dialog removes it.
 
 ### Downloads
 

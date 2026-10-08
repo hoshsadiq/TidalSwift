@@ -154,8 +154,11 @@ public struct Track: Codable, Equatable, Identifiable, Hashable {
 		// file the offline sync writes is named for the tier this request serves
 		// (`servedByDirectStream`), so asking a lower tier here would store a file
 		// that claims a tier it does not hold.
-		// The rendition is read from the manifest, never assumed from the request.
-		guard let manifest = await session.playbackManifestUrl(trackId: id, audioQuality: audioQuality) else {
+		// The rendition is read from the manifest, never assumed from the request, and an Atmos
+		// answer is refused when the ceiling does not admit it: the gate on the request below
+		// cannot stop Tidal serving Atmos at any quality. A refused answer returns nil, so a
+		// track with no other rendition is skipped at that ceiling.
+		guard let manifest = await session.playbackManifestUrl(trackId: id, audioQuality: audioQuality, ceiling: audioQuality) else {
 			return nil
 		}
 		return AudioStream(

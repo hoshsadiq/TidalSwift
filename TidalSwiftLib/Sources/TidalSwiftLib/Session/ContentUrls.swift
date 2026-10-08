@@ -20,10 +20,13 @@ struct AcceptedPlaybackManifest {
 }
 
 enum PlaybackManifestPolicy {
-	/// Accepts only an unencrypted BTS manifest. The Atmos flag comes from the response, never
-	/// assumed from the caller: a refused stereo track lands here too and must not be labelled
-	/// Atmos. DASH and encrypted manifests are refused so `bestAudioUrl` keeps looking.
-	static func accept(_ response: TrackPlaybackInfo) -> AcceptedPlaybackManifest? {
+	/// Accepts only an unencrypted BTS manifest at a ceiling that admits its rendition. The
+	/// Atmos flag comes from the response, never assumed from the caller: a refused stereo
+	/// track lands here too and must not be labelled Atmos. An Atmos answer is refused at a
+	/// ceiling that does not admit it (`AudioQuality.admitsDolbyAtmos`) rather than accepted,
+	/// because the ceiling gates the Atmos request too and the endpoint answers Atmos at any
+	/// quality. DASH and encrypted manifests are refused so `bestAudioUrl` keeps looking.
+	static func accept(_ response: TrackPlaybackInfo, ceiling: AudioQuality) -> AcceptedPlaybackManifest? {
 		guard response.manifestMimeType == "application/vnd.tidal.bts",
 			  let manifest = decodedBTSManifest(response) else {
 			return nil
@@ -34,6 +37,7 @@ enum PlaybackManifestPolicy {
 		guard let url = manifest.urls.first?.upgradedToHTTPS else { return nil }
 		let isDolbyAtmos = response.audioMode == .dolbyAtmos
 			&& (manifest.codecs == nil || manifest.codecs == "eac3")
+		guard !isDolbyAtmos || ceiling.admitsDolbyAtmos else { return nil }
 		return AcceptedPlaybackManifest(url: url, isDolbyAtmos: isDolbyAtmos)
 	}
 }
@@ -106,7 +110,7 @@ extension Session {
 			}
 			// `streamUrl` refuses an Atmos track, so the manifest endpoint serves it; this path
 			// does not ask for Atmos, so the rendition comes from the response.
-			if let manifest = await playbackManifestUrl(trackId: trackId, audioQuality: quality) {
+			if let manifest = await playbackManifestUrl(trackId: trackId, audioQuality: quality, ceiling: preferredQuality) {
 				bestResolvedAudioQualities[trackId] = quality
 				return (manifest.url, quality, manifest.isDolbyAtmos)
 			}
@@ -135,7 +139,9 @@ extension Session {
 	/// The fallback for tracks `streamUrl` refuses with HTTP 401 subStatus 4005 "Asset
 	/// is not ready for playback". Tidal serves that track's unencrypted E-AC-3 BTS
 	/// manifest, while High and Low answer with a DASH manifest AVPlayer cannot play.
-	func playbackManifestUrl(trackId: Int, audioQuality: AudioQuality) async -> AcceptedPlaybackManifest? {
+	/// `audioQuality` is the tier asked; `ceiling` gates what arrives, so an Atmos answer is
+	/// refused when the ceiling does not admit it, exactly as the Atmos request is gated.
+	func playbackManifestUrl(trackId: Int, audioQuality: AudioQuality, ceiling: AudioQuality) async -> AcceptedPlaybackManifest? {
 		let url = URL(string: "\(AuthInformation.APILocation)/tracks/\(trackId)/playbackinfopostpaywall")!
 		var parameters = sessionParameters
 		parameters["audioquality"] = audioQuality.rawValue
@@ -143,7 +149,7 @@ extension Session {
 		parameters["assetpresentation"] = "FULL"
 		do {
 			let response: TrackPlaybackInfo = try await get(url: url, parameters: parameters)
-			return PlaybackManifestPolicy.accept(response)
+			return PlaybackManifestPolicy.accept(response, ceiling: ceiling)
 		} catch {
 			return nil
 		}

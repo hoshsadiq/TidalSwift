@@ -162,6 +162,75 @@ final class OfflineSyncOrderTests: XCTestCase {
 		)
 	}
 
+	/// A failing download the wish did not reject — a new track with no file — must not keep the
+	/// wish alive, or one unfetchable track holds the whole below-wanted library in re-check mode
+	/// for ever, which is the per-sync probe this change removed.
+	func testAnUnrelatedFailingTrackDoesNotKeepTheQualityWishAlive() async throws {
+		let keptId = 778_000_007
+		let failingId = 778_000_008
+		let libraryDirectory = try makeLibraryDirectory()
+		let existingFile = libraryDirectory.appendingPathComponent("\(keptId).low.flac")
+		try FileManager.default.copyItem(at: try silentFlacFixture(), to: existingFile)
+
+		let session = makeSession(offlineAudioQuality: .low)
+		let offline = session.helpers.offline
+		let resolves = Counter()
+		offline.resolveOfflineStream = { track in
+			guard track.id == keptId else { return nil }
+			resolves.value += 1
+			// The tier already on disk, so the wish's pass keeps it rather than failing it.
+			return AudioStream(url: existingFile, pathExtension: "flac", isDolbyAtmos: false, quality: .low)
+		}
+		offline.setOfflineTracksForTesting([makeTrack(id: keptId), makeTrack(id: failingId)])
+		await offline.awaitOngoingSync()
+
+		offline.setAudioQuality(to: .max)
+		await offline.awaitOngoingSync()
+		XCTAssertEqual(resolves.value, 1, "the Max wish must re-check the below-wanted file once")
+
+		// The wish must have cleared despite the other track's failure: a plain sync then keeps the
+		// below-wanted file instead of re-resolving it every pass.
+		offline.setOfflineTracksForTesting([makeTrack(id: keptId), makeTrack(id: failingId)])
+		await offline.awaitOngoingSync()
+		XCTAssertEqual(resolves.value, 1, "an unrelated failing track must not keep the wish alive")
+		XCTAssertEqual(try libraryFileNames(in: libraryDirectory), ["\(keptId).low.flac"])
+	}
+
+	/// The wish is "kept until the quality setting changes", so it must survive a relaunch: a
+	/// pass that ended before the app quit cannot be the end of it.
+	func testAFailedQualityWishSurvivesARelaunch() async throws {
+		let trackId = 778_000_009
+		let libraryDirectory = try makeLibraryDirectory()
+		try FileManager.default.copyItem(
+			at: try silentFlacFixture(),
+			to: libraryDirectory.appendingPathComponent("\(trackId).low.flac")
+		)
+
+		let firstRun = makeSession(offlineAudioQuality: .low)
+		let firstOffline = firstRun.helpers.offline
+		firstOffline.resolveOfflineStream = { _ in nil }
+		firstOffline.setOfflineTracksForTesting([makeTrack(id: trackId)])
+		firstOffline.setAudioQuality(to: .max)
+		await firstOffline.awaitOngoingSync()
+		XCTAssertEqual(try libraryFileNames(in: libraryDirectory), ["\(trackId).low.flac"], "a failed upgrade keeps the old file")
+
+		// A relaunch on the same library: the wish lives in the offline store, not the session.
+		let secondRun = makeSession(offlineAudioQuality: .max)
+		let secondOffline = secondRun.helpers.offline
+		let fixture = try silentFlacFixture()
+		secondOffline.resolveOfflineStream = { _ in
+			AudioStream(url: fixture, pathExtension: "flac", isDolbyAtmos: false)
+		}
+		secondOffline.setOfflineTracksForTesting([makeTrack(id: trackId)])
+		await secondOffline.awaitOngoingSync()
+
+		XCTAssertEqual(
+			try libraryFileNames(in: libraryDirectory),
+			["\(trackId).hi_res_lossless.flac"],
+			"the wish must survive a relaunch, so the next pass lands it"
+		)
+	}
+
 	/// A failed download's message must not carry the failing URL: its query holds a token, and
 	/// the message reaches the app's toast and the console.
 	func testAFailedDownloadMessageCarriesNoURL() async throws {
@@ -186,6 +255,12 @@ final class OfflineSyncOrderTests: XCTestCase {
 		await offline.awaitOngoingSync()
 
 		XCTAssertFalse(messages.isEmpty, "the failed download must report an error")
+		// The download path's own message, not `reportMissingDownloadSource`'s fixed text: a
+		// failure that never reached the network write would satisfy "no URL" too.
+		XCTAssertTrue(
+			messages.allSatisfy { $0.hasPrefix("Network error:") },
+			"the message must come from the download failure, not the missing-source report"
+		)
 		// The message itself is deliberately not echoed: it is the thing under test, and a real one
 		// would carry a signed URL's token.
 		XCTAssertTrue(

@@ -429,7 +429,7 @@ class Player {
 		itemStatusObservation?.invalidate()
 		itemStatusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
 			guard item.status == .failed else { return }
-			let description = item.error.map { String(describing: $0) }
+			let description = item.error.map { $0.localizedDescription }
 			let itemID = ObjectIdentifier(item)
 			Task { @MainActor [weak self] in
 				guard let self, let current = self.avPlayer.currentItem, ObjectIdentifier(current) == itemID else { return }
@@ -448,7 +448,7 @@ class Player {
 	@objc func playerItemFailedToPlayToEndTime(sender: Notification) {
 		guard let item = sender.object as? AVPlayerItem, item === avPlayer.currentItem else { return }
 		let description = (sender.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error)
-			.map { String(describing: $0) }
+			.map { $0.localizedDescription }
 		playerItemFailed(reason: "AVPlayerItemFailedToPlayToEndTime", errorDescription: description)
 	}
 

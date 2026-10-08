@@ -518,8 +518,9 @@ public final class Offline {
 	}
 
 	/// HLS serves the tier ladder, so the file takes the tier that was served; the direct
-	/// stream is the fallback for a track it cannot serve, so an Atmos or otherwise-refused
-	/// rendition still lands.
+	/// stream is the fallback for a track it cannot serve, so an otherwise-refused rendition
+	/// still lands. The Atmos rendition lands only where the ceiling admits it: the direct-stream
+	/// manifest refuses an Atmos answer at a Low or Medium ceiling, same as the request is gated.
 	private func downloadSource(for track: Track) async -> OfflineDownloadSource? {
 		if PlaybackRoutingPolicy.usesHLS(sessionHasDesktopPlaybackAccess: session.hasDesktopPlaybackAccess),
 		   let manifest = await resolveHLSPlaylist(for: track) {
@@ -788,10 +789,15 @@ public final class Offline {
 	private var syncRunning = false
 	private var syncAgain = false
 	/// Set when a settings change asked for the sync: every file is re-checked against the new
-	/// wish rather than accepted as a below-ceiling tier. Carried across a restart, so a pass that
-	/// was already running when the setting changed still re-checks. Sticky while a pass still has
-	/// a failed download, so a network error or a refused rung does not quietly cancel the change.
-	private var redownloadBelowWanted = false
+	/// wish rather than accepted as a below-ceiling tier. Persisted in the offline store, so the
+	/// wish survives a relaunch, and carried across the sync's own restart, so a pass already
+	/// running when the setting changed still re-checks. Sticky while a wish-rejected file still
+	/// failed to download, so a network error or a refused rung does not quietly cancel the
+	/// change; a rejected file the source only serves at a lower tier is kept and does not hold it.
+	private var redownloadBelowWanted: Bool {
+		get { defaults.bool(forKey: "offlineRedownloadBelowWanted") }
+		set { defaults.set(newValue, forKey: "offlineRedownloadBelowWanted") }
+	}
 
 	private func sync() async {
 
@@ -815,13 +821,17 @@ public final class Offline {
 		let plan = syncPlan(dbTracks: dbTracks, localFiles: localFiles, redownloadBelowWanted: redownloadBelowWanted)
 
 		// Download first, so nothing is deleted before its replacement is on disk.
-		var anyDownloadFailed = false
+		// Only a file the wish itself rejected keeps the wish alive on a failed pass: a track
+		// that never had a file (a new add) failing, or one `reportMissingDownloadSource`
+		// deliberately keeps quietly, must not hold the whole library in re-check mode for ever.
+		var anyWishReplacementFailed = false
 		for track in plan.toAdd {
 			// `removeAll()` cancels this sync; the rest of the pass would resolve every
 			// remaining track only to report a failed download.
 			if Task.isCancelled { break }
-			if await downloadOfflineTrack(track, existingFiles: localFiles[track.id] ?? []) == .failed {
-				anyDownloadFailed = true
+			if await downloadOfflineTrack(track, existingFiles: localFiles[track.id] ?? []) == .failed,
+			   plan.wishRejected.contains(track.id) {
+				anyWishReplacementFailed = true
 			}
 		}
 
@@ -833,9 +843,9 @@ public final class Offline {
 			print("Offline: Something changed. Restarting Sync")
 			await sync()
 		} else {
-			// Keep a settings-change wish while the pass still has a failed download, so the next
-			// sync re-checks every file against the wish instead of accepting the old tier for good.
-			if !anyDownloadFailed { redownloadBelowWanted = false }
+			// Keep a settings-change wish while the pass still failed to replace a file the wish
+			// rejected, so the next sync re-checks it instead of accepting the old tier for good.
+			if !anyWishReplacementFailed { redownloadBelowWanted = false }
 			syncRunning = false
 			print("Offline: --- Finished Sync ---")
 		}
@@ -846,6 +856,9 @@ public final class Offline {
 		var toRemove: [Int] = []
 		var toAdd: [Track] = []
 		var leftoverFiles: [URL] = []
+		/// The tracks whose stored file the current wish rejects, so the sync can tell a failed
+		/// replacement from a new track or a file the wish never touched.
+		var wishRejected: Set<Int> = []
 	}
 
 	/// A wanted track keeps at most one file, matching an acceptable variant; the rest is a
@@ -877,6 +890,9 @@ public final class Offline {
 					plan.leftoverFiles += files.filter { $0 != keep }
 				}
 			} else {
+				if redownloadBelowWanted {
+					plan.wishRejected.insert(track.id)
+				}
 				plan.toAdd.append(track)
 			}
 		}

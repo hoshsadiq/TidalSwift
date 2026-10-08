@@ -49,8 +49,10 @@ final class PreferencesSettingsTests: XCTestCase {
 
 	func testTheStreamingAtmosHelpStatesTheCeilingRule() throws {
 		let source = try preferencesSource()
+		// Unique to the streaming help: the download help says "never saves", so this phrase keeps
+		// the guard discriminating if the streaming help is ever deleted.
 		XCTAssertTrue(
-			source.contains("Only used at High or Max quality"),
+			source.contains("below that, Atmos is never played"),
 			"the help text must say a lower ceiling never plays Atmos"
 		)
 	}
