@@ -51,10 +51,11 @@ struct ResolvedStream {
 	let trackId: Int
 	let quality: AudioQuality
 	let isDolbyAtmos: Bool
-	/// Set for the locally decrypted rendition, so the badge can name the bit depth
-	/// and sample rate of what is playing rather than just "24-bit".
-	var hiResBitDepth: Int?
-	var hiResSampleRate: Int?
+	/// The rate the stream reports, once a cached file or the loaded item supplies one.
+	var sampleRate: Int?
+	/// Set for the HLS stream, whose badge is read from the tier that served it since the
+	/// stream itself reports no bit depth.
+	var isHLS: Bool = false
 }
 
 /// Panels of the Now Playing drawer.

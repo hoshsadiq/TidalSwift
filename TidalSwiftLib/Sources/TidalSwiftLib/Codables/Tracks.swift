@@ -190,27 +190,20 @@ struct AudioUrl: Decodable {
 	let codec: String
 }
 
-/// Response of `/tracks/{id}/playbackinfopostpaywall` and of the desktop host's
-/// `/tracks/{id}/playbackinfo`. High and Low answer with a DASH manifest on that host,
-/// which AVPlayer cannot play, so only the BTS payload is used. `bitDepth` and
-/// `sampleRate` are the desktop host's description of the rendition it serves.
+/// Response of `/tracks/{id}/playbackinfopostpaywall`. High and Low answer with a DASH
+/// manifest, which AVPlayer cannot play, so only the BTS payload is used; the Atmos
+/// rendition arrives here too.
 struct TrackPlaybackInfo: Decodable {
 	let audioMode: AudioMode?
-	/// Defaulted so existing memberwise call sites stay unchanged; both are set by the
-	/// payload, not by us.
-	var bitDepth: Int? = nil
-	var sampleRate: Int? = nil
 	let manifestMimeType: String
 	let manifest: String
 }
 
 /// The BTS (Bento) manifest: a base64-encoded JSON payload with a direct stream URL.
-/// `keyId` is the wrapped content key of an `OLD_AES` manifest.
 struct BTSManifest: Decodable {
 	let mimeType: String?
 	let codecs: String?
 	let encryptionType: String?
-	let keyId: String?
 	let urls: [URL]
 }
 

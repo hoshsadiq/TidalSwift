@@ -126,9 +126,9 @@ extension Network {
 	/// A non-2xx response is an error page, not the file, so it is refused and its
 	/// temporary download removed rather than stored.
 	///
-	/// `@concurrent`: the bytes are written off the caller's actor. The download is
-	/// the first half of the hi-res route, and the file moves that follow the await
-	/// used to run on the main actor.
+	/// `@concurrent`: the bytes are written off the caller's actor, so the file moves
+	/// that follow the await do not run on the main actor. It backs the offline sync's
+	/// direct-stream fallback.
 	///
 	/// `session` is injectable so a test can answer with a fixed status without a
 	/// live host.

@@ -12,9 +12,8 @@ public enum AudioQuality: String, Codable {
 	/// Kept so a Max subscriber can be offered Max. On the direct-stream endpoints
 	/// (`streamUrl`, `playbackinfopostpaywall`) Tidal silently answers a
 	/// `HI_RES_LOSSLESS` request with the lossless file, byte-identical, measured
-	/// 2026-10-04. The desktop host's `playbackinfo` does serve 24 Bit for the same
-	/// request, but only to a session it recognises as the desktop client, and it
-	/// returns it AES-encrypted. See `HiResStreaming` for that route.
+	/// 2026-10-04. The desktop client's HLS manifest does serve a true 24-bit FLAC
+	/// variant for the same request; see `HLSStreaming`.
 	case max = "HI_RES_LOSSLESS"
 	case high = "LOSSLESS"			// Lossless, 16 Bit / 44,1 kHz
 	case medium = "HIGH"			// 320 kbps
