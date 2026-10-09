@@ -1098,10 +1098,11 @@ public final class Offline {
 		syncTask = Task { await sync() }
 	}
 
-	/// Test seam: waits for the sync `init` starts, so a test can assert on the files instead
-	/// of racing it.
+	/// Waits for the sync `init` starts (and any pass it restarts), so a caller can assert on
+	/// the files, and the verify-playback tool can wait for the library to settle before it
+	/// measures and cleans up. A test seam and a tool seam, not a play path.
 	@discardableResult
-	func awaitOngoingSync(timeout: TimeInterval = 5) async -> Bool {
+	public func awaitOngoingSync(timeout: TimeInterval = 5) async -> Bool {
 		// `syncTask` is only set once the launch task reaches `startSync`.
 		let deadline = Date().addingTimeInterval(timeout)
 		while syncTask == nil {

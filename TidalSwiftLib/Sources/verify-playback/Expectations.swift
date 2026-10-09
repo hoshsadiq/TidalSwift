@@ -111,6 +111,50 @@ enum Expectations {
 		}
 	}
 
+	/// The codec family the expected rendition's bytes must hold. Literal four-character names
+	/// as AVFoundation reports them: the FLAC formats are `flac`, the 320 tier is `aac`, the 96
+	/// tier is `heaac`, and Atmos is `ec-3`. The bytes are the one fact the manifest cannot
+	/// fake, so the verdict compares the decoded codec against this.
+	static func codecFamily(ofRendition rendition: String) -> String? {
+		switch rendition {
+		case "atmos":
+			return "ec-3"
+		case "max", "lossless":
+			return "flac"
+		case "low320":
+			return "aac"
+		case "low":
+			return "heaac"
+		default:
+			return nil
+		}
+	}
+
+	/// Whether a decoded codec belongs to an expected family. The bytes name both AAC tiers
+	/// `aac` (HE-AAC is AAC with SBR), so the 96 tier's `heaac` family accepts it too.
+	static func codecMatches(_ codec: String, family: String) -> Bool {
+		switch family {
+		case "aac", "heaac":
+			return codec == "aac" || codec == "aacp"
+		default:
+			return codec == family
+		}
+	}
+
+	/// The bit depth the expected rendition promises, or nil where the format names none. A
+	/// FLAC in fMP4 reports no depth through AVFoundation, so the verdict reports that as
+	/// unverified rather than trusting the manifest's word.
+	static func bitDepth(ofRendition rendition: String) -> Int? {
+		switch rendition {
+		case "max":
+			return 24
+		case "lossless":
+			return 16
+		default:
+			return nil
+		}
+	}
+
 	/// The setting name a rung format maps to, for comparing EXPECTED with the served rung.
 	static func renditionName(ofRungFormat format: String) -> String {
 		switch format {
@@ -126,16 +170,6 @@ enum Expectations {
 			return "atmos"
 		default:
 			return format
-		}
-	}
-
-	/// The setting name for the rendition a served rung holds, read from the rung itself.
-	static func rendition(of rung: HLSRung) -> String {
-		switch rung {
-		case .stereo(let quality):
-			return Tier.of(quality).rawValue
-		case .dolbyAtmos:
-			return "atmos"
 		}
 	}
 }

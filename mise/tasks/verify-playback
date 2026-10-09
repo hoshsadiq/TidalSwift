@@ -20,6 +20,10 @@ for the full list. Examples:
   mise run verify-playback -- --track 98156344 --stream-ceiling max --atmos on
   mise run verify-playback -- --track 241647167 --matrix
   mise run verify-playback -- --offline --track 1228498 --download-ceiling lossless
+  mise run verify-playback -- --fixture ./fixture-dir --matrix   # no account; recipe in --help
+
+A relative --fixture path is resolved against the directory you ran this from, not
+TidalSwiftLib/.
 
 Env:
   TIDAL_TEST_TOKEN  Use this token instead of the app's stored login.
@@ -32,6 +36,9 @@ main() {
 		return 0
 	fi
 
+	# The tool resolves a relative --fixture path against where the user was, not against the
+	# package directory this task now runs in.
+	export VERIFY_PLAYBACK_PWD="$PWD"
 	task_in_lib swift run verify-playback "$@"
 }
 

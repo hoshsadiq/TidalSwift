@@ -12,6 +12,16 @@
 import Foundation
 import TidalSwiftLib
 
+/// Whether a string the tool was handed as a session is one: `Bearer <jwt>`, a three-part
+/// JWT. A token that is not was refused before any request reached the catalogue, so the
+/// tool can say the session was refused instead of blaming the track.
+enum SessionToken {
+	static func looksLikeSessionToken(_ token: String) -> Bool {
+		let jwt = token.split(separator: " ").last.map(String.init) ?? token
+		return jwt.split(separator: ".", omittingEmptySubsequences: false).count == 3
+	}
+}
+
 enum StoredSession {
 	/// The app's defaults domain (`io.hosh.TidalSwift`). Fixed here because a tool without a
 	/// bundle identifier cannot derive it from a bundle.
@@ -49,7 +59,7 @@ enum StoredSession {
 		return .stored(Config(
 			accessToken: accessToken,
 			refreshToken: refreshToken,
-			clientID: stored["clientID"] ?? "",
+			clientID: stored["clientID"] ?? Config.builtInClientID,
 			apiToken: apiToken,
 			offlineAudioQuality: quality,
 			imageSize: imageSize,

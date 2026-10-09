@@ -118,7 +118,7 @@ struct Options {
 			case "--matrix":
 				matrix = true
 			case "--fixture":
-				fixtureDirectory = URL(fileURLWithPath: try nextValue(for: "--fixture"))
+				fixtureDirectory = Options.resolvePath(try nextValue(for: "--fixture"))
 			default:
 				throw OptionsError(description: "unknown option \(argument)")
 			}
@@ -156,6 +156,15 @@ struct Options {
 			if offline, fixtureDirectory != nil {
 				throw OptionsError(description: "--fixture runs the streaming HLS path and cannot be combined with --offline")
 			}
+			if offline, !streamCeilings.isEmpty {
+				throw OptionsError(description: "--tier/--stream-ceiling is the Stream ceiling; an offline run uses --download-ceiling")
+			}
+			if !offline, !downloadCeilings.isEmpty {
+				throw OptionsError(description: "--download-ceiling only applies to --offline; a streaming run uses --tier or --stream-ceiling")
+			}
+			if let fixtureDirectory {
+				try validateFixtureDirectory(fixtureDirectory)
+			}
 			return Options(
 				trackIds: sawTrack ? trackIds : Options.defaultTrackIds,
 				streamCeilings: streamCeilings,
@@ -167,6 +176,28 @@ struct Options {
 				fixtureDirectory: fixtureDirectory
 			)
 		}
+
+		/// A fixture is only usable when the directory and its `master.m3u8` are there; without
+		/// this an unreadable path printed eight rules mismatches and exited 0.
+		private func validateFixtureDirectory(_ directory: URL) throws {
+			var isDirectory: ObjCBool = false
+			guard FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+				throw OptionsError(description: "--fixture needs a directory holding master.m3u8; \(directory.path) is not a directory")
+			}
+			guard FileManager.default.fileExists(atPath: directory.appendingPathComponent("master.m3u8").path) else {
+				throw OptionsError(description: "--fixture: \(directory.path) holds no master.m3u8")
+			}
+		}
+	}
+
+	/// Resolves a path the way the shell the user typed it in would: a relative path is
+	/// relative to where the command ran, not to the directory this tool launches from (the
+	/// mise task runs it from `TidalSwiftLib/`). The task passes the invocation directory in
+	/// `VERIFY_PLAYBACK_PWD`.
+	static func resolvePath(_ raw: String) -> URL {
+		if raw.hasPrefix("/") { return URL(fileURLWithPath: raw).standardizedFileURL }
+		let base = ProcessInfo.processInfo.environment["VERIFY_PLAYBACK_PWD"] ?? FileManager.default.currentDirectoryPath
+		return URL(fileURLWithPath: raw, relativeTo: URL(fileURLWithPath: base, isDirectory: true)).standardizedFileURL
 	}
 
 	static let usage = """
@@ -186,22 +217,39 @@ struct Options {
 	                          Default: all four. Same as --stream-ceiling.
 	  --stream-ceiling <tier> The Stream quality setting to run. Repeatable; alias of --tier.
 	  --download-ceiling <t>  The Download quality setting to run with --offline. Repeatable.
+	                          Only for --offline; a streaming run rejects it.
 	                          Default: your stored Download quality (every tier with --matrix).
 	  --atmos on|off          The Atmos preference. Default: off. Use --matrix to sweep both.
 	  --offline               Measure the app's offline download path (into a temporary library;
 	                          your real ~/Music/TidalSwift Offline Library is untouched). Uses
 	                          the Download ceiling, not the Stream ceiling.
-	  --matrix                Sweep every combination of ceiling and Atmos preference instead
-	                          of the one you name. Downloads a track per measured combination,
-	                          so it is slow; narrow it with --track.
+	  --matrix                Sweep an unset ceiling over every tier and an unset Atmos
+	                          preference over both; a ceiling or preference you name is not
+	                          widened. Downloads a track per measured combination, so it is
+	                          slow; narrow it with --track.
 	  --fixture <dir>         Run the streaming HLS path against a local fixture directory
 	                          holding master.m3u8 and its segments, with no network or login.
-	                          Not combinable with --offline.
+	                          Not combinable with --offline. The path is relative to the
+	                          directory you ran the command in. Recipe under Fixture below.
 	  -h, --help              Print this help.
 
 	The session is read from the app's stored login (its UserDefaults domain). If it is missing
 	or expired the tool prints one clear line and exits non-zero, so log in through the app
 	first. A TIDAL_TEST_TOKEN environment variable, when set, is used instead. No token, signed
 	URL or account id is ever printed; at most a host.
+
+	Fixture:
+	  The no-account path. A fixture directory holds master.m3u8 and the segments it names; the
+	  resolver answers every rung with it, so nothing touches the network. Build one with
+	  ffmpeg, in the directory you will pass:
+
+	    ffmpeg -f lavfi -i "sine=frequency=440:duration=3" -c:a flac -f hls \\
+	      -hls_playlist_type vod -hls_segment_type fmp4 -hls_fmp4_init_filename init.mp4 \\
+	      -hls_segment_filename "seg%d.m4s" index.m3u8
+	    printf '#EXTM3U\\n#EXT-X-VERSION:7\\n#EXT-X-STREAM-INF:BANDWIDTH=890000,CODECS="flac"\\nindex.m3u8\\n' > master.m3u8
+
+	  That fixture holds one mono FLAC rendition. A hermetic run therefore matches where it
+	  expects FLAC and mismatches where it expects AAC or Atmos, because the bytes cannot hold
+	  those codecs: the verdict reads the codec family out of the decoded file, not the request.
 	"""
 }

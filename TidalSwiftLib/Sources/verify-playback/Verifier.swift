@@ -35,8 +35,11 @@ struct Decided {
 	let route: [String]
 	let rungs: [String]
 	let file: String?
-	let served: String?
-	let badgeRung: String?
+	/// The rung the library served, nil when it named no rendition (an unmarked legacy
+	/// offline file carries no tier).
+	let rung: HLSRung?
+	/// The library's own badge for the served rung.
+	let badge: String?
 }
 
 /// MEASURED — what was asked, what TIDAL answered, and what the bytes hold.
@@ -55,13 +58,15 @@ struct Result {
 	let expected: Expected
 	let decided: Decided
 	let measured: Measured
-	let rung: HLSRung?
 }
 
 /// A resolved file and the rendition it holds.
 struct Resolved {
 	let file: URL
-	let rung: HLSRung
+	let rung: HLSRung?
+	/// The file came from the HLS manifest path (the stream or the offline sync), rather
+	/// than the direct `streamUrl` ladder.
+	let isHLS: Bool
 }
 
 struct Verifier {
@@ -74,18 +79,31 @@ struct Verifier {
 
 	// MARK: - Entry
 
+	/// The base name of the private defaults suite the offline redirect uses, under the run's
+	/// temp root (`<root>/offline-defaults`, so the plist is `<root>/offline-defaults.plist`).
+	static let scratchDefaultsSuite = "offline-defaults"
+
 	static func run(options: Options) async -> Int {
 		let root = FileManager.default.temporaryDirectory
 			.appendingPathComponent("verify-playback-\(UUID().uuidString)", isDirectory: true)
 		try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
 		let offlineRoot = root.appendingPathComponent("offline")
-		let offlineSuiteName = "verify-playback-\(UUID().uuidString)"
+		// The suite is named by an absolute path under the temp root so its plist is born in
+		// temp; `~/Library/Preferences` is never written. A plain suite name puts it there and
+		// cfprefsd re-creates it after the process exits even once the domain is cleared. The
+		// instance is created once and handed to the session so the cleanup clears the domain
+		// through the object that wrote it.
+		let scratchSuiteName = root.appendingPathComponent(Self.scratchDefaultsSuite).path
+		let offlineDefaults = UserDefaults(suiteName: scratchSuiteName) ?? .standard
+		offlineDefaults.removePersistentDomain(forName: scratchSuiteName)
 		defer {
+			// Clear the defaults domains first: the suite's plist lives under the temp root, and
+			// flushing the domain after the root is gone re-creates an empty directory.
+			Self.cleanUpScratchDefaults(offlineDefaults, suiteName: scratchSuiteName)
 			try? FileManager.default.removeItem(at: root)
-			UserDefaults().removePersistentDomain(forName: offlineSuiteName)
 		}
 
-		switch loadSession(options: options, offlineRoot: offlineRoot, offlineSuiteName: offlineSuiteName) {
+		switch loadSession(options: options, offlineRoot: offlineRoot, offlineDefaults: offlineDefaults) {
 		case .notLoggedIn(let message):
 			print(message)
 			return 1
@@ -127,14 +145,17 @@ struct Verifier {
 	/// login has lapsed. A missing or expired stored session yields one clear line, never a guess
 	/// or a crash. A fixture run needs no login: the fixture seam answers the manifest request, so
 	/// no request is made.
-	private static func loadSession(options: Options, offlineRoot: URL, offlineSuiteName: String) -> SessionLoad {
+	private static func loadSession(options: Options, offlineRoot: URL, offlineDefaults: UserDefaults) -> SessionLoad {
 		if options.fixtureDirectory != nil {
 			let config = Config(accessToken: Fixture.desktopAccessToken, refreshToken: "", clientID: "", offlineAudioQuality: .max)
-			return .ready(makeSession(config: config, offlineRoot: offlineRoot, offlineSuiteName: offlineSuiteName), nil)
+			return .ready(makeSession(config: config, offlineRoot: offlineRoot, offlineDefaults: offlineDefaults), nil)
 		}
 		if let token = ProcessInfo.processInfo.environment["TIDAL_TEST_TOKEN"], !token.isEmpty {
+			guard SessionToken.looksLikeSessionToken(token) else {
+				return .notLoggedIn("the session was refused: TIDAL_TEST_TOKEN does not hold a Tidal session token; log in through the TidalSwift app and run this again")
+			}
 			let config = Config(accessToken: token, refreshToken: "", clientID: "", offlineAudioQuality: .max)
-			let session = makeSession(config: config, offlineRoot: offlineRoot, offlineSuiteName: offlineSuiteName)
+			let session = makeSession(config: config, offlineRoot: offlineRoot, offlineDefaults: offlineDefaults)
 			// The catalogue endpoints need the stored session's user; best effort, since a machine
 			// whose login lapsed may still hold the session information.
 			if let stored = UserDefaults(suiteName: StoredSession.appDefaultsDomain) {
@@ -151,7 +172,7 @@ struct Verifier {
 		case .expired:
 			return .notLoggedIn("the stored session is missing or expired: log in through the TidalSwift app, then run this again")
 		case .stored(let config):
-			let session = makeSession(config: config, offlineRoot: offlineRoot, offlineSuiteName: offlineSuiteName)
+			let session = makeSession(config: config, offlineRoot: offlineRoot, offlineDefaults: offlineDefaults)
 			StoredSession.apply(to: session, from: defaults)
 			return .ready(session, .stored)
 		}
@@ -161,10 +182,36 @@ struct Verifier {
 	/// preferences to a private suite, so the developer's real library and settings are never
 	/// read or written. The redirect happens before any await, so the launch sync the offline
 	/// manager starts cannot read the real domain first.
-	private static func makeSession(config: Config, offlineRoot: URL, offlineSuiteName: String) -> Session {
+	private static func makeSession(config: Config, offlineRoot: URL, offlineDefaults: UserDefaults) -> Session {
 		let session = Session(config: config, offlineLibraryRoot: offlineRoot)
-		session.helpers.offline.defaults = UserDefaults(suiteName: offlineSuiteName) ?? .standard
+		session.helpers.offline.defaults = offlineDefaults
 		return session
+	}
+
+	/// The domain `UserDefaults.standard` maps to in this process: a command line tool has no
+	/// bundle identifier, so Foundation uses the executable's name. It is the tool's own domain,
+	/// never the app's, but a token refresh writes it through `saveConfig`.
+	private static var standardDefaultsDomain: String {
+		Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
+	}
+
+	/// The tool writes its offline preferences to a path inside the temp root, so no domain of
+	/// its own lands in `~/Library/Preferences`. The standard domain can still be written by a
+	/// token refresh during a run, so it is cleared too - through `UserDefaults.standard`
+	/// itself, the object that would write it. Clearing is followed by an unlink because
+	/// `removePersistentDomain` alone can leave an empty plist behind.
+	private static func cleanUpScratchDefaults(_ offlineDefaults: UserDefaults, suiteName: String) {
+		offlineDefaults.removePersistentDomain(forName: suiteName)
+		UserDefaults.standard.removePersistentDomain(forName: standardDefaultsDomain)
+		offlineDefaults.synchronize()
+		UserDefaults.standard.synchronize()
+		try? FileManager.default.removeItem(atPath: suiteName + ".plist")
+		try? FileManager.default.removeItem(at: defaultsPlistURL(standardDefaultsDomain))
+	}
+
+	private static func defaultsPlistURL(_ domain: String) -> URL {
+		URL(fileURLWithPath: NSHomeDirectory())
+			.appendingPathComponent("Library/Preferences/\(domain).plist")
 	}
 
 	// MARK: - Combinations
@@ -209,7 +256,7 @@ struct Verifier {
 			} else if let fetched = await session.track(trackId: trackId) {
 				track = fetched
 			} else {
-				print("track \(trackId): could not be read from the catalogue; skipping")
+				print("track \(trackId): could not be read from the catalogue; if your login has lapsed, log in through the TidalSwift app and run this again; skipping")
 				everyTrackReadable = false
 				continue
 			}
@@ -271,13 +318,12 @@ struct Verifier {
 			combination: combination,
 			expected: expected,
 			decided: decided,
-			measured: measured,
-			rung: resolved?.rung
+			measured: measured
 		)
 	}
 
 	/// DECIDED — the library's own choices, read from its public surface: the route list, the
-	/// rung order, the file it chose, and the rung the badge is built from.
+	/// rung order, the file it chose, and the rung and badge for the rendition it served.
 	private static func decided(track: Track, combination: Combination, session: Session, resolved: Resolved?) -> Decided {
 		let route = PlaybackRoutingPolicy
 			.routes(sessionHasDesktopPlaybackAccess: session.hasDesktopPlaybackAccess)
@@ -287,104 +333,98 @@ struct Verifier {
 			preferDolbyAtmos: combination.atmos,
 			trackHasDolbyAtmos: track.hasDolbyAtmos
 		).map(\.format)
-		let rendition = resolved.map { Expectations.rendition(of: $0.rung) }
+		var servedRung: HLSRung?
+		if let resolved { servedRung = resolved.rung }
 		return Decided(
 			route: route,
 			rungs: rungs,
 			file: resolved?.file.lastPathComponent,
-			served: rendition,
-			badgeRung: rendition
+			rung: servedRung,
+			badge: servedRung.map { HLSStreaming.badge(for: $0) }
 		)
 	}
 
 	/// MEASURED — what the tool asked the endpoint for, what TIDAL answered, and the decoded
 	/// facts. No `AVPlayer` is created, so nothing plays.
 	private static func measured(track: Track, combination: Combination, resolved: Resolved?, decoded: DecodedFacts?) -> Measured {
-		let firstRung = HLSStreaming.rungs(
-			for: combination.ceiling.quality,
-			preferDolbyAtmos: combination.atmos,
-			trackHasDolbyAtmos: track.hasDolbyAtmos
-		).first?.format
-		return Measured(
-			asked: firstRung,
-			answered: resolved?.rung.format,
+		Measured(
+			asked: asked(track: track, combination: combination, resolved: resolved),
+			answered: resolved?.rung?.format,
 			decoded: decoded
 		)
 	}
 
+	/// The request the measured route makes. The HLS and offline paths ask the rungs' first
+	/// format; the direct ladder asks the Atmos rendition when the preference is on, then walks
+	/// the quality ladder down from the ceiling. Nil when the stream route served nothing, since
+	/// then no route can be named here.
+	private static func asked(track: Track, combination: Combination, resolved: Resolved?) -> String? {
+		guard let resolved = resolved else {
+			return combination.path == .offline ? hlsAsked(track: track, combination: combination) : nil
+		}
+		return resolved.isHLS ? hlsAsked(track: track, combination: combination) : directAsked(track: track, combination: combination)
+	}
+
+	private static func hlsAsked(track: Track, combination: Combination) -> String? {
+		HLSStreaming.rungs(
+			for: combination.ceiling.quality,
+			preferDolbyAtmos: combination.atmos,
+			trackHasDolbyAtmos: track.hasDolbyAtmos
+		).first?.format
+	}
+
+	private static func directAsked(track: Track, combination: Combination) -> String {
+		var asks: [String] = []
+		if track.hasDolbyAtmos, combination.ceiling.quality.admitsDolbyAtmos, combination.atmos {
+			asks.append("Dolby Atmos")
+		}
+		asks.append("\(combination.ceiling.quality.rawValue) and below")
+		return asks.joined(separator: ", then ")
+	}
+
 	// MARK: - Streaming resolve
 
-	/// The production resolve for one combination: the route policy walks Tidal's HLS manifest
-	/// first and the direct stream second, exactly as the player does. A non-nil
-	/// `resolvePlaylist` is the fixture seam, which forces the HLS path and makes no request.
+	/// The production resolve for one combination. It calls the player's own entry,
+	/// `session.playableStream`, which walks the route policy exactly as a play does, then
+	/// measures the file behind the stream: the HLS cache write it started, the cached file it
+	/// returned, or a fetch of the direct ladder's pre-signed URL. A non-nil `resolvePlaylist`
+	/// is the fixture seam, which makes no request. Nothing here reimplements the walk.
 	private func streamResolve(track: Track, combination: Combination) async -> Resolved? {
 		let resolvePlaylist: ((Int, HLSRung) async throws -> URL)? = options.fixtureDirectory.map { fixture in
 			Fixture.resolver(multivariantURL: fixture.appendingPathComponent("master.m3u8"))
 		}
-		let preferAtmos = combination.atmos
 		// One cache directory per track, ceiling and preference: the cache serves any rung on a
 		// ceiling's ladder, so a shared directory would let one combination's cached file answer
 		// the next combination's request and hide what that combination actually serves.
 		let cacheDirectory = assemblyDirectory.appendingPathComponent(
-			"\(track.id)-\(combination.ceiling.rawValue)-\(preferAtmos ? "atmos" : "stereo")", isDirectory: true
+			"\(track.id)-\(combination.ceiling.rawValue)-\(combination.atmos ? "atmos" : "stereo")", isDirectory: true
 		)
-
-		if resolvePlaylist != nil {
-			return await hlsResolve(track: track, ceiling: combination.ceiling, preferAtmos: preferAtmos, cacheDirectory: cacheDirectory, resolvePlaylist: resolvePlaylist)
-		}
-		if PlaybackRoutingPolicy.usesHLS(sessionHasDesktopPlaybackAccess: session.hasDesktopPlaybackAccess),
-		   let resolved = await hlsResolve(track: track, ceiling: combination.ceiling, preferAtmos: preferAtmos, cacheDirectory: cacheDirectory, resolvePlaylist: nil) {
-			return resolved
-		}
-		return await directResolve(track: track, ceiling: combination.ceiling, preferAtmos: preferAtmos)
-	}
-
-	/// The player's own entry: it hands back the playlist and starts the same cache write
-	/// behind it. The tool waits for that write, since it needs the assembled file to decode.
-	private func hlsResolve(
-		track: Track,
-		ceiling: Tier,
-		preferAtmos: Bool,
-		cacheDirectory: URL,
-		resolvePlaylist: ((Int, HLSRung) async throws -> URL)?
-	) async -> Resolved? {
-		guard let source = await HLSStreaming.playbackSource(
+		guard let stream = await session.playableStream(
 			for: track,
-			session: session,
-			quality: ceiling.quality,
-			preferDolbyAtmos: preferAtmos,
+			quality: combination.ceiling.quality,
+			preferDolbyAtmos: combination.atmos,
 			cacheDirectory: cacheDirectory,
 			resolvePlaylist: resolvePlaylist
 		) else { return nil }
 
-		let file: URL?
-		if let download = source.backgroundDownload {
-			file = await download.value
-		} else {
-			file = source.url
+		let rung: HLSRung? = stream.isDolbyAtmos ? .dolbyAtmos : .stereo(stream.quality)
+		if stream.isHLS {
+			// The cache write a play starts behind the playlist, or the cached file itself.
+			if let download = stream.backgroundDownload {
+				guard let file = await download.value else { return nil }
+				return Resolved(file: file, rung: rung, isHLS: true)
+			}
+			return Resolved(file: stream.url, rung: rung, isHLS: true)
 		}
-		guard let file else { return nil }
-		return Resolved(file: file, rung: source.rung)
-	}
-
-	/// The fallback route the player takes when HLS cannot serve the track: the direct
-	/// `streamUrl` ladder. Its bytes are fetched here the same way `Network.download` fetches
-	/// them for the offline sync — a plain GET to a pre-signed URL.
-	private func directResolve(track: Track, ceiling: Tier, preferAtmos: Bool) async -> Resolved? {
-		guard let resolved = await session.bestAudioUrl(
-			trackId: track.id,
-			preferredQuality: ceiling.quality,
-			preferDolbyAtmos: preferAtmos
-		) else { return nil }
-		let extensionPart = resolved.url.pathExtension.isEmpty ? "bin" : resolved.url.pathExtension
-		let destination = directDirectory.appendingPathComponent("\(track.id)-\(ceiling.rawValue).\(extensionPart)")
+		// The direct route hands back a pre-signed URL; fetch it the way the offline sync does.
+		let extensionPart = stream.url.pathExtension.isEmpty ? "bin" : stream.url.pathExtension
+		let destination = directDirectory.appendingPathComponent("\(track.id)-\(combination.ceiling.rawValue).\(extensionPart)")
 		do {
-			try await Self.download(resolved.url, to: destination)
+			try await Self.download(stream.url, to: destination)
 		} catch {
 			return nil
 		}
-		let rung: HLSRung = resolved.isDolbyAtmos ? .dolbyAtmos : .stereo(resolved.quality)
-		return Resolved(file: destination, rung: rung)
+		return Resolved(file: destination, rung: rung, isHLS: false)
 	}
 
 	// MARK: - Offline resolve
@@ -400,11 +440,18 @@ struct Verifier {
 		offline.setPreferDolbyAtmos(to: combination.atmos)
 		await offline.add(track: track)
 
+		// The sync can restart itself (`Something changed`), and its writes land in the private
+		// defaults suite; wait for the whole chain to settle so the file measured is this
+		// combination's and no write lands after the run cleans up.
+		await offline.awaitOngoingSync(timeout: offlineTimeout)
 		guard let stream = await awaitOfflineFile(track: track, ceiling: combination.ceiling) else {
 			return nil
 		}
-		let rung: HLSRung = stream.isDolbyAtmos ? .dolbyAtmos : .stereo(stream.quality ?? combination.ceiling.quality)
-		return Resolved(file: stream.url, rung: rung)
+		// The sync names the tier only when the stored file carries one; an unmarked legacy file
+		// reports none, and the app's own play leaves the rung unset the same way rather than
+		// inventing the ceiling's tier.
+		let rung: HLSRung? = stream.isDolbyAtmos ? .dolbyAtmos : stream.quality.map(HLSRung.stereo)
+		return Resolved(file: stream.url, rung: rung, isHLS: true)
 	}
 
 	/// Removes the files in the temporary offline library but keeps its folder, so the next
@@ -456,12 +503,15 @@ struct Verifier {
 	  DECIDED   what the library chose, read from the library itself
 	  MEASURED  what was asked, what TIDAL answered, and what the bytes hold
 
-	The verdict compares EXPECTED against MEASURED (and EXPECTED's rung order against the
-	library's), so a mismatch is the point of the tool, not a failure. No AVPlayer is created:
-	nothing plays and no sound is made. A fact marked (bytes) comes from the decoded stream;
-	one marked (format) comes from the served rendition's manifest format, because a FLAC
-	inside fMP4 reports a bit depth of 0 through AVFoundation while only the manifest carries
-	the truth.
+	The verdict compares EXPECTED against MEASURED: the library's rung order and badge, the
+	codec family the decoded bytes hold, and the channel count for Atmos. A mismatch is the
+	point of the tool, not a failure, and a combination where nothing was served counts as
+	"no answer" rather than a rules error. No AVPlayer is created: nothing plays and no sound
+	is made. A fact marked (bytes) comes from the decoded stream; one marked (format) comes
+	from the served rendition's manifest format, because a FLAC inside fMP4 reports a bit
+	depth of 0 through AVFoundation while only the manifest carries the truth. Where the bytes
+	cannot settle a fact, the verdict says it is unverified rather than counting it as
+	agreement.
 	"""
 
 	private static func block(_ result: Result) -> String {
@@ -475,9 +525,9 @@ struct Verifier {
 		lines.append(row("", "served: \(result.expected.served)    badge: \(result.expected.badge)"))
 		lines.append(row("DECIDED", "route: \(result.decided.route.joined(separator: ", "))"))
 		lines.append(row("", "rungs: \(result.decided.rungs.joined(separator: ", "))"))
-		lines.append(row("", "file: \(result.decided.file ?? "—")    badge rung: \(result.decided.badgeRung ?? "—")"))
+		lines.append(row("", "file: \(result.decided.file ?? "—")    rung: \(result.decided.rung?.format ?? "—")    badge: \(result.decided.badge ?? "—")"))
 		lines.append(row("MEASURED", "asked: \(result.measured.asked ?? "—")    answered: \(result.measured.answered ?? "—")"))
-		lines.append(row("", decodedLine(result.measured.decoded, rung: result.rung)))
+		lines.append(row("", decodedLine(result.measured.decoded, rung: result.decided.rung)))
 		lines.append(row("VERDICT", verdict(result)))
 		return lines.joined(separator: "\n")
 	}
@@ -502,33 +552,82 @@ struct Verifier {
 		return "— (lossy)"
 	}
 
-	/// The verdict compares EXPECTED against the library's rung order and against MEASURED.
+	private enum Outcome: Equatable {
+		case match
+		case mismatch
+		case noAnswer
+	}
+
+	/// The verdict compares EXPECTED against MEASURED: the library's rung order and badge, and
+	/// the codec family and channel count the decoded bytes actually hold.
 	private static func verdict(_ result: Result) -> String {
+		let (outcome, text) = judge(result)
+		switch outcome {
+		case .match:
+			return text
+		case .mismatch:
+			return "MISMATCH — " + text
+		case .noAnswer:
+			return "no answer — " + text
+		}
+	}
+
+	/// The outcome for one combination and the text that explains it. A `match` may still carry
+	/// notes about facts the bytes could not settle, which are reported as unverified rather
+	/// than counted as agreement.
+	private static func judge(_ result: Result) -> (Outcome, String) {
+		guard result.decided.file != nil else {
+			return (.noAnswer, "nothing was served (rules say \(result.expected.served))")
+		}
 		var issues: [String] = []
 		if result.expected.rungs != result.decided.rungs {
 			issues.append("rungs: rules say [\(result.expected.rungs.joined(separator: ", "))], library ordered [\(result.decided.rungs.joined(separator: ", "))]")
 		}
-		if let rung = result.rung {
-			let served = Expectations.rendition(of: rung)
-			if served != result.expected.served {
-				issues.append("served: rules say \(result.expected.served), measured \(served)")
-			}
+		if let rung = result.decided.rung {
 			let measuredBadge = HLSStreaming.badge(for: rung, sampleRate: result.measured.decoded?.sampleRate)
 			if !(measuredBadge == result.expected.badge || measuredBadge.hasPrefix(result.expected.badge)) {
 				issues.append("badge: rules say \(result.expected.badge), measured \(measuredBadge)")
 			}
-		} else {
-			issues.append("nothing was served (rules say \(result.expected.served))")
 		}
-		return issues.isEmpty ? "match" : "MISMATCH — " + issues.joined(separator: "; ")
+		var notes: [String] = []
+		byteFindings(result, issues: &issues, notes: &notes)
+		guard issues.isEmpty else { return (.mismatch, issues.joined(separator: "; ")) }
+		return (.match, notes.isEmpty ? "match" : "match (" + notes.joined(separator: "; ") + ")")
+	}
+
+	/// What the decoded bytes settle: the codec family, the channel count for an Atmos
+	/// rendition, and the bit depth where the container reports one. A byte check is skipped
+	/// when the expected rendition names no codec. A fact the bytes cannot settle is a note,
+	/// not an agreement.
+	private static func byteFindings(_ result: Result, issues: inout [String], notes: inout [String]) {
+		let rendition = result.expected.served
+		guard let decoded = result.measured.decoded, let codec = decoded.codec else {
+			notes.append("codec unverified: the decoded file names no codec")
+			return
+		}
+		if let family = Expectations.codecFamily(ofRendition: rendition), !Expectations.codecMatches(codec, family: family) {
+			issues.append("codec: rules expect \(family), bytes are \(codec)")
+		}
+		if rendition == "atmos", let channels = decoded.channels, channels < 2 {
+			issues.append("channels: an Atmos rendition cannot be \(channels)ch")
+		}
+		guard let expectedDepth = Expectations.bitDepth(ofRendition: rendition) else { return }
+		if let bits = decoded.bitDepth {
+			if bits != expectedDepth {
+				issues.append("depth: rules say \(expectedDepth)-bit, bytes say \(bits)-bit")
+			}
+		} else {
+			notes.append("depth unverified: the bytes report none (fMP4 FLAC carries no bit depth)")
+		}
 	}
 
 	private static func summary(_ results: [Result]) -> String {
-		let matches = results.filter { verdict($0) == "match" }.count
-		let mismatches = results.filter { verdict($0).hasPrefix("MISMATCH") }.count
-		let unresolved = results.count - matches - mismatches
+		let outcomes = results.map { judge($0).0 }
+		let matches = outcomes.filter { $0 == .match }.count
+		let mismatches = outcomes.filter { $0 == .mismatch }.count
+		let unresolved = outcomes.filter { $0 == .noAnswer }.count
 		var lines = ["summary: \(results.count) combinations; \(matches) match, \(mismatches) mismatch, \(unresolved) no answer."]
-		for result in results where verdict(result) != "match" {
+		for result in results where judge(result).0 != .match {
 			lines.append("  track \(result.trackId) [\(result.combination.path.rawValue) \(result.combination.ceiling.rawValue) atmos=\(result.combination.atmos ? "on" : "off")]: \(verdict(result))")
 		}
 		return lines.joined(separator: "\n")
