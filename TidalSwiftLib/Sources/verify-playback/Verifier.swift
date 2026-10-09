@@ -54,6 +54,9 @@ struct Result {
 	let trackId: Int
 	let kind: TrackKind
 	let hiRes: Bool
+	/// The run was hermetic (`--fixture`), so the track's metadata is the fixture's own. Printed
+	/// with the track so a pasted block identifies itself.
+	let fixture: Bool
 	let combination: Combination
 	let expected: Expected
 	let decided: Decided
@@ -101,12 +104,15 @@ struct Verifier {
 	static let scratchDefaultsSuite = "offline-defaults"
 
 	static func run(options: Options) async -> Int {
-		// Every request the tool makes goes through `URLSession.shared`, and a process without a
-		// bundle identifier caches that traffic under `~/Library/Caches/<process name>`. An empty
-		// URLCache keeps every run inside its own temp root, and the directory an earlier run did
-		// write there is removed so nothing of the tool's is left in the home directory.
+		// A process without a bundle identifier caches HTTP traffic under
+		// `~/Library/Caches/<process name>`, and CFNetwork keeps a per-process HTTP storage,
+		// `httpstorages.sqlite` and its WAL, under `~/Library/HTTPStorages/<process name>`. An
+		// empty URLCache stops the first coming back; it does not touch the second, which every
+		// network run writes because the library's requests go through `URLSession.shared`. Both
+		// directories are removed at the end of the run, and again at the start so a run made
+		// before this cleanup is not left in the home directory.
 		URLCache.shared = URLCache(memoryCapacity: 0, diskCapacity: 0)
-		removeStaleURLCacheDirectory()
+		Self.removeToolLibraryDirectories()
 		let root = FileManager.default.temporaryDirectory
 			.appendingPathComponent("verify-playback-\(UUID().uuidString)", isDirectory: true)
 		try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -123,15 +129,23 @@ struct Verifier {
 			// Clear the defaults domains first: the suite's plist lives under the temp root, and
 			// flushing the domain after the root is gone re-creates an empty directory.
 			Self.cleanUpScratchDefaults(offlineDefaults, suiteName: scratchSuiteName)
+			Self.removeToolLibraryDirectories()
 			try? FileManager.default.removeItem(at: root)
 		}
 
-		switch loadSession(options: options, offlineRoot: offlineRoot, offlineDefaults: offlineDefaults) {
+		switch Self.sessionPlan(options: options) {
 		case .notLoggedIn(let message):
 			print(message)
 			return 1
-		case .ready(let session, let source):
+		case .ready(let config, let source):
+			// The header prints before the session is built so the library's own startup log lands
+			// below the tool's words instead of above them.
+			print()
+			print(Self.preamble)
+			Self.printRunHeader(options)
 			if let source { print("session: \(source)") }
+			let session = Self.makeSession(config: config, offlineRoot: offlineRoot, offlineDefaults: offlineDefaults)
+			StoredSession.apply(to: session, from: UserDefaults(suiteName: StoredSession.appDefaultsDomain))
 			let verifier = Verifier(
 				options: options,
 				session: session,
@@ -141,6 +155,21 @@ struct Verifier {
 			)
 			return await verifier.report()
 		}
+	}
+
+	/// The line the report opens with: which path runs, and - for a fixture - that the track
+	/// metadata below is the fixture's own, not a catalogue read, so a pasted run identifies
+	/// itself. The last line names the library's log, whose `Offline:` lines would otherwise read
+	/// as the tool's own.
+	private static func printRunHeader(_ options: Options) {
+		if let fixture = options.fixtureDirectory {
+			print("fixture: \(fixture.path) — no account, no network; the track metadata below is built by the fixture, not read from the catalogue")
+		} else if options.offline {
+			print("offline: downloading through the app's sync into a temporary library; your real ~/Music/TidalSwift Offline Library is untouched")
+		} else {
+			print("stream: resolving into a temporary cache; your real playback cache and offline library are untouched")
+		}
+		print("log lines below prefixed Offline:, [PLAYBACK] and [NET] come from the library, not this tool")
 	}
 
 	private enum SessionSource: CustomStringConvertible {
@@ -157,34 +186,31 @@ struct Verifier {
 		}
 	}
 
-	private enum SessionLoad {
-		case ready(Session, SessionSource?)
+	private enum SessionPlan {
+		case ready(Config, SessionSource?)
 		case notLoggedIn(String)
 	}
 
-	/// Reads the session the way the app stores it, through the tool's own reader of the app's
-	/// defaults domain (a command line tool's `UserDefaults.standard` is its own domain, not the
-	/// app's). A `TIDAL_TEST_TOKEN` in the environment wins, for a run on a machine whose stored
-	/// login has lapsed. A missing or expired stored session yields one clear line, never a guess
-	/// or a crash. A fixture run needs no login: the fixture seam answers the manifest request, so
-	/// no request is made.
-	private static func loadSession(options: Options, offlineRoot: URL, offlineDefaults: UserDefaults) -> SessionLoad {
+	/// Resolves which configuration to run with, without building a `Session`: the fixture seam, a
+	/// `TIDAL_TEST_TOKEN`, or the app's stored login, read the way the app stores it through the
+	/// tool's own reader of the app's defaults domain (a command line tool's `UserDefaults.standard`
+	/// is its own domain, not the app's). Building the session is left to the caller so the report
+	/// header prints above the library's startup log. A `TIDAL_TEST_TOKEN` in the environment wins,
+	/// for a run on a machine whose stored login has lapsed. A missing or expired stored session
+	/// yields one clear line, never a guess or a crash. A fixture run needs no login: the fixture
+	/// seam answers the manifest request, so no request is made.
+	private static func sessionPlan(options: Options) -> SessionPlan {
 		if options.fixtureDirectory != nil {
-			let config = Config(accessToken: Fixture.desktopAccessToken, refreshToken: "", clientID: "", offlineAudioQuality: .max)
-			return .ready(makeSession(config: config, offlineRoot: offlineRoot, offlineDefaults: offlineDefaults), nil)
+			return .ready(
+				Config(accessToken: Fixture.desktopAccessToken, refreshToken: "", clientID: "", offlineAudioQuality: .max),
+				nil
+			)
 		}
 		if let token = ProcessInfo.processInfo.environment["TIDAL_TEST_TOKEN"], !token.isEmpty {
 			guard SessionToken.looksLikeSessionToken(token) else {
 				return .notLoggedIn("the session was refused: TIDAL_TEST_TOKEN does not hold a Tidal session token; log in through the TidalSwift app and run this again")
 			}
-			let config = Config(accessToken: token, refreshToken: "", clientID: "", offlineAudioQuality: .max)
-			let session = makeSession(config: config, offlineRoot: offlineRoot, offlineDefaults: offlineDefaults)
-			// The catalogue endpoints need the stored session's user; best effort, since a machine
-			// whose login lapsed may still hold the session information.
-			if let stored = UserDefaults(suiteName: StoredSession.appDefaultsDomain) {
-				StoredSession.apply(to: session, from: stored)
-			}
-			return .ready(session, .environmentToken)
+			return .ready(Config(accessToken: token, refreshToken: "", clientID: "", offlineAudioQuality: .max), .environmentToken)
 		}
 		guard let defaults = UserDefaults(suiteName: StoredSession.appDefaultsDomain) else {
 			return .notLoggedIn("no stored session: log in through the TidalSwift app, then run this again")
@@ -195,9 +221,7 @@ struct Verifier {
 		case .expired:
 			return .notLoggedIn("the stored session is missing or expired: log in through the TidalSwift app, then run this again")
 		case .stored(let config):
-			let session = makeSession(config: config, offlineRoot: offlineRoot, offlineDefaults: offlineDefaults)
-			StoredSession.apply(to: session, from: defaults)
-			return .ready(session, .stored)
+			return .ready(config, .stored)
 		}
 	}
 
@@ -218,6 +242,15 @@ struct Verifier {
 		Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
 	}
 
+	/// True when the domain `UserDefaults.standard` maps to is the tool's own, never the app's.
+	/// A tool launched with the app's bundle identifier would derive `io.hosh.TidalSwift` and every
+	/// cleanup below would then delete the app's preferences, URL cache and HTTP storage. The
+	/// preferences cleanup and the directory cleanup both route their guard through this one check
+	/// so they cannot drift apart.
+	private static var standardDomainIsOurs: Bool {
+		standardDefaultsDomain != StoredSession.appDefaultsDomain
+	}
+
 	/// The tool writes its offline preferences to a path inside the temp root, so no domain of
 	/// its own lands in `~/Library/Preferences`. The standard domain can still be written by a
 	/// token refresh during a run, so it is cleared too - through `UserDefaults.standard`
@@ -228,7 +261,7 @@ struct Verifier {
 		offlineDefaults.removePersistentDomain(forName: suiteName)
 		offlineDefaults.synchronize()
 		try? FileManager.default.removeItem(atPath: suiteName + ".plist")
-		guard standardDefaultsDomain != StoredSession.appDefaultsDomain else { return }
+		guard standardDomainIsOurs else { return }
 		UserDefaults.standard.removePersistentDomain(forName: standardDefaultsDomain)
 		UserDefaults.standard.synchronize()
 		try? FileManager.default.removeItem(at: defaultsPlistURL(standardDefaultsDomain))
@@ -239,13 +272,17 @@ struct Verifier {
 			.appendingPathComponent("Library/Preferences/\(domain).plist")
 	}
 
-	/// The URL cache directory a bundle-less process uses: `~/Library/Caches/<process name>`. A
-	/// run of this tool before the empty URLCache above wrote it; removing it (when present) is a
-	/// one-time cleanup of the tool's own cache, and the empty URLCache stops it coming back.
-	private static func removeStaleURLCacheDirectory() {
-		let url = URL(fileURLWithPath: NSHomeDirectory())
-			.appendingPathComponent("Library/Caches/\(standardDefaultsDomain)", isDirectory: true)
-		try? FileManager.default.removeItem(at: url)
+	/// Removes the two directories a bundle-less process writes under the home directory, keyed by
+	/// the derived domain: the URL cache at `~/Library/Caches/<domain>` and CFNetwork's per-process
+	/// HTTP storage at `~/Library/HTTPStorages/<domain>`. Nothing is removed when the domain is the
+	/// app's own (see `standardDomainIsOurs`).
+	private static func removeToolLibraryDirectories() {
+		guard standardDomainIsOurs else { return }
+		let home = URL(fileURLWithPath: NSHomeDirectory())
+		for subdirectory in ["Caches", "HTTPStorages"] {
+			let url = home.appendingPathComponent("Library/\(subdirectory)/\(standardDefaultsDomain)", isDirectory: true)
+			try? FileManager.default.removeItem(at: url)
+		}
 	}
 
 	// MARK: - Combinations
@@ -273,16 +310,8 @@ struct Verifier {
 	// MARK: - Report
 
 	private func report() async -> Int {
-		print()
-		print(Self.preamble)
-
 		var results: [Result] = []
 		var everyTrackReadable = true
-		if options.offline {
-			print("offline: downloading through the app's sync into a temporary library; your real ~/Music/TidalSwift Offline Library is untouched")
-		} else {
-			print("stream: resolving into a temporary cache; your real playback cache and offline library are untouched")
-		}
 		for trackId in options.trackIds {
 			let track: Track
 			if options.fixtureDirectory != nil {
@@ -365,6 +394,7 @@ struct Verifier {
 			trackId: track.id,
 			kind: kind,
 			hiRes: hiRes,
+			fixture: options.fixtureDirectory != nil,
 			combination: combination,
 			expected: expected,
 			decided: decided,
@@ -574,7 +604,8 @@ struct Verifier {
 		var lines: [String] = []
 		lines.append(String(repeating: "─", count: 78))
 		let hiRes = result.hiRes ? ", hi-res" : ""
-		lines.append("track \(result.trackId)  \(result.kind.rawValue)\(hiRes)")
+		let fixture = result.fixture ? "  (fixture)" : ""
+		lines.append("track \(result.trackId)  \(result.kind.rawValue)\(hiRes)\(fixture)")
 		lines.append("combination: \(result.combination.path.rawValue), ceiling=\(result.combination.ceiling.rawValue), atmos=\(result.combination.atmos ? "on" : "off")")
 		lines.append(row("EXPECTED", "rungs: \(result.expected.rungs.joined(separator: ", "))"))
 		lines.append(row("", "atmos admitted at \(result.combination.ceiling.rawValue): \(result.expected.atmosAdmitted ? "yes" : "no")"))

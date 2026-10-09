@@ -69,9 +69,9 @@ enum StoredSession {
 
 	/// Applies `Session Information` to a session: the user id `Favorites` needs and the country
 	/// code the catalogue requests carry. Best effort, so a run with `TIDAL_TEST_TOKEN` still
-	/// works on a machine that holds no stored session information.
-	static func apply(to session: Session, from defaults: UserDefaults) {
-		guard let stored = defaults.dictionary(forKey: "Session Information") as? [String: String] else { return }
+	/// works on a machine that holds no stored session information, a fixture run applies none.
+	static func apply(to session: Session, from defaults: UserDefaults?) {
+		guard let stored = defaults?.dictionary(forKey: "Session Information") as? [String: String] else { return }
 		if let countryCode = stored["countryCode"] {
 			session.countryCode = countryCode
 		}

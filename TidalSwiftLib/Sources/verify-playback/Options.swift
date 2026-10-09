@@ -248,10 +248,15 @@ struct Options {
 	      -hls_segment_filename "seg%d.m4s" index.m3u8
 	    printf '#EXTM3U\\n#EXT-X-VERSION:7\\n#EXT-X-STREAM-INF:BANDWIDTH=890000,CODECS="flac"\\nindex.m3u8\\n' > master.m3u8
 
-	  That fixture holds one 16-bit stereo FLAC rendition. A hermetic run therefore matches only
-	  where the rules expect a 16-bit stereo FLAC, and mismatches everywhere else: the AAC and
-	  Atmos rows, where the bytes cannot hold those codecs, and the Max row, whose 24-bit promise
-	  the 16-bit bytes do not meet. The verdict reads the codec family, channel count and bit
-	  depth out of the decoded file, not the request.
+	  That fixture holds one 16-bit stereo FLAC rendition, and the resolver answers every rung
+	  with it, so a hermetic run matches only the row whose rules expect exactly that rendition
+	  and mismatches the rest. Observed with `--track 42 --matrix`: 8 combinations, 1 match (the
+	  lossless stereo row), 7 mismatch — the lossy rows at both ceilings and the two Atmos rows
+	  on codec (the bytes are flac, the rules expect aac or ec-3), and the Max stereo row on
+	  depth (the rules expect 24-bit, the bytes are 16-bit). The default three-track matrix
+	  prints 24 combinations, 5 match, 19 mismatch: it adds two badge mismatches on the
+	  Atmos-only track, whose ladder reaches the 24-bit rung while the rules expect the 16-bit
+	  one, a rung the fixture cannot refuse. The verdict reads the codec family, channel count
+	  and bit depth out of the decoded file, not the request.
 	"""
 }
