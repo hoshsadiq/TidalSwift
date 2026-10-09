@@ -118,10 +118,10 @@ struct Verifier {
 		try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
 		let offlineRoot = root.appendingPathComponent("offline")
 		// The suite is named by an absolute path under the temp root so its plist is born in
-		// temp; `~/Library/Preferences` is never written. A plain suite name puts it there and
-		// cfprefsd re-creates it after the process exits even once the domain is cleared. The
-		// instance is created once and handed to the session so the cleanup clears the domain
-		// through the object that wrote it.
+		// temp; a plain suite name puts it under `~/Library/Preferences`, where cfprefsd
+		// re-creates it after the process exits even once the domain is cleared. The instance
+		// is created once and handed to the session so the cleanup clears the domain through
+		// the object that wrote it.
 		let scratchSuiteName = root.appendingPathComponent(Self.scratchDefaultsSuite).path
 		let offlineDefaults = UserDefaults(suiteName: scratchSuiteName) ?? .standard
 		offlineDefaults.removePersistentDomain(forName: scratchSuiteName)
@@ -251,12 +251,14 @@ struct Verifier {
 		standardDefaultsDomain != StoredSession.appDefaultsDomain
 	}
 
-	/// The tool writes its offline preferences to a path inside the temp root, so no domain of
-	/// its own lands in `~/Library/Preferences`. The standard domain can still be written by a
-	/// token refresh during a run, so it is cleared too - through `UserDefaults.standard`
-	/// itself, the object that would write it. The app's own domain is never touched: a stray
-	/// bundle identifier must not turn this into a delete of the app's settings. Clearing is
-	/// followed by an unlink because `removePersistentDomain` alone can leave an empty plist.
+	/// The tool writes its offline preferences to a path inside the temp root, so the offline
+	/// domain is born under temp. A token refresh during a run still writes the standard domain,
+	/// so that is cleared too - through `UserDefaults.standard` itself, the object that wrote it,
+	/// followed by an unlink because `removePersistentDomain` alone leaves an empty plist. cfprefsd
+	/// can recreate that empty plist - `~/Library/Preferences/verify-playback.plist` - after the
+	/// process exits, so a run that refreshes the session can leave it behind; it holds nothing,
+	/// and everything else a run creates is removed. The app's own domain is never touched: a
+	/// stray bundle identifier must not turn this into a delete of the app's settings.
 	private static func cleanUpScratchDefaults(_ offlineDefaults: UserDefaults, suiteName: String) {
 		offlineDefaults.removePersistentDomain(forName: suiteName)
 		offlineDefaults.synchronize()
