@@ -252,11 +252,12 @@ struct Verifier {
 	}
 
 	/// The tool writes its offline preferences to a path inside the temp root, so the offline
-	/// domain is born under temp. The standard domain is cleared on every run, whether or not
-	/// anything wrote it: right after `removePersistentDomain` the file still holds the old
-	/// contents, and the unlink is what removes it. cfprefsd then recreates an empty
-	/// `~/Library/Preferences/verify-playback.plist` after the process exits; it holds nothing and
-	/// is transient, seen for about five seconds, once at fifty. The app's own domain is never
+	/// domain is born under temp. The standard domain is cleared on every run. Right after
+	/// `removePersistentDomain` the file still holds the old contents, and the unlink is what
+	/// removes them. A run that wrote the domain, which is a session refresh, can still leave an
+	/// empty `~/Library/Preferences/verify-playback.plist` behind, because cfprefsd recreates it
+	/// after the process exits; it holds nothing, and it lasted about ten minutes in the
+	/// measurement rather than the seconds an earlier note claimed. The app's own domain is never
 	/// touched: a stray bundle identifier must not turn this into a delete of the app's settings.
 	private static func cleanUpScratchDefaults(_ offlineDefaults: UserDefaults, suiteName: String) {
 		offlineDefaults.removePersistentDomain(forName: suiteName)
