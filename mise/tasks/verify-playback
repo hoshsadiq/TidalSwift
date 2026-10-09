@@ -33,6 +33,10 @@ EOF
 main() {
 	if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
 		usage
+		echo
+		# The task text points here for the full option list and the fixture recipe, so forward
+		# --help to the tool as well; the tool's own help is where the recipe lives.
+		task_in_lib swift run verify-playback --help
 		return 0
 	fi
 

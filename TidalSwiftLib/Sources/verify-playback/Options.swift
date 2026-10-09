@@ -243,13 +243,15 @@ struct Options {
 	  resolver answers every rung with it, so nothing touches the network. Build one with
 	  ffmpeg, in the directory you will pass:
 
-	    ffmpeg -f lavfi -i "sine=frequency=440:duration=3" -c:a flac -f hls \\
+	    ffmpeg -f lavfi -i "sine=frequency=440:duration=3" -ac 2 -c:a flac -f hls \\
 	      -hls_playlist_type vod -hls_segment_type fmp4 -hls_fmp4_init_filename init.mp4 \\
 	      -hls_segment_filename "seg%d.m4s" index.m3u8
 	    printf '#EXTM3U\\n#EXT-X-VERSION:7\\n#EXT-X-STREAM-INF:BANDWIDTH=890000,CODECS="flac"\\nindex.m3u8\\n' > master.m3u8
 
-	  That fixture holds one mono FLAC rendition. A hermetic run therefore matches where it
-	  expects FLAC and mismatches where it expects AAC or Atmos, because the bytes cannot hold
-	  those codecs: the verdict reads the codec family out of the decoded file, not the request.
+	  That fixture holds one 16-bit stereo FLAC rendition. A hermetic run therefore matches only
+	  where the rules expect a 16-bit stereo FLAC, and mismatches everywhere else: the AAC and
+	  Atmos rows, where the bytes cannot hold those codecs, and the Max row, whose 24-bit promise
+	  the 16-bit bytes do not meet. The verdict reads the codec family, channel count and bit
+	  depth out of the decoded file, not the request.
 	"""
 }

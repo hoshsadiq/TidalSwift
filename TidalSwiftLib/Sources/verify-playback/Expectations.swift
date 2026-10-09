@@ -112,9 +112,11 @@ enum Expectations {
 	}
 
 	/// The codec family the expected rendition's bytes must hold. Literal four-character names
-	/// as AVFoundation reports them: the FLAC formats are `flac`, the 320 tier is `aac`, the 96
-	/// tier is `heaac`, and Atmos is `ec-3`. The bytes are the one fact the manifest cannot
-	/// fake, so the verdict compares the decoded codec against this.
+	/// as AVFoundation reports them: the FLAC formats are `flac`, both AAC tiers are `aac`
+	/// (HE-AAC is AAC with SBR, so the two lossy tiers cannot be told apart by codec), and
+	/// Atmos is `ec-3`, the codec Dolby Atmos travels in. `ec-3` is necessary for Atmos but not
+	/// sufficient: the object-audio layer (JOC) is not part of the format description, so a
+	/// plain E-AC-3 stream and an Atmos one share it, which the verdict reports as a note.
 	static func codecFamily(ofRendition rendition: String) -> String? {
 		switch rendition {
 		case "atmos":
@@ -131,7 +133,9 @@ enum Expectations {
 	}
 
 	/// Whether a decoded codec belongs to an expected family. The bytes name both AAC tiers
-	/// `aac` (HE-AAC is AAC with SBR), so the 96 tier's `heaac` family accepts it too.
+	/// `aac`, so the 96 tier's `heaac` family accepts it too; the decoded codec genuinely cannot
+	/// tell the 320 tier from the 96 one, and the printed bitrate is what a reader judges that
+	/// by (see the family note in the docs).
 	static func codecMatches(_ codec: String, family: String) -> Bool {
 		switch family {
 		case "aac", "heaac":
@@ -141,9 +145,22 @@ enum Expectations {
 		}
 	}
 
-	/// The bit depth the expected rendition promises, or nil where the format names none. A
-	/// FLAC in fMP4 reports no depth through AVFoundation, so the verdict reports that as
-	/// unverified rather than trusting the manifest's word.
+	/// The channel count the expected rendition's bytes must hold, or nil where the count is a
+	/// minimum rather than an equality. Every stereo rendition is two channels, so a mono file
+	/// served for one is a wrong rendition; Atmos is multichannel, and the verdict checks its
+	/// minimum separately.
+	static func channels(ofRendition rendition: String) -> Int? {
+		switch rendition {
+		case "max", "lossless", "low320", "low":
+			return 2
+		default:
+			return nil
+		}
+	}
+
+	/// The bit depth the expected rendition promises, or nil where the format names none. Read
+	/// from the FLAC STREAMINFO inside the file, not the manifest: a Max rung answered with a
+	/// 16-bit FLAC must read as a mismatch, which is the point of this check.
 	static func bitDepth(ofRendition rendition: String) -> Int? {
 		switch rendition {
 		case "max":
