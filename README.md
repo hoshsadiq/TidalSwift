@@ -24,7 +24,7 @@ xattr -d com.apple.quarantine /Applications/TidalSwift.app
 
 ## Audio quality
 
-Playback goes through Tidal's own playback service, the one the desktop app calls. The app logs in as the desktop client, and that is what makes the stereo renditions available at every tier; a session Tidal does not recognise is served Dolby Atmos instead. Tidal answers that at any quality, but the app only plays Atmos at High or Max: below that it asks for the stereo rendition alone, and a track Tidal serves no stereo rendition for is skipped rather than played.
+Playback goes through Tidal's own playback service, the one the desktop app calls. The app logs in as the desktop client, and that is what makes the stereo renditions available at every tier; a session Tidal does not recognise is served Dolby Atmos instead. Tidal can answer that at any quality, but the app only plays Atmos at High or Max: below that it asks for the stereo rendition alone, and a track Tidal serves no stereo rendition for is skipped rather than played.
 
 Preferences → Quality sets the tier:
 

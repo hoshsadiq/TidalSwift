@@ -211,6 +211,37 @@ final class OfflineHLSTests: XCTestCase {
 		)
 	}
 
+	/// Only the Atmos rendition is gated by a ceiling; a stored stereo file plays at every play
+	/// ceiling, including below its own tier. Dropping the `guard variant == .dolbyAtmos` in
+	/// `Offline.isAdmissible(_:at:)` refuses the file here at Low and Medium.
+	func testAStereoFileIsServedBelowItsOwnTier() async throws {
+		let trackId = 779_000_043
+		let libraryDirectory = try makeLibraryDirectory()
+		let stored = libraryDirectory.appendingPathComponent("\(trackId).lossless.m4a")
+		try Data(contentsOf: try silentM4AFixture()).write(to: stored)
+
+		let session = try makeSession(quality: .high)
+		let offline = session.helpers.offline
+		let track = makeTrack(id: trackId)
+		offline.setOfflineTracksForTesting([track])
+		await offline.awaitOngoingSync()
+		XCTAssertEqual(
+			try libraryFileNames(),
+			["\(trackId).lossless.m4a"],
+			"the stored stereo file must survive the sync"
+		)
+
+		for ceiling in [AudioQuality.low, .medium, .high, .max] {
+			let servedValue = await offline.stream(for: track, ceiling: ceiling)
+			let served = try XCTUnwrap(
+				servedValue,
+				"a stereo file must be served at a \(ceiling) ceiling, whatever the ceilings say"
+			)
+			XCTAssertFalse(served.isDolbyAtmos)
+			XCTAssertEqual(served.url.lastPathComponent, "\(trackId).lossless.m4a")
+		}
+	}
+
 	// MARK: - Quality ladder
 
 	/// The offline quality is a ceiling too: a Max wish whose hi-res tier is refused downloads
