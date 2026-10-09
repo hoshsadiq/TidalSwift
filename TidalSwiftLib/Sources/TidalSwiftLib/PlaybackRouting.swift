@@ -6,7 +6,7 @@
 import Foundation
 
 /// Which path a track's playback takes, in the order to try.
-enum PlaybackRoute: Equatable {
+public enum PlaybackRoute: Equatable {
 	/// Tidal's HLS manifest: the playlist hands AVPlayer the variant it names, so the
 	/// track starts without waiting; the same playlist is written to the cache behind it.
 	/// Every stereo tier is served this way.
@@ -26,7 +26,7 @@ enum PlaybackRoute: Equatable {
 public enum PlaybackRoutingPolicy {
 	/// The ladder a play walks: HLS leads, so a track starts from the playlist before its file
 	/// is written, then the direct stream.
-	static func routes(sessionHasDesktopPlaybackAccess: Bool) -> [PlaybackRoute] {
+	public static func routes(sessionHasDesktopPlaybackAccess: Bool) -> [PlaybackRoute] {
 		guard sessionHasDesktopPlaybackAccess else { return [.directStream] }
 		return [.hls, .directStream]
 	}
@@ -85,36 +85,45 @@ public struct PlayableStream {
 	/// served it (never the tier that was asked for), since the stream itself reports no
 	/// bit depth.
 	public let isHLS: Bool
+	/// The HLS cache write running behind the playlist, so a caller that wants the file can
+	/// wait for it. A play discards it; nil for a cached file and for the direct route.
+	public let backgroundDownload: Task<URL?, Never>?
 
 	public init(
 		url: URL,
 		quality: AudioQuality,
 		isDolbyAtmos: Bool,
 		sampleRate: Int? = nil,
-		isHLS: Bool = false
+		isHLS: Bool = false,
+		backgroundDownload: Task<URL?, Never>? = nil
 	) {
 		self.url = url
 		self.quality = quality
 		self.isDolbyAtmos = isDolbyAtmos
 		self.sampleRate = sampleRate
 		self.isHLS = isHLS
+		self.backgroundDownload = backgroundDownload
 	}
 }
 
 extension Session {
 	/// Resolves the stream to play by walking the route policy in order: the first
-	/// route that produces a stream wins.
+	/// route that produces a stream wins. `cacheDirectory` and `resolvePlaylist` are
+	/// seams for a caller that wants the file rather than a play (a test, or the
+	/// verify-playback tool); production passes neither and so reads the real cache.
 	public func playableStream(
 		for track: Track,
 		quality: AudioQuality,
 		preferDolbyAtmos: Bool,
 		protecting: Set<Int> = [],
-		queueTrackIds: Set<Int> = []
+		queueTrackIds: Set<Int> = [],
+		cacheDirectory: URL = PlaybackCache.directory,
+		resolvePlaylist: ((Int, HLSRung) async throws -> URL)? = nil
 	) async -> PlayableStream? {
 		let preferAtmosForTrack = track.hasDolbyAtmos && preferDolbyAtmos
 		let routes = PlaybackRoutingPolicy.routes(sessionHasDesktopPlaybackAccess: hasDesktopPlaybackAccess)
 		let resolver = PlaybackRouteResolver(
-			hls: { await self.hlsPlayableStream(for: track, quality: quality, preferDolbyAtmos: preferAtmosForTrack, protecting: protecting, queueTrackIds: queueTrackIds) },
+			hls: { await self.hlsPlayableStream(for: track, quality: quality, preferDolbyAtmos: preferAtmosForTrack, protecting: protecting, queueTrackIds: queueTrackIds, cacheDirectory: cacheDirectory, resolvePlaylist: resolvePlaylist) },
 			directStream: { await self.directPlayableStream(for: track, quality: quality, preferAtmos: preferAtmosForTrack) }
 		)
 		return await resolver.resolve(routes: routes)
@@ -125,15 +134,19 @@ extension Session {
 		quality: AudioQuality,
 		preferDolbyAtmos: Bool,
 		protecting: Set<Int>,
-		queueTrackIds: Set<Int>
+		queueTrackIds: Set<Int>,
+		cacheDirectory: URL = PlaybackCache.directory,
+		resolvePlaylist: ((Int, HLSRung) async throws -> URL)? = nil
 	) async -> PlayableStream? {
 		guard let source = await HLSStreaming.playbackSource(
 			for: track,
 			session: self,
 			quality: quality,
 			preferDolbyAtmos: preferDolbyAtmos,
+			cacheDirectory: cacheDirectory,
 			protecting: protecting,
-			queueTrackIds: queueTrackIds
+			queueTrackIds: queueTrackIds,
+			resolvePlaylist: resolvePlaylist
 		) else { return nil }
 		print("[PLAYBACK] resolved \(track.title): hls, \(source.rung.format)")
 		return PlayableStream(
@@ -141,7 +154,8 @@ extension Session {
 			quality: source.rung.quality ?? quality,
 			isDolbyAtmos: source.rung.isDolbyAtmos,
 			sampleRate: source.sampleRate,
-			isHLS: true
+			isHLS: true,
+			backgroundDownload: source.backgroundDownload
 		)
 	}
 

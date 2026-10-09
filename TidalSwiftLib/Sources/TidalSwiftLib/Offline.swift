@@ -225,8 +225,10 @@ public final class Offline {
 	public var uiRefreshFunc: () -> Void = {}
 
 	/// Read when the database is first touched, so redirecting it right after the session is
-	/// built takes effect.
-	var defaults: UserDefaults = .standard
+	/// built takes effect. Public so a caller that is not the app (a tool that must not touch
+	/// the developer's real library or settings) can point the offline manager at its own
+	/// private defaults suite.
+	public var defaults: UserDefaults = .standard
 
 	public var saveFavoritesOffline: Bool {
 		get { defaults.bool(forKey: "SaveFavoritesOffline") }
@@ -1096,10 +1098,11 @@ public final class Offline {
 		syncTask = Task { await sync() }
 	}
 
-	/// Test seam: waits for the sync `init` starts, so a test can assert on the files instead
-	/// of racing it.
+	/// Waits for the sync `init` starts (and any pass it restarts), so a caller can assert on
+	/// the files, and the verify-playback tool can wait for the library to settle before it
+	/// measures and cleans up. A test seam and a tool seam, not a play path.
 	@discardableResult
-	func awaitOngoingSync(timeout: TimeInterval = 5) async -> Bool {
+	public func awaitOngoingSync(timeout: TimeInterval = 5) async -> Bool {
 		// `syncTask` is only set once the launch task reaches `startSync`.
 		let deadline = Date().addingTimeInterval(timeout)
 		while syncTask == nil {

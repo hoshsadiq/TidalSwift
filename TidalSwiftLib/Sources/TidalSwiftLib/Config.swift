@@ -81,3 +81,10 @@ public class Config {
 		self.tokenExpirationDate = tokenExpirationDate
 	}
 }
+
+extension Config {
+	/// The built-in client id `Config.load()` falls back to when a stored config names none.
+	/// Exposed so a reader outside the library decodes the stored config exactly as the app
+	/// does, rather than substituting an empty id that would break a token refresh.
+	public static var builtInClientID: String { AuthInformation.OAuthClientID }
+}
