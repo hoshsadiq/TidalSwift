@@ -810,9 +810,10 @@ extension HLSStreaming {
 		}
 	}
 
-	/// The sample rate of a cached file, or nil when the file does not report one. A
-	/// FLAC-in-fMP4 file often does not, so this stays optional rather than guessed.
-	static func sampleRate(of url: URL) -> Int? {
+	/// The sample rate of a local file (a cached one or an offline copy), or nil when the file
+	/// does not report one. A FLAC-in-fMP4 file often does not, so this stays optional rather
+	/// than guessed.
+	public static func sampleRate(of url: URL) -> Int? {
 		guard let file = try? AVAudioFile(forReading: url) else { return nil }
 		let rate = Int(file.fileFormat.sampleRate)
 		return rate > 0 ? rate : nil

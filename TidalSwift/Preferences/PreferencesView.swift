@@ -86,7 +86,7 @@ private struct PlaybackPreferencesTab: View {
 								offlinePreferDolbyAtmos = newValue
 							}
 						),
-						help: "Saves the Atmos version when the track has one. Only used at High or Max quality, so a lower quality setting never saves Atmos, and a track Tidal serves no stereo rendition for stays out of the library. A copy already on disk is played whatever this is set to, so an Atmos file you already have keeps playing with it off."
+						help: "Saves the Atmos version when the track has one. Only used at High or Max quality, so a lower quality setting never saves Atmos, and below High a track Tidal serves no stereo rendition for stays out of the library. Flipping this switch re-checks the library and replaces an Atmos file already on disk once a stereo source resolves."
 					)
 				}
 

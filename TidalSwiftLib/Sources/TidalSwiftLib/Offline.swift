@@ -499,17 +499,22 @@ public final class Offline {
 	/// served, and never kept in place of a source that could replace it.
 	///
 	/// The HLS route assembles one MP4 file and the playback cache already verifies that shape,
-	/// so the library reuses that verifier. The direct-stream fallback writes FLAC, which that
-	/// verifier cannot inspect, so it gets its own magic-byte check. Neither reads past the
-	/// header, so a file truncated after it passes both; only a full decode would catch that.
+	/// so the library reuses that verifier for it; the Atmos direct stream is also an E-AC-3 MP4,
+	/// so it takes the same branch. The stereo direct stream writes FLAC, which that verifier
+	/// cannot inspect, so it gets its own magic-byte check. Neither reads past the header, so a
+	/// file truncated after it passes both; only a full decode would catch that.
+	///
+	/// An extension the writers never produce is not trusted: they only write `.m4a` (HLS),
+	/// `.mp4` (the Atmos direct stream) and `.flac` (the stereo direct stream), so an unknown
+	/// format is not evidence of a good file and the default rejects it.
 	private func isPlayableStoredFile(_ url: URL) -> Bool {
 		switch url.pathExtension.lowercased() {
-		case "m4a":
+		case "m4a", "mp4":
 			HLSStreaming.isPlayableMP4File(at: url)
 		case "flac":
 			Self.isPlayableFLACFile(at: url)
 		default:
-			true
+			false
 		}
 	}
 

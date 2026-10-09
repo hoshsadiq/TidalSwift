@@ -326,12 +326,15 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 		}
 	}
 
-	/// A file dated so a test can tell a backfilled date from "now".
+	/// A file dated so a test can tell a backfilled date from "now". It carries a real FLAC header,
+	/// so the sync's verifier accepts it: these tests are about the sync's keep and date paths, and a
+	/// stub the verifier rejects would send the sync off to resolve and download the track instead.
 	private func createOfflineFile(forTrackId trackId: Int, createdAt date: Date) throws {
 		let directory = offlineLibrary.root.appendingPathComponent("TidalSwift Offline Library")
 		try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 		let file = directory.appendingPathComponent("\(trackId).lossless.flac")
-		FileManager.default.createFile(atPath: file.path, contents: Data())
+		let bytes = Data("fLaC".utf8) + Data(repeating: 0, count: HLSStreaming.minimumPlayableFileBytes)
+		try bytes.write(to: file)
 		try FileManager.default.setAttributes([.creationDate: date], ofItemAtPath: file.path)
 	}
 

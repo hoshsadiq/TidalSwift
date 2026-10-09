@@ -358,7 +358,8 @@ class Player {
 			print("Play \(track.title) from offline URL: \(offlineStream.url)")
 			print("[PLAYBACK] avSetItem(): resolved URL - title: \(track.title), quality: \(offlineStream.quality?.rawValue ?? nextAudioQuality.rawValue), source: offline")
 			// The badge reads the tier the file holds, not the ceiling: a 24-bit offline file on a
-			// track advertised LOSSLESS must not read 16-bit.
+			// track advertised LOSSLESS must not read 16-bit. The file is local, so its sample rate
+			// is read the same way the cache path reads a cached file's.
 			let rung: HLSRung? = offlineStream.isDolbyAtmos
 				? .dolbyAtmos
 				: offlineStream.quality.map(HLSRung.stereo)
@@ -366,6 +367,7 @@ class Player {
 				trackId: track.id,
 				quality: offlineStream.quality ?? nextAudioQuality,
 				isDolbyAtmos: offlineStream.isDolbyAtmos,
+				sampleRate: HLSStreaming.sampleRate(of: offlineStream.url),
 				rung: rung
 			)
 			return offlineStream.url

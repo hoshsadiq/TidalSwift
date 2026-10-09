@@ -133,6 +133,97 @@ final class OfflineHLSTests: XCTestCase {
 		XCTAssertNil(streamValue, "a truncated FLAC must not be served")
 	}
 
+	/// The FLAC branch has a size floor and a magic check, and the 64-byte stub above fails both, so
+	/// each guard needs a payload that fails only it.
+	func testAFLACFileWithTheWrongMagicIsNotAcceptedAndNotServed() async throws {
+		try await assertFLACBytesAreRejected(Data(repeating: 0x41, count: 1024), trackId: 779_000_007)
+	}
+
+	func testAFLACHeaderAloneIsNotAcceptedAndNotServed() async throws {
+		try await assertFLACBytesAreRejected(Data("fLaC".utf8), trackId: 779_000_008)
+	}
+
+	/// The Atmos direct stream is an E-AC-3 MP4, so it is written under the `.mp4` extension the
+	/// writers use and must clear the MP4 verifier rather than being trusted by its name.
+	func testATruncatedAtmosDirectStreamMP4IsNotAcceptedAndNotServed() async throws {
+		let trackId = 779_000_009
+		let libraryDirectory = try makeLibraryDirectory()
+		let stub = libraryDirectory.appendingPathComponent("\(trackId).atmos.mp4")
+		try Data(try eac3InitFixture().prefix(64)).write(to: stub)
+
+		let session = try makeSession(quality: .high)
+		let offline = session.helpers.offline
+		let resolves = Counter()
+		offline.resolveOfflineHLSPlaylist = { _, _ in throw HLSStreamError.requestRefused(status: 403) }
+		offline.resolveOfflineStream = { _ in
+			resolves.value += 1
+			return nil
+		}
+		let track = makeTrack(id: trackId, audioModes: [.dolbyAtmos])
+		offline.setOfflineTracksForTesting([track])
+		await offline.awaitOngoingSync()
+
+		XCTAssertEqual(
+			resolves.value, 1,
+			"a truncated Atmos MP4 must not satisfy the wish, so the sync must re-resolve the track"
+		)
+		XCTAssertEqual(try Data(contentsOf: stub).count, 64, "the truncated file must not be kept on its name")
+		let streamValue = await offline.stream(for: track, ceiling: .high)
+		XCTAssertNil(streamValue, "a truncated Atmos MP4 must not be served")
+	}
+
+	/// An extension the writers never produce is not evidence of a good file, so the verifier rejects it
+	/// rather than trusting the name. The library lists any file named for a track id, whatever it ends in.
+	func testAFileWithAnUnknownExtensionIsNotAcceptedAndNotServed() async throws {
+		let trackId = 779_000_012
+		let libraryDirectory = try makeLibraryDirectory()
+		let stub = libraryDirectory.appendingPathComponent("\(trackId).lossless.xyz")
+		try Data(repeating: 0, count: 1024).write(to: stub)
+
+		let session = try makeSession()
+		let offline = session.helpers.offline
+		let resolves = Counter()
+		offline.resolveOfflineHLSPlaylist = { _, _ in throw HLSStreamError.requestRefused(status: 403) }
+		offline.resolveOfflineStream = { _ in
+			resolves.value += 1
+			return nil
+		}
+		offline.setOfflineTracksForTesting([makeTrack(id: trackId)])
+		await offline.awaitOngoingSync()
+
+		XCTAssertEqual(
+			resolves.value, 1,
+			"an unrecognised format must not satisfy the wish, so the sync must re-resolve the track"
+		)
+		let streamValue = await offline.stream(for: makeTrack(id: trackId), ceiling: .high)
+		XCTAssertNil(streamValue, "an unrecognised format must not be served")
+	}
+
+	/// Drives a sync over one `.lossless.flac` payload and asserts the verifier rejects it, so the
+	/// track is re-resolved and the file is never served.
+	private func assertFLACBytesAreRejected(_ bytes: Data, trackId: Int) async throws {
+		let libraryDirectory = try makeLibraryDirectory()
+		try bytes.write(to: libraryDirectory.appendingPathComponent("\(trackId).lossless.flac"))
+
+		let session = try makeSession()
+		let offline = session.helpers.offline
+		let resolves = Counter()
+		offline.resolveOfflineHLSPlaylist = { _, _ in throw HLSStreamError.requestRefused(status: 403) }
+		offline.resolveOfflineStream = { _ in
+			resolves.value += 1
+			return nil
+		}
+		offline.setOfflineTracksForTesting([makeTrack(id: trackId)])
+		await offline.awaitOngoingSync()
+
+		XCTAssertEqual(
+			resolves.value, 1,
+			"a file that is not a complete FLAC must not satisfy the wish, so the sync must re-resolve the track"
+		)
+		let streamValue = await offline.stream(for: makeTrack(id: trackId), ceiling: .high)
+		XCTAssertNil(streamValue, "a file that is not a complete FLAC must not be served")
+	}
+
 	func testAnOfflineTrackPlaysFromItsStoredFile() async throws {
 		let trackId = 779_000_003
 		let playlist = try makeLocalPlaylist(in: offlineLibrary.root)
@@ -478,8 +569,12 @@ final class OfflineHLSTests: XCTestCase {
 	func testTheOfflineFileForATrackIsChosenDeterministically() async throws {
 		let trackId = 779_000_025
 		let libraryDirectory = try makeLibraryDirectory()
-		// Write the lower tier first, so directory order would pick it if the rule were `files[0]`.
-		try Data(repeating: 4, count: 600).write(to: libraryDirectory.appendingPathComponent("\(trackId).high.m4a"))
+		// Both files are real MP4s, so the ranking is exercised rather than the verifier. The lower
+		// tier is written first, so directory order would pick it if the rule were `files[0]`.
+		try FileManager.default.copyItem(
+			at: try silentM4AFixture(),
+			to: libraryDirectory.appendingPathComponent("\(trackId).high.m4a")
+		)
 		try FileManager.default.copyItem(
 			at: try silentM4AFixture(),
 			to: libraryDirectory.appendingPathComponent("\(trackId).lossless.m4a")
