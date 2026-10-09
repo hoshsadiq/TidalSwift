@@ -252,13 +252,12 @@ struct Verifier {
 	}
 
 	/// The tool writes its offline preferences to a path inside the temp root, so the offline
-	/// domain is born under temp. A token refresh during a run still writes the standard domain,
-	/// so that is cleared too - through `UserDefaults.standard` itself, the object that wrote it,
-	/// followed by an unlink because `removePersistentDomain` alone leaves an empty plist. cfprefsd
-	/// can recreate that empty plist - `~/Library/Preferences/verify-playback.plist` - after the
-	/// process exits, so a run that refreshes the session can leave it behind; it holds nothing,
-	/// and everything else a run creates is removed. The app's own domain is never touched: a
-	/// stray bundle identifier must not turn this into a delete of the app's settings.
+	/// domain is born under temp. The standard domain is cleared on every run, whether or not
+	/// anything wrote it: right after `removePersistentDomain` the file still holds the old
+	/// contents, and the unlink is what removes it. cfprefsd then recreates an empty
+	/// `~/Library/Preferences/verify-playback.plist` after the process exits; it holds nothing and
+	/// is transient, seen for about five seconds, once at fifty. The app's own domain is never
+	/// touched: a stray bundle identifier must not turn this into a delete of the app's settings.
 	private static func cleanUpScratchDefaults(_ offlineDefaults: UserDefaults, suiteName: String) {
 		offlineDefaults.removePersistentDomain(forName: suiteName)
 		offlineDefaults.synchronize()
