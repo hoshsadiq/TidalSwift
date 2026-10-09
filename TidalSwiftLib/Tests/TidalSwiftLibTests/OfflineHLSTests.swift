@@ -63,6 +63,8 @@ final class OfflineHLSTests: XCTestCase {
 		let session = try makeSession()
 		let offline = session.helpers.offline
 		let resolves = Counter()
+		// A refused HLS rung keeps the drive hermetic; the fallback resolver is what is under test.
+		offline.resolveOfflineHLSPlaylist = { _, _ in throw HLSStreamError.requestRefused(status: 403) }
 		offline.resolveOfflineStream = { _ in
 			resolves.value += 1
 			return nil
@@ -77,6 +79,58 @@ final class OfflineHLSTests: XCTestCase {
 
 		let streamValue = await offline.stream(for: makeTrack(id: trackId), ceiling: .high)
 		XCTAssertNil(streamValue, "a truncated file must not be served")
+	}
+
+	/// The verifier decides whether a file is kept, not its name: a truncated file the source can
+	/// replace must be replaced, or the track never plays offline and is re-resolved for ever.
+	func testATruncatedOfflineFileIsReplacedWhenASourceResolves() async throws {
+		let trackId = 779_000_005
+		let libraryDirectory = try makeLibraryDirectory()
+		let stub = libraryDirectory.appendingPathComponent("\(trackId).lossless.m4a")
+		try Data(try Data(contentsOf: try silentM4AFixture()).prefix(64)).write(to: stub)
+		let playlist = try makeLocalPlaylist(in: offlineLibrary.root)
+
+		let session = try makeSession()
+		let offline = session.helpers.offline
+		offline.resolveOfflineHLSPlaylist = { _, _ in playlist }
+		offline.setOfflineTracksForTesting([makeTrack(id: trackId)])
+		await offline.awaitOngoingSync()
+
+		let stored = libraryDirectory.appendingPathComponent("\(trackId).lossless.m4a")
+		XCTAssertTrue(
+			HLSStreaming.isPlayableMP4File(at: stored),
+			"a resolvable source must replace the truncated file, not leave it on disk"
+		)
+		let streamValue = await offline.stream(for: makeTrack(id: trackId), ceiling: .high)
+		XCTAssertNotNil(streamValue, "the replacement must be served")
+	}
+
+	/// The direct-stream fallback writes FLAC, which the MP4 verifier cannot inspect, so it gets
+	/// its own check: a file without the `fLaC` magic, or below the size floor, is not a download.
+	func testATruncatedDirectStreamFLACIsNotAcceptedAndNotServed() async throws {
+		let trackId = 779_000_006
+		let libraryDirectory = try makeLibraryDirectory()
+		let stub = libraryDirectory.appendingPathComponent("\(trackId).lossless.flac")
+		try Data(repeating: 0, count: 64).write(to: stub)
+
+		let session = try makeSession()
+		let offline = session.helpers.offline
+		let resolves = Counter()
+		offline.resolveOfflineHLSPlaylist = { _, _ in throw HLSStreamError.requestRefused(status: 403) }
+		offline.resolveOfflineStream = { _ in
+			resolves.value += 1
+			return nil
+		}
+		offline.setOfflineTracksForTesting([makeTrack(id: trackId)])
+		await offline.awaitOngoingSync()
+
+		XCTAssertEqual(
+			resolves.value, 1,
+			"a truncated FLAC must not satisfy the wish, so the sync must re-resolve the track"
+		)
+
+		let streamValue = await offline.stream(for: makeTrack(id: trackId), ceiling: .high)
+		XCTAssertNil(streamValue, "a truncated FLAC must not be served")
 	}
 
 	func testAnOfflineTrackPlaysFromItsStoredFile() async throws {
@@ -404,7 +458,7 @@ final class OfflineHLSTests: XCTestCase {
 		let trackId = 779_000_024
 		let libraryDirectory = try makeLibraryDirectory()
 		// `makeTrack` advertises `.high`; the file is a legacy 24-bit FLAC.
-		try Data(repeating: 3, count: 600).write(to: libraryDirectory.appendingPathComponent("\(trackId).hires.flac"))
+		try flacStubBytes().write(to: libraryDirectory.appendingPathComponent("\(trackId).hires.flac"))
 
 		let session = try makeSession(quality: .max)
 		let offline = session.helpers.offline
@@ -454,7 +508,7 @@ final class OfflineHLSTests: XCTestCase {
 		let trackId = 779_000_010
 		let libraryDirectory = try makeLibraryDirectory()
 		let hires = libraryDirectory.appendingPathComponent("\(trackId).hires.flac")
-		try Data(repeating: 1, count: 64).write(to: hires)
+		try flacStubBytes().write(to: hires)
 
 		let session = try makeSession(quality: .max)
 		let offline = session.helpers.offline
@@ -511,6 +565,13 @@ final class OfflineHLSTests: XCTestCase {
 
 	private func silentM4AFixture() throws -> URL {
 		try XCTUnwrap(Bundle.module.url(forResource: "silent", withExtension: "m4a", subdirectory: "Fixtures"))
+	}
+
+	/// A FLAC file that clears `isPlayableStoredFile`'s check (the `fLaC` magic and the size
+	/// floor) without holding any audio, for the paths that only care whether the file looks
+	/// complete.
+	private func flacStubBytes() -> Data {
+		Data("fLaC".utf8) + Data(repeating: 0, count: HLSStreaming.minimumPlayableFileBytes)
 	}
 
 	/// The 588-byte `ftyp` + `moov` initialization segment Tidal serves for an `EAC3_JOC`

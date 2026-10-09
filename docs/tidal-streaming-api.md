@@ -56,7 +56,7 @@ Parameters: `audioquality`, `playbackmode`, `assetpresentation=FULL`, optionally
 - Tracks with both modes return **Atmos by default**. Only `immersiveaudio=false` forces stereo; `audiomode=STEREO` has no effect.
 - Adding the iOS app's parameters (`deviceType=PHONE`, `platform=IOS`, `locale`) changes nothing.
 - The Atmos file is a 5.1-bed E-AC-3 JOC stream in MP4. `afinfo` lists the Atmos (`ec+3`) layouts up to 9.1.6, `ffprobe` reports "Dolby Digital Plus + Dolby Atmos", and `AVPlayer` plays it from a local file.
-- This table's Atmos row was measured with `Authorization`, `X-Tidal-Token` and the desktop TIDAL user agent, like the rest of the table. The same endpoint with this app's own desktop-client session (its token, no `X-Tidal-Token`) returned nothing usable for the Atmos-only track 241,647,167 (probed below). The app takes Atmos from the manifest `EAC3_JOC` rung on the HLS route, and still takes it from this endpoint on the direct-stream fallback, which is the only route for a session without the desktop `cuk` claim.
+- This table's Atmos row was measured with `Authorization`, `X-Tidal-Token` and the desktop TIDAL user agent, like the rest of the table; the record does not say which client's token that run carried, the variable the 2026-10-06 section below shows decides the rendition. The same endpoint with this app's own desktop-client session returned nothing usable for the Atmos-only track 241,647,167 (probed below). The app takes Atmos from the manifest `EAC3_JOC` rung on the HLS route, and still takes it from this endpoint on the direct-stream fallback, which is the only route for a session without the desktop `cuk` claim.
 
 ### openapi `GET https://openapi.tidal.com/v2/trackManifests/{id}`
 

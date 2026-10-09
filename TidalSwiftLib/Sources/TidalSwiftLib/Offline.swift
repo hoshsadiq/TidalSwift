@@ -495,13 +495,35 @@ public final class Offline {
 	}
 
 	/// Whether a stored file is a complete download rather than a truncated or half-written
-	/// stub. The HLS route assembles one MP4 file and the playback cache already verifies that
-	/// shape, so the library reuses that verifier: a file it rejects is a miss here too, never
-	/// accepted by a later sync and never served. The direct-stream fallback is not MP4, so it
-	/// is left as the source wrote it.
+	/// stub. A file that fails here is a miss, so it is never accepted by a later sync, never
+	/// served, and never kept in place of a source that could replace it.
+	///
+	/// The HLS route assembles one MP4 file and the playback cache already verifies that shape,
+	/// so the library reuses that verifier. The direct-stream fallback writes FLAC, which that
+	/// verifier cannot inspect, so it gets its own magic-byte check. Neither reads past the
+	/// header, so a file truncated after it passes both; only a full decode would catch that.
 	private func isPlayableStoredFile(_ url: URL) -> Bool {
-		guard url.pathExtension.lowercased() == "m4a" else { return true }
-		return HLSStreaming.isPlayableMP4File(at: url)
+		switch url.pathExtension.lowercased() {
+		case "m4a":
+			HLSStreaming.isPlayableMP4File(at: url)
+		case "flac":
+			Self.isPlayableFLACFile(at: url)
+		default:
+			true
+		}
+	}
+
+	/// FLAC starts with the `fLaC` magic; the size floor is the MP4 verifier's, so a
+	/// header-only stub is rejected.
+	private static func isPlayableFLACFile(at url: URL) -> Bool {
+		let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+		let size = (attributes?[.size] as? NSNumber)?.intValue ?? 0
+		guard size >= HLSStreaming.minimumPlayableFileBytes else { return false }
+		guard let handle = try? FileHandle(forReadingFrom: url), let header = try? handle.read(upToCount: 4) else {
+			return false
+		}
+		try? handle.close()
+		return header == Data("fLaC".utf8)
 	}
 
 	/// What one track's download attempt achieved, so the sync can tell a failed download
@@ -519,9 +541,11 @@ public final class Offline {
 			reportMissingDownloadSource(for: track, existingFiles: existingFiles)
 			return .failed
 		}
-		// The Atmos stream can be unavailable, in which case the existing file can be what we'd download again
+		// The Atmos stream can be unavailable, in which case the existing file can be what we'd download again.
+		// The keep asks the verifier too, so a stub named for the source's variant is replaced
+		// rather than kept on its name alone.
 		let streamVariant = variant(of: source)
-		if existingFiles.contains(where: { variant(of: $0, track: track) == streamVariant }) {
+		if existingFiles.contains(where: { isPlayableStoredFile($0) && variant(of: $0, track: track) == streamVariant }) {
 			print("Offline: Keeping existing file of \(track.title)")
 			return .keptExistingFile
 		}
