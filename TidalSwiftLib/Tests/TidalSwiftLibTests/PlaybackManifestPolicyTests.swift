@@ -30,7 +30,8 @@ final class PlaybackManifestPolicyTests: XCTestCase {
 
 	func testAtmosEac3ManifestIsReportedAsAtmos() throws {
 		let accepted = PlaybackManifestPolicy.accept(
-			response(audioMode: .dolbyAtmos, manifest: try btsPayload(codecs: "eac3"))
+			response(audioMode: .dolbyAtmos, manifest: try btsPayload(codecs: "eac3")),
+			ceiling: .max
 		)
 		XCTAssertNotNil(accepted)
 		XCTAssertTrue(accepted?.isDolbyAtmos ?? false)
@@ -40,7 +41,8 @@ final class PlaybackManifestPolicyTests: XCTestCase {
 	/// Accepted, but not reported as Atmos. This is the lie the policy exists to prevent.
 	func testStereoManifestIsAcceptedButNotReportedAsAtmos() throws {
 		let accepted = PlaybackManifestPolicy.accept(
-			response(audioMode: .stereo, manifest: try btsPayload(codecs: "flac"))
+			response(audioMode: .stereo, manifest: try btsPayload(codecs: "flac")),
+			ceiling: .max
 		)
 		XCTAssertNotNil(accepted)
 		XCTAssertFalse(accepted?.isDolbyAtmos ?? true)
@@ -48,7 +50,8 @@ final class PlaybackManifestPolicyTests: XCTestCase {
 
 	func testAtmosAudioModeWithNonEac3CodecIsNotReportedAsAtmos() throws {
 		let accepted = PlaybackManifestPolicy.accept(
-			response(audioMode: .dolbyAtmos, manifest: try btsPayload(codecs: "flac"))
+			response(audioMode: .dolbyAtmos, manifest: try btsPayload(codecs: "flac")),
+			ceiling: .max
 		)
 		XCTAssertNotNil(accepted)
 		XCTAssertFalse(accepted?.isDolbyAtmos ?? true)
@@ -56,17 +59,50 @@ final class PlaybackManifestPolicyTests: XCTestCase {
 
 	func testAtmosAudioModeWithoutCodecIsReportedAsAtmos() throws {
 		let accepted = PlaybackManifestPolicy.accept(
-			response(audioMode: .dolbyAtmos, manifest: try btsPayload(codecs: nil))
+			response(audioMode: .dolbyAtmos, manifest: try btsPayload(codecs: nil)),
+			ceiling: .max
 		)
 		XCTAssertNotNil(accepted)
 		XCTAssertTrue(accepted?.isDolbyAtmos ?? false)
+	}
+
+	/// The ceiling gates what arrives, not only what is asked: Tidal answers the postpaywall
+	/// endpoint with an Atmos rendition at any quality, so an Atmos answer below High is
+	/// refused rather than accepted. A track with no other rendition is then skipped.
+	func testAtmosAnswerIsRefusedAtACeilingThatDoesNotAdmitIt() throws {
+		let atmos = response(audioMode: .dolbyAtmos, manifest: try btsPayload(codecs: "eac3"))
+		XCTAssertNil(PlaybackManifestPolicy.accept(atmos, ceiling: .low), "a Low ceiling must refuse an Atmos answer")
+		XCTAssertNil(PlaybackManifestPolicy.accept(atmos, ceiling: .medium), "a Medium ceiling must refuse an Atmos answer")
+	}
+
+	/// The other direction: at a ceiling that admits Atmos, the same answer is accepted and
+	/// labelled, so the gate does not over-refuse.
+	func testAtmosAnswerIsAcceptedAtHighAndMax() throws {
+		let atmos = response(audioMode: .dolbyAtmos, manifest: try btsPayload(codecs: "eac3"))
+		for ceiling in [AudioQuality.high, .max] {
+			let accepted = PlaybackManifestPolicy.accept(atmos, ceiling: ceiling)
+			XCTAssertNotNil(accepted, "a \(ceiling.rawValue) ceiling must accept an Atmos answer")
+			XCTAssertTrue(accepted?.isDolbyAtmos ?? false)
+		}
+	}
+
+	/// A stereo answer is a stereo answer at every ceiling: only an Atmos rendition is gated.
+	func testStereoAnswerIsAcceptedAtEveryCeiling() throws {
+		let stereo = response(audioMode: .stereo, manifest: try btsPayload(codecs: "flac"))
+		for ceiling in AudioQuality.allCases {
+			XCTAssertNotNil(
+				PlaybackManifestPolicy.accept(stereo, ceiling: ceiling),
+				"a \(ceiling.rawValue) ceiling must not refuse a stereo answer"
+			)
+		}
 	}
 
 	/// AVPlayer cannot play a DASH manifest, so the ladder keeps looking.
 	func testDashManifestIsRefused() throws {
 		XCTAssertNil(
 			PlaybackManifestPolicy.accept(
-				response(audioMode: nil, mimeType: "application/dash+xml", manifest: try btsPayload(codecs: "flac"))
+				response(audioMode: nil, mimeType: "application/dash+xml", manifest: try btsPayload(codecs: "flac")),
+				ceiling: .max
 			)
 		)
 	}
@@ -75,7 +111,8 @@ final class PlaybackManifestPolicyTests: XCTestCase {
 		for encryption in ["AES128", "CENC", "cbcs"] {
 			XCTAssertNil(
 				PlaybackManifestPolicy.accept(
-					response(audioMode: .dolbyAtmos, manifest: try btsPayload(codecs: "eac3", encryptionType: encryption))
+					response(audioMode: .dolbyAtmos, manifest: try btsPayload(codecs: "eac3", encryptionType: encryption)),
+					ceiling: .max
 				),
 				"\(encryption) must be refused"
 			)
@@ -84,11 +121,77 @@ final class PlaybackManifestPolicyTests: XCTestCase {
 
 	func testMalformedManifestIsRefused() throws {
 		XCTAssertNil(
-			PlaybackManifestPolicy.accept(response(audioMode: .stereo, manifest: "not base64 !!"))
+			PlaybackManifestPolicy.accept(response(audioMode: .stereo, manifest: "not base64 !!"), ceiling: .max)
 		)
 		let noUrl = try JSONSerialization.data(withJSONObject: ["codecs": "flac"]).base64EncodedString()
 		XCTAssertNil(
-			PlaybackManifestPolicy.accept(response(audioMode: .stereo, manifest: noUrl))
+			PlaybackManifestPolicy.accept(response(audioMode: .stereo, manifest: noUrl), ceiling: .max)
 		)
+	}
+
+	/// The guard fails closed on the codec, not the label: an E-AC-3 answer under any spelling
+	/// is Atmos, so only a ceiling that admits Atmos may accept it. `eac3` is the recorded
+	/// spelling; the others are the shapes a label would take if Tidal ever varies it.
+	func testEveryEac3CodecSpellingIsTreatedAsAtmos() throws {
+		for codecs in ["eac3", "ec-3", "EAC3", "ac-3", "ac3"] {
+			let atmos = response(audioMode: .stereo, manifest: try btsPayload(codecs: codecs))
+			XCTAssertNil(
+				PlaybackManifestPolicy.accept(atmos, ceiling: .low),
+				"\(codecs) must be treated as Atmos and refused at a Low ceiling"
+			)
+			XCTAssertTrue(
+				PlaybackManifestPolicy.accept(atmos, ceiling: .high)?.isDolbyAtmos ?? false,
+				"\(codecs) must be reported as Atmos at a High ceiling"
+			)
+		}
+	}
+
+	/// A spelling the old exact match missed: a JOC suffix or a DASH-style compound list still
+	/// names no stereo codec, so it is Atmos by the fail-closed rule rather than read as stereo.
+	func testAJocSuffixOrCompoundListIsStillTreatedAsAtmos() throws {
+		for codecs in ["ec-3.joc", "eac3joc", "ec3-joc", "mp4a.40.2,ec-3"] {
+			let atmos = response(audioMode: .stereo, manifest: try btsPayload(codecs: codecs))
+			XCTAssertNil(
+				PlaybackManifestPolicy.accept(atmos, ceiling: .low),
+				"\(codecs) names an E-AC-3 codec, so it must be refused at a Low ceiling"
+			)
+			XCTAssertTrue(
+				PlaybackManifestPolicy.accept(atmos, ceiling: .high)?.isDolbyAtmos ?? false,
+				"\(codecs) must be reported as Atmos at a High ceiling"
+			)
+		}
+	}
+
+	/// A blank codec with an Atmos label is the case the label exists for, and by the fail-closed
+	/// rule it is Atmos with or without the label.
+	func testABlankCodecIsTreatedAsAtmos() throws {
+		for codecs in ["", " "] {
+			let atmos = response(audioMode: .dolbyAtmos, manifest: try btsPayload(codecs: codecs))
+			XCTAssertNil(
+				PlaybackManifestPolicy.accept(atmos, ceiling: .low),
+				"a blank codec with an Atmos label must be refused at a Low ceiling"
+			)
+			XCTAssertTrue(
+				PlaybackManifestPolicy.accept(atmos, ceiling: .high)?.isDolbyAtmos ?? false,
+				"a blank codec with an Atmos label must be reported as Atmos"
+			)
+		}
+	}
+
+	/// A recognisably stereo codec is the only thing read as stereo; the label never overrides it.
+	func testARecognisablyStereoCodecIsNeverAtmos() throws {
+		for codecs in ["flac", "mp4a.40.2", "aac", "heaac"] {
+			let stereo = response(audioMode: .dolbyAtmos, manifest: try btsPayload(codecs: codecs))
+			let accepted = PlaybackManifestPolicy.accept(stereo, ceiling: .low)
+			XCTAssertNotNil(accepted, "\(codecs) must be accepted even at a Low ceiling")
+			XCTAssertFalse(accepted?.isDolbyAtmos ?? true, "\(codecs) must not be reported as Atmos")
+		}
+	}
+
+	/// An absent `audioMode` is not evidence of stereo when the codec is E-AC-3.
+	func testAnAbsentAudioModeDoesNotMakeAnEac3AnswerStereo() throws {
+		let atmos = response(audioMode: nil, manifest: try btsPayload(codecs: "eac3"))
+		XCTAssertNil(PlaybackManifestPolicy.accept(atmos, ceiling: .low))
+		XCTAssertTrue(PlaybackManifestPolicy.accept(atmos, ceiling: .high)?.isDolbyAtmos ?? false)
 	}
 }

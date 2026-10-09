@@ -381,7 +381,7 @@ final class LivePlaybackProbe: XCTestCase {
 		print("[LIVE] atmos offline: library holds \(files)")
 		XCTAssertEqual(files, ["241647167.atmos.m4a"], "the Atmos rendition must land under its marker")
 
-		let streamValue = await offline.stream(for: track)
+		let streamValue = await offline.stream(for: track, ceiling: session.config.offlineAudioQuality)
 		let stream = try XCTUnwrap(streamValue, "the stored Atmos file must be served offline")
 		XCTAssertEqual(stream.url.lastPathComponent, "241647167.atmos.m4a")
 		XCTAssertTrue(stream.isDolbyAtmos, "the stored file must be served as Atmos")
@@ -410,6 +410,61 @@ final class LivePlaybackProbe: XCTestCase {
 
 		let advanced = try await playMuted(source.url)
 		XCTAssertGreaterThan(advanced, 0, "the stereo rung must advance while playing")
+	}
+
+	/// A Low ceiling does not ask the Atmos rung, even with the preference on, so a 96 kbps setting
+	/// never plays a ~768 kbps E-AC-3 stream (decided 2026-10-08). Track 241,647,167 offers Atmos; at
+	/// Low the only rung is the stereo 96 kbps one. Muted.
+	func testALowCeilingDoesNotPlayTheAtmosRungEvenWhenPreferred() async throws {
+		let session = try liveSession()
+		let track = probeTrack(
+			id: 241_647_167, title: "atmos ceiling probe", albumId: 241_647_167, albumTitle: "atmos ceiling probe",
+			audioModes: [.stereo, .dolbyAtmos]
+		)
+		let cacheDirectory = try makeTemporaryCacheDirectory()
+		defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+
+		let sourceValue = await HLSStreaming.playbackSource(
+			for: track, session: session, quality: .low, preferDolbyAtmos: true, cacheDirectory: cacheDirectory
+		)
+		let source = try XCTUnwrap(sourceValue, "track 241647167 must still resolve at a Low ceiling")
+		print("[LIVE] atmos ceiling: at Low with the preference on served \(source.rung.format), badge \(HLSStreaming.badge(for: source.rung, sampleRate: source.sampleRate))")
+		XCTAssertNotEqual(source.rung, .dolbyAtmos, "a Low ceiling must not play the Atmos rung")
+		XCTAssertTrue(
+			HLSStreaming.qualityLadder(for: .low).map(HLSRung.stereo).contains(source.rung),
+			"the served rung must be on the Low ladder"
+		)
+
+		let advanced = try await playMuted(source.url)
+		print("[LIVE] atmos ceiling: the stereo rung advanced to \(String(format: "%.1f", advanced))s")
+		XCTAssertGreaterThan(advanced, 0, "the stereo rung must advance while playing")
+	}
+
+	/// A file below the ceiling is kept, so a second sync of an unchanged library makes no manifest
+	/// request (decided 2026-10-08). Track 1,228,498 is refused `FLAC_HIRES`, so the first sync steps
+	/// down to the lossless file; before this change the second sync re-resolved it.
+	func testASecondOfflineSyncMakesNoManifestRequestForAnUnchangedLibrary() async throws {
+		let session = try liveSession()
+		let track = probeTrack(id: 1_228_498, title: "offline sync probe", albumId: 1_228_498, albumTitle: "offline sync probe")
+		let offline = session.helpers.offline
+		var resolves = 0
+		offline.resolveOfflineHLSPlaylist = { _, rung in
+			resolves += 1
+			return try await session.hlsManifestRequest(trackId: track.id, rung: rung)
+		}
+
+		offline.setOfflineTracksForTesting([track])
+		await offline.awaitOngoingSync()
+		let afterFirst = resolves
+		let libraryDirectory = offlineLibrary.root.appendingPathComponent("TidalSwift Offline Library")
+		let files = ((try? FileManager.default.contentsOfDirectory(atPath: libraryDirectory.path)) ?? []).sorted()
+		print("[LIVE] offline sync: first pass made \(afterFirst) manifest requests, files \(files)")
+		XCTAssertGreaterThan(afterFirst, 0, "the first sync must resolve the track")
+
+		offline.setOfflineTracksForTesting([track])
+		await offline.awaitOngoingSync()
+		print("[LIVE] offline sync: second pass made \(resolves - afterFirst) manifest requests")
+		XCTAssertEqual(resolves, afterFirst, "a second sync of an unchanged library must make no manifest request")
 	}
 
 	/// Plays `url` muted until its position passes half a second, then stops. Returns the

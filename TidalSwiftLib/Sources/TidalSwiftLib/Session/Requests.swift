@@ -37,12 +37,12 @@ extension Session {
 		// A failed proactive refresh isn't fatal here: the request itself
 		// surfaces the definitive error (network failure or 401 below)
 		try? await refreshAccessTokenIfNeeded()
-		let response = try await Network.request(method: method, url: url, parameters: parameters, etag: etag, accessToken: config.accessToken, xTidalToken: config.apiToken)
+		let response = try await Network.request(method: method, url: url, parameters: parameters, etag: etag, accessToken: config.accessToken, xTidalToken: config.apiToken, using: requestSession)
 		guard response.statusCode == 401, Self.isAuthenticationFailure(response) else {
 			return response
 		}
 		try await refreshAccessToken()
-		return try await Network.request(method: method, url: url, parameters: parameters, etag: etag, accessToken: config.accessToken, xTidalToken: config.apiToken)
+		return try await Network.request(method: method, url: url, parameters: parameters, etag: etag, accessToken: config.accessToken, xTidalToken: config.apiToken, using: requestSession)
 	}
 
 	/// Tidal uses two distinct 401s. `subStatus` 11003 means the token expired

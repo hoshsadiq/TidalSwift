@@ -13,9 +13,11 @@ import Foundation
 /// user and is never rewritten, even when it sits above the subscription cap. A
 /// refused tier degrades during playback instead (see `bestAudioUrl`).
 public enum AudioQualityPolicy {
-	/// The stereo tiers, lowest first. Dolby Atmos and Sony 360 are separate
-	/// renditions, not rungs on this ladder, so they never appear here.
-	public static let ladder: [AudioQuality] = [.low, .medium, .high, .max]
+	/// The stereo tiers, lowest first. This is the one place the tier order is written: the
+	/// playback walk in `HLSStreaming.qualityLadder` and the v1 descending walk in `ContentUrls`
+	/// are both views of it. Dolby Atmos and Sony 360 are separate renditions, not rungs on this
+	/// ladder, so they never appear here.
+	public nonisolated static let ladder: [AudioQuality] = [.low, .medium, .high, .max]
 
 	/// Whether the subscription (or its override) allows this tier.
 	///

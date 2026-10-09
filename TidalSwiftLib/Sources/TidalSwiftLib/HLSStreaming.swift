@@ -56,6 +56,36 @@ public nonisolated enum HLSStreamError: Error, Equatable, Sendable {
 	}
 }
 
+extension HLSStreamError: LocalizedError {
+	/// A URL-free sentence for each case. A failure message must never carry the failing URL: a
+	/// segment URL's query holds its token, and `String(describing:)` on a wrapped `URLError`
+	/// would print it.
+	public var errorDescription: String? {
+		switch self {
+		case .requestRefused(let status):
+			"The server refused the request with HTTP \(status)."
+		case .requestFailed:
+			"The request did not complete."
+		case .missingPlaylistURL:
+			"The manifest carried no stream URL."
+		case .malformedPlaylist:
+			"The playlist could not be read."
+		case .noVariants:
+			"The manifest carried no playable variant."
+		case .missingInitializationSegment:
+			"The playlist carried no initialization segment."
+		case .encryptedPlaylist:
+			"The stream is encrypted, so this client cannot play it."
+		case .fetchFailed(let host):
+			"Could not fetch the stream from \(host)."
+		case .notPlayableFile:
+			"The downloaded stream is not a playable MP4 file."
+		case .writeFailed(let underlying):
+			"Could not write the downloaded file: \(underlying.localizedDescription)"
+		}
+	}
+}
+
 /// One entry of an HLS master playlist: a rendition and its bandwidth.
 public nonisolated struct HLSVariant: Equatable, Sendable {
 	public let bandwidth: Int
@@ -264,28 +294,25 @@ public nonisolated enum HLSStreaming {
 	/// refused `FLAC_HIRES`), so a refusal at the chosen tier is the common path and the next
 	/// lower rendition is the answer.
 	public static func qualityLadder(for quality: AudioQuality) -> [AudioQuality] {
-		switch quality {
-		case .max:
-			return [.max, .high, .medium, .low]
-		case .high:
-			return [.high, .medium, .low]
-		case .medium:
-			return [.medium, .low]
-		case .low:
-			return [.low]
-		}
+		let descending = Array(AudioQualityPolicy.ladder.reversed())
+		guard let index = descending.firstIndex(of: quality) else { return [] }
+		return Array(descending[index...])
 	}
 
 	/// The rungs a play asks for, in order.
 	///
 	/// Stereo is never gated on the advertised modes: the catalogue omits STEREO for tracks
 	/// the manifest API still serves FLAC for (measured 2026-10-08), so the manifest decides
-	/// what exists. A track that advertises Atmos also gets that rung; the preference puts it
-	/// first, and without the preference it is the fallback, so an Atmos-only track plays
-	/// either way. The preference then chooses, it never removes a rung.
+	/// what exists. A track that advertises Atmos also gets that rung when the ceiling admits
+	/// it; the preference puts it first, and without the preference it is the fallback, so an
+	/// Atmos-only track plays either way. The preference chooses, it never removes a rung.
+	///
+	/// The ceiling also gates the Atmos rung: a Medium or Low ceiling only walks the stereo
+	/// ladder, so a 96 kbps setting never plays the ~768 kbps E-AC-3 rendition
+	/// (`AudioQuality.admitsDolbyAtmos`).
 	public static func rungs(for quality: AudioQuality, preferDolbyAtmos: Bool, trackHasDolbyAtmos: Bool) -> [HLSRung] {
 		let stereo = qualityLadder(for: quality).map(HLSRung.stereo)
-		guard trackHasDolbyAtmos else { return stereo }
+		guard trackHasDolbyAtmos, quality.admitsDolbyAtmos else { return stereo }
 		return preferDolbyAtmos ? [.dolbyAtmos] + stereo : stereo + [.dolbyAtmos]
 	}
 
@@ -535,7 +562,7 @@ extension Session {
 	/// The quality is a ceiling: a refusal at the chosen tier (hi-res is the common refusal)
 	/// steps to the next lower rendition rather than failing, so this returns a URL whenever
 	/// any stereo tier is available. A track that advertises Atmos is offered the Atmos rung
-	/// too; the preference puts it first. See `HLSStreaming.rungs`.
+	/// too when the ceiling admits it; the preference puts it first. See `HLSStreaming.rungs`.
 	public func hlsPlaylistURL(
 		trackId: Int,
 		audioQuality: AudioQuality,
@@ -598,7 +625,7 @@ extension Session {
 		request.setValue(AuthInformation.tidalClientUserAgent, forHTTPHeaderField: "User-Agent")
 		request.setValue("application/vnd.api+json", forHTTPHeaderField: "Accept")
 		do {
-			let (data, response) = try await URLSession.shared.data(for: request)
+			let (data, response) = try await requestSession.data(for: request)
 			return Response(data: data, statusCode: (response as? HTTPURLResponse)?.statusCode, etag: nil)
 		} catch {
 			if HLSStreaming.isCancellation(error) { throw error }
@@ -774,16 +801,19 @@ extension HLSStreaming {
 					print("[PLAYBACK] hls: cached track \(trackId) at \(rung.format)")
 					return destination
 				} catch {
-					print("[PLAYBACK] hls: background cache failed for track \(trackId): \(error)")
+					// `localizedDescription`: the error itself can carry the failing playlist URL (and
+					// its token) through `String(describing:)`.
+					print("[PLAYBACK] hls: background cache failed for track \(trackId): \(error.localizedDescription)")
 					return nil
 				}
 			}
 		}
 	}
 
-	/// The sample rate of a cached file, or nil when the file does not report one. A
-	/// FLAC-in-fMP4 file often does not, so this stays optional rather than guessed.
-	static func sampleRate(of url: URL) -> Int? {
+	/// The sample rate of a local file (a cached one or an offline copy), or nil when the file
+	/// does not report one. A FLAC-in-fMP4 file often does not, so this stays optional rather
+	/// than guessed.
+	public static func sampleRate(of url: URL) -> Int? {
 		guard let file = try? AVAudioFile(forReading: url) else { return nil }
 		let rate = Int(file.fileFormat.sampleRate)
 		return rate > 0 ? rate : nil

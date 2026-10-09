@@ -12,17 +12,19 @@ All tests used a premium account in Germany (`countryCode=DE`). Reference tracks
 
 ## Quality tiers
 
-Tidal's current tiers and their API values:
+Tidal's current tiers, with this document's names for them and their API values:
 
-| Tidal name | API value | `AudioQuality` case | Format |
+| Name in this document | API value | `AudioQuality` case | Format |
 |---|---|---|---|
 | Low (96 kbps) | `LOW` | `.low` | HE-AAC (`mp4a.40.5`) |
-| Low (320 kbps) | `HIGH` | `.medium` | AAC-LC (`mp4a.40.2`) |
+| Medium (320 kbps) | `HIGH` | `.medium` | AAC-LC (`mp4a.40.2`) |
 | High | `LOSSLESS` | `.high` | FLAC 16 bit / 44.1 kHz |
-| Max | `HI_RES_LOSSLESS` | `.max` (commented out) | FLAC up to 24 bit / 192 kHz |
+| Max | `HI_RES_LOSSLESS` | `.max` | FLAC up to 24 bit / 192 kHz |
 | Dolby Atmos | audio mode `DOLBY_ATMOS` | – | E-AC-3 JOC, 768 kbps |
 
-Tracks never report `HI_RES_LOSSLESS` as their `audioQuality` in the v1 API; the maximum there is `LOSSLESS`. Hi-Res availability only shows up in `mediaMetadata.tags` (`HIRES_LOSSLESS`). Subscriptions and some other objects still send `HI_RES_LOSSLESS`, so `AudioQuality` decodes it as `.high` instead of failing.
+Tracks never report `HI_RES_LOSSLESS` as their `audioQuality` in the v1 API; the maximum there is `LOSSLESS`. Hi-Res availability only shows up in `mediaMetadata.tags` (`HIRES_LOSSLESS`). Subscriptions and some other objects still send `HI_RES_LOSSLESS`, which decodes to `.max`.
+
+The name column is this document's and the README's, not the app's: both Tidal's own quality menu and this app's Quality pane name 96 and 320 kbps **Low** (a 96/320 selector inside it), so only this document, the README and the `AudioQuality` case name call `HIGH`/320 "Medium" in user-visible text.
 
 ## Endpoints
 
@@ -54,6 +56,7 @@ Parameters: `audioquality`, `playbackmode`, `assetpresentation=FULL`, optionally
 - Tracks with both modes return **Atmos by default**. Only `immersiveaudio=false` forces stereo; `audiomode=STEREO` has no effect.
 - Adding the iOS app's parameters (`deviceType=PHONE`, `platform=IOS`, `locale`) changes nothing.
 - The Atmos file is a 5.1-bed E-AC-3 JOC stream in MP4. `afinfo` lists the Atmos (`ec+3`) layouts up to 9.1.6, `ffprobe` reports "Dolby Digital Plus + Dolby Atmos", and `AVPlayer` plays it from a local file.
+- This table's Atmos row was measured with `Authorization`, `X-Tidal-Token` and the desktop TIDAL user agent, like the rest of the table; the record does not say which client's token that run carried, the variable the 2026-10-06 section below shows decides the rendition on the desktop host. The same endpoint with this app's own desktop-client session returned nothing usable for the Atmos-advertised track 241,647,167 (probed below). The app takes Atmos from the manifest `EAC3_JOC` rung on the HLS route, and still takes it from this endpoint on the direct-stream fallback, which is the only route for a session without the desktop `cuk` claim.
 
 ### openapi `GET https://openapi.tidal.com/v2/trackManifests/{id}`
 
@@ -94,6 +97,38 @@ Capture of TIDAL for iOS (build 9217, client version 2.216.0) playing three song
 - The manifest request itself sat in `CONNECT` tunnels to `api.tidal.com` and `openapi.tidal.com` that the capture didn't decrypt. The openapi `trackManifests` endpoint above matches what the app plays.
 - API calls carry `deviceType=PHONE&platform=IOS&locale=de` and the headers `x-tidal-client-version` and `x-tidal-token`.
 
+## Official macOS client (asar + cached web bundle, measured 2026-10-08)
+
+The installed `TIDAL.app` is an Electron shell (client `desktop@2026.09.30`) whose UI is a web page
+the shell loads from `desktop.tidal.com`; the asar holds only the main process. Read from the
+extracted asar and the service worker's cached web bundle:
+
+- **Audio quality is a three-option radiogroup plus a separate switch**: Low (with an inner
+  96 / 320 kbps selector), High (`16-bit, 44.1 kHz`, sends `LOSSLESS`) and Max (`Up to 24-bit,
+  192 kHz`, sends `HI_RES_LOSSLESS`), plus **Adaptive streaming** (`Automatically adjust audio
+  quality based on your network conditions`). The default streaming quality is `HI_RES_LOSSLESS`.
+- **No Atmos preference exists.** Atmos is per-track metadata and a badge (`Dolby Atmos`) drawn
+  from `mediaMetadata.tags`. The quality badge deliberately yields nothing for an Atmos-only or
+  Sony-360-only track, so the two badges are mutually exclusive by construction. The leftovers of
+  a removed toggle still ship — a `settings_dolby_atmos_toggle_description` locale key, a
+  `dolbyAtmosDialogShown` storage key and a `modal/SHOW_DOLBY_ATMOS` action, none rendered or
+  dispatched.
+- **The native player never names a mode.** It calls
+  `GET /v1/tracks/{id}/playbackinfo?audioquality=<quality>&playbackmode=STREAM&assetpresentation=FULL`
+  with the client id and the `Bearer` token, and reads `audioMode` / `audioQuality` back out as
+  `actualAudioMode` / `actualAudioQuality`: the server tells the client which rendition it got. The
+  Tidal Connect path pins `audiomode: STEREO`.
+- **The web player hardcodes stereo.** It calls openapi
+  `GET /trackManifests/{id}?adaptive=&formats=<ladder>&manifestType=HLS|MPEG_DASH&uriScheme=DATA&usage=PLAYBACK`
+  with a format ladder derived from the quality, and stores `audioMode: 'STEREO'` in the playback
+  info it builds, with `bitDepth: 0` and `sampleRate: 0` placeholders — the same no-bit-depth
+  finding this app has for FLAC in fMP4.
+
+Upstream models quality as a ceiling expressed in `audioquality` terms and Atmos as something the
+service hands you, surfaced as an icon; there is no cross-preference to order. This app's Atmos
+switch is therefore our own addition, not parity, and it can only order a rung the ceiling already
+admits — which is why the ceiling gates it (see the rungs below).
+
 ## State in TidalSwift
 
 On `main`:
@@ -103,7 +138,7 @@ On `main`:
 
 On branch `Dolby-Atmos`:
 
-- **Dolby Atmos playback and download** through `playbackinfopostpaywall` (BTS, E-AC-3, unencrypted, always `playbackmode=STREAM`). Used when "Prefer Dolby Atmos" is on (Playback → Audio Quality) or when a track has no stereo version. Downloads get `.m4a`.
+- **Dolby Atmos playback and download** through `playbackinfopostpaywall` (BTS, E-AC-3, unencrypted, always `playbackmode=STREAM`). Used when "Prefer Dolby Atmos for streaming" is on (Stream → Quality) or when a track has no stereo version. Downloads get `.m4a`.
 - **Availability:** tracks with an Atmos mode are playable; only Sony 360 Reality Audio–only tracks count as unavailable.
 - **Quality menu:** only "High (Lossless)" plus the Atmos toggle. Low 96, Low 320 and Max are commented out with the reason.
 - **Top bar:** `LOW 96`, `LOW 320`, `HIGH`, `MAX`, `ATMOS`. The maximum shows `MAX` from the Hi-Res tag and appends `· ATMOS`.
@@ -224,15 +259,18 @@ A play, a prefetch and an offline download all resolve the same openapi manifest
 
 HLS is gated only on the desktop session. It used to be gated on an advertised stereo rendition too, which was wrong: the catalogue omits `STEREO` for tracks the manifest API still serves FLAC for (measured 2026-10-08), so an Atmos-advertised track that has no advertised stereo was dropped to `directStream`, and the v1 `streamUrl` refuses those tracks with 401 `subStatus 4005`. Such a track now resolves and plays through HLS.
 
-**The rungs** (`HLSStreaming.rungs`) are the chosen stereo tier walking down, with the Atmos rung ordered by the preference:
+**The rungs** (`HLSStreaming.rungs`) are the chosen stereo tier walking down, with the Atmos rung ordered by the preference. The ceiling gates the Atmos rung: only High and Max admit it, so a Low or Medium ceiling walks the stereo ladder alone and never plays the ~768 kbps E-AC-3 stream (`AudioQuality.admitsDolbyAtmos`, decided 2026-10-08).
 
-| preference | rungs (for Max) |
-| --- | --- |
-| on, track advertises Atmos | `EAC3_JOC`, then `FLAC_HIRES`, `FLAC`, `AACLC`, `HEAACV1` |
-| off, track advertises Atmos | `FLAC_HIRES`, `FLAC`, `AACLC`, `HEAACV1`, then `EAC3_JOC` |
-| track does not advertise Atmos | the stereo tiers only |
+| ceiling | preference | rungs (track advertises Atmos) |
+| --- | --- | --- |
+| Max | on | `EAC3_JOC`, then `FLAC_HIRES`, `FLAC`, `AACLC`, `HEAACV1` |
+| Max | off | `FLAC_HIRES`, `FLAC`, `AACLC`, `HEAACV1`, then `EAC3_JOC` |
+| High | on | `EAC3_JOC`, then `FLAC`, `AACLC`, `HEAACV1` |
+| High | off | `FLAC`, `AACLC`, `HEAACV1`, then `EAC3_JOC` |
+| Low / Medium | on or off | the stereo tiers only |
+| any, track does not advertise Atmos | any | the stereo tiers only |
 
-The preference chooses the order, it never removes a rung, so an Atmos-only track plays either way. The `directStream` fallback stays last: it is the v1 `streamUrl` ladder with the Atmos rendition on `playbackinfopostpaywall`, and is reached only when every HLS rung is refused.
+The preference chooses the order, it never removes a rung, so an Atmos-only track plays either way — except under a Low or Medium ceiling, where Atmos is not asked at all. The `directStream` fallback stays last: it is the v1 `streamUrl` ladder with the Atmos rendition on `playbackinfopostpaywall`, and is reached only when every HLS rung is refused.
 
 **Measured 2026-10-08 (track 241,647,167, the developer's “The Show Goes On”).** The catalogue carries two entries for this track, both `audioModes: [DOLBY_ATMOS]` and no `STEREO`, yet:
 
@@ -246,10 +284,14 @@ The preference chooses the order, it never removes a rung, so an Atmos-only trac
 
 Two conclusions. `audioModes` is not a stereo test: the catalogue omits `STEREO` while the manifest API serves FLAC stereo, so gating HLS on the advertised modes broke every track shaped like this. And Atmos comes through the manifest API: `EAC3_JOC` is served, not refused, so Atmos is an HLS rung and the old claim that only the v1 post-paywall endpoint serves Atmos is out of date. Live probes confirm it: with the preference off this track serves `FLAC` (badge `16-bit`), with the preference on it serves `EAC3_JOC` (badge `Dolby Atmos`), and playback advances in both cases; the stereo entry `5,872,412` serves `FLAC` with the preference off.
 
-**Stream, cache behind the play, prefetch ahead.** A play streams the playlist at once, so there is no download before it starts; the same playlist is written into the cache by a detached task behind the play. The prefetcher prepares the upcoming tracks through that same write, so a prefetched track is exactly a cached track and the next play reads the file with no manifest request. The cache lives at `~/Library/Caches/TidalSwift/stream/<trackId>-<rung>.m4a` (`<rung>` is `FLAC_HIRES`/`FLAC`/`AACLC`/`HEAACV1`/`DOLBY_ATMOS`) and keeps files until the configured limit, pruned by the LRU in `PlaybackCacheEviction`: files untouched for a week are dropped, then the least recently used until under the budget, evicting down to 80% of it. The track playing now, the prefetch window and anything mid-download are protected. The prune enumerates only the cache directory and never reaches the offline library under `~/Music`.
+**Stream, cache behind the play, prefetch ahead.** A play streams the playlist at once, so there is no download before it starts; the same playlist is written into the cache by a detached task behind the play. The prefetcher prepares the upcoming tracks through that same write, so a prefetched track is exactly a cached track and the next play reads the file with no manifest request. The cache lives at `~/Library/Caches/TidalSwift/stream/<trackId>-<tier>.m4a`, where `<tier>` is the served rung's `AudioQuality` raw value (`HI_RES_LOSSLESS`/`LOSSLESS`/`HIGH`/`LOW`, or `DOLBY_ATMOS`), so a Max request answered with the 16-bit file lands as `<trackId>-LOSSLESS.m4a` (`HLSRung.fileMarker`). Files are kept until the configured limit, pruned by the LRU in `PlaybackCacheEviction`: files untouched for a week are dropped, then the least recently used until under the budget, evicting down to 80% of it. The track playing now, the prefetch window and anything mid-download are protected. The prune enumerates only the cache directory and never reaches the offline library under `~/Music`.
 
-**Offline** downloads the same manifest to `<trackId>.<quality>.m4a` in `~/Music/TidalSwift Offline Library`, and the served rung names the file: a stereo tier by its quality, the Atmos `EAC3_JOC` rung as `<trackId>.atmos.m4a`. An Atmos-advertised track with the preference on asks the Atmos rung first and stores the Atmos file; with the preference off the stereo ladder is asked first and the Atmos rung is the fallback. The wanted variant follows the offline quality and the Atmos preference, and a file of another variant is replaced on the next sync. The offline library was empty when this landed, so no migration was needed.
+**Offline** downloads the same manifest to `<trackId>.<quality>.m4a` in `~/Music/TidalSwift Offline Library`, and the served rung names the file: a stereo tier by its quality, the Atmos `EAC3_JOC` rung as `<trackId>.atmos.m4a`. An Atmos-advertised track with the preference on asks the Atmos rung first and stores the Atmos file at a High or Max ceiling; below that the Atmos rung is not on the ladder at all, so the stereo ladder is asked alone. An Atmos file is served only when both the play ceiling and the offline ceiling admit Atmos, so it stops playing when either setting drops below High; a stereo file always plays, whatever the ceilings say. The Atmos file itself stays on disk: dropping the Stream ceiling alone runs no sync, so nothing replaces it, and a Download-side change replaces it only once a replacement resolves. With the preference off the stereo ladder is asked first and the Atmos rung is the fallback where the ceiling admits it. A copy already on disk outranks the preference: the playback cache serves the first rung it holds a file for, and the offline library keeps an Atmos file until a change re-checks it. Turning the Stream preference off runs no sync, so nothing replaces the file; flipping the Download preference re-checks the whole library and replaces the Atmos file once a stereo source resolves. A direct-stream fallback file is named for the tier that path serves, so a `HI_RES_LOSSLESS` request the endpoint answers with the 16-bit lossless file lands as `<trackId>.lossless.flac`.
 
-**Quality badge.** FLAC in fMP4 reports `bitsPerChannel` as 0, so the badge is read from the served rung (`HLSStreaming.badge(for:sampleRate:)`): 24-bit for `FLAC_HIRES`, 16-bit for `FLAC`, 320 kbps for `AACLC`, 96 kbps for `HEAACV1`, and `Dolby Atmos` for `EAC3_JOC`. The sample rate is appended when the stream reports one: a cached file reads it, and a streamed one has it filled from the item's own `tracks` once the item loads.
+A plain sync accepts any tier the ceiling's ladder can serve, so a stepped-down file (e.g. `FLAC_HIRES` refused, `FLAC` stored) is kept rather than re-resolved on every pass — the per-sync upgrade probe was dropped by decision (2026-10-08). A settings change (the Download quality or the Download Atmos preference) re-checks every file against the new wish and replaces the ones it no longer wants, except where the source already resolves to the variant on disk, which is kept as it is; and when nothing resolves at all, the rejected file is kept and the wish stays, so the next sync retries the replacement rather than accepting the old tier for good. When more than one file is present the choice is deterministic: the wanted variant, then the best tier on the ceiling's ladder, then the file name. The offline library was empty when this landed, so no migration was needed.
+
+**The quality setting is a ceiling, not an exact tier.** The fetch starts where the setting points and walks down until Tidal serves something, so a track with no hi-res master still plays. Atmos is outside that ladder and is only requested when the setting is High or Max; a Low or Medium ceiling also refuses an Atmos answer the v1 endpoint returns anyway, so a track Tidal serves no stereo rendition for is skipped below that rather than played as Atmos. Measured against the official macOS client: it asks for `HI_RES_LOSSLESS` and is answered `audioMode: STEREO` for a track the catalogue badges `DOLBY_ATMOS`, plays that stereo version, and never requests Atmos at all (`.omo/evidence/upstream-merge/tidal-app-probe.md`). The catalogue's `audioModes` describes what the catalogue advertises, not what Tidal holds or what any client plays.
+
+**Quality badge.** FLAC in fMP4 reports `bitsPerChannel` as 0, so the badge is read from the served rung (`HLSStreaming.badge(for:sampleRate:)`): 24-bit for `FLAC_HIRES`, 16-bit for `FLAC`, 320 kbps for `AACLC`, 96 kbps for `HEAACV1`, and `Dolby Atmos` for `EAC3_JOC`. The sample rate is appended when the stream reports one: a cached file reads it, an offline file is read from the file itself, and a streamed one has it filled from the item's own `tracks` once the item loads. An offline file's badge reads the tier its name carries, not the track's advertised quality, so a 24-bit offline file on a `LOSSLESS`-advertised track reads 24-bit rather than 16-bit.
 
 **Deleted** (see `.omo/evidence/upstream-merge/hls-stage4.md`): `AudioDecryption` and its suite, `DashAudio` and its suite, the `hiResStereo` and `dash` routes with `Session.hiResStereoStream`, `Session.dashAudioManifest`, the `OLD_AES` manifest policy and the download-and-decrypt path. The type `HiResStreamCache` became `PlaybackCache`, `HiResStreamingPreferences` became `PlaybackCachePreferences`, and `HiResStreaming.swift` became `PlaybackRouting.swift` and `PlaybackCache.swift`.

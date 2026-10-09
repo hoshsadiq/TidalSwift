@@ -24,17 +24,18 @@ xattr -d com.apple.quarantine /Applications/TidalSwift.app
 
 ## Audio quality
 
-Playback goes through Tidal's own playback service, the one the desktop app calls. The app logs in as the desktop client, and that is what makes the stereo renditions available at every tier; a session Tidal does not recognise is served Dolby Atmos instead.
+Playback goes through Tidal's own playback service, the one the desktop app calls. The app logs in as the desktop client, and that is what makes the stereo renditions available at every tier; a session Tidal does not recognise is served Dolby Atmos instead. Tidal can answer that at any quality, but the app only plays Atmos at High or Max: below that it asks for the stereo rendition alone, and a track Tidal serves no stereo rendition for is skipped rather than played.
 
 Preferences → Quality sets the tier:
 
-- **Low:** AAC, 320 kbps where Tidal serves it, assembled from the segments it sends.
+- **Low:** 96 kbps AAC.
+- **Medium:** 320 kbps AAC where Tidal serves it.
 - **High:** 16-bit FLAC at 44.1 kHz.
 - **Max:** up to 24-bit FLAC.
 
-The FLAC arrives encrypted and is decrypted on your Mac before it plays. When Tidal serves no stereo rendition for a track, the app falls back to Dolby Atmos or the older direct stream.
+When Tidal serves no stereo rendition for a track, the app plays it as Dolby Atmos at High or Max, or falls back to the older direct stream.
 
-Dolby Atmos is a preference rather than a tier, and offline keeps its own copy of it. With it on, an Atmos track plays Atmos. With it off the app asks for stereo, which Tidal refuses for many Atmos-capable tracks, so they still play Atmos.
+Dolby Atmos is a preference rather than a tier, and offline keeps its own copy of it. It only applies at High or Max quality: below that the Atmos rendition is never requested, and a track Tidal serves no stereo rendition for is skipped. At High or Max, a track with an Atmos version plays Atmos when the preference is on; with it off you get the stereo rendition, and the Atmos one is only used when the ceiling allows it and the track has nothing else. A copy already on your disk outranks the streaming preference: an Atmos file you already have keeps playing with the Stream preference off, since that switch runs no sync. The Download preference is not the same: flipping it re-checks the library and replaces the Atmos file once a stereo source resolves.
 
 The same pane holds "Ignore subscription limits", which lets you pick a tier above your subscription even when Tidal may refuse it, "Prefetch tracks", the number prepared ahead of the one playing (0 to 15, default 3), and "Cache size", the space prepared tracks may use in GB (default 2). Prepared tracks live in `~/Library/Caches/TidalSwift/`, so they start instantly.
 
@@ -50,7 +51,7 @@ Also, unlike the official app, it can display the Lyrics of the currently playin
 
 Unlike the official desktop app, TidalSwift supports offline playback. Downloaded albums, tracks and playlists appear in Collection alongside your favourites, and a "Downloaded only" toggle filters the list down to them. Items that are available offline show a cloud badge.
 
-Downloads follow the Offline preference, including its own Dolby Atmos setting. Logging out leaves the downloaded music in place; only the option in the logout dialog removes it.
+Bulk downloads follow the Download quality setting, including its own Dolby Atmos setting; the per-track Download command uses the Stream quality instead. Logging out leaves the downloaded music in place; only the option in the logout dialog removes it.
 
 ### Downloads
 

@@ -31,6 +31,14 @@ public class Session {
 	var activeTokenRefreshID: UUID?
 	var bestResolvedAudioQualities: [Int: AudioQuality] = [:]
 
+	/// The URL session every authenticated API request this session makes goes through: the v1
+	/// and v2 paths and `hlsManifestRequest`. A test substitutes one whose `URLProtocol` answers
+	/// fixed payloads, so the ceiling a call site forwards can be exercised without a live host.
+	/// Defaults to `.shared`. The token refresh and the HLS playlist/segment fetches keep their
+	/// own sessions: neither carries a ceiling a test needs to intercept, and a hermetic test
+	/// leaves `refreshToken` empty so no refresh is attempted.
+	var requestSession: URLSession = .shared
+
 	/// In-memory lyrics cache shared by every `LyricsResolver` built from this
 	/// session. Scoping it to the long-lived session (rather than a resolver
 	/// owned by a view) is what lets resolved lyrics survive the Now Playing
@@ -254,12 +262,12 @@ extension Session {
 	/// and retry-on-401 behaviour).
 	func v2Get<Result: Decodable>(url: URL, parameters: [String: String]) async throws -> Result {
 		try? await refreshAccessTokenIfNeeded()
-		let response = try await Self.v2Request(url: url, parameters: parameters, accessToken: config.accessToken, xTidalToken: config.apiToken)
+		let response = try await v2Request(url: url, parameters: parameters, accessToken: config.accessToken, xTidalToken: config.apiToken)
 		guard response.statusCode == 401, Self.isAuthenticationFailure(response) else {
 			return try JSONDecoder.custom.decode(Result.self, from: response.data)
 		}
 		try await refreshAccessToken()
-		let retry = try await Self.v2Request(url: url, parameters: parameters, accessToken: config.accessToken, xTidalToken: config.apiToken)
+		let retry = try await v2Request(url: url, parameters: parameters, accessToken: config.accessToken, xTidalToken: config.apiToken)
 		return try JSONDecoder.custom.decode(Result.self, from: retry.data)
 	}
 
@@ -268,15 +276,15 @@ extension Session {
 	/// check the status code before decoding a body whose shape may vary.
 	func v2Put(url: URL, parameters: [String: String]) async throws -> Response {
 		try? await refreshAccessTokenIfNeeded()
-		let response = try await Self.v2Request(method: .put, url: url, parameters: parameters, accessToken: config.accessToken, xTidalToken: config.apiToken)
+		let response = try await v2Request(method: .put, url: url, parameters: parameters, accessToken: config.accessToken, xTidalToken: config.apiToken)
 		guard response.statusCode == 401, Self.isAuthenticationFailure(response) else {
 			return response
 		}
 		try await refreshAccessToken()
-		return try await Self.v2Request(method: .put, url: url, parameters: parameters, accessToken: config.accessToken, xTidalToken: config.apiToken)
+		return try await v2Request(method: .put, url: url, parameters: parameters, accessToken: config.accessToken, xTidalToken: config.apiToken)
 	}
 
-	private static func v2Request(method: Network.HttpMethod = .get, url: URL, parameters: [String: String], accessToken: String, xTidalToken: String) async throws -> Response {
+	private func v2Request(method: Network.HttpMethod = .get, url: URL, parameters: [String: String], accessToken: String, xTidalToken: String) async throws -> Response {
 		guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
 			throw SessionError.unexpectedResponse
 		}
@@ -297,7 +305,7 @@ extension Session {
 		request.setValue(AuthInformation.clientVersion, forHTTPHeaderField: "x-tidal-client-version")
 		request.setValue(AuthInformation.tidalClientUserAgent, forHTTPHeaderField: "User-Agent")
 
-		let (data, response) = try await URLSession.shared.data(for: request)
+		let (data, response) = try await requestSession.data(for: request)
 		return Response(data: data, statusCode: (response as? HTTPURLResponse)?.statusCode, etag: nil)
 	}
 }

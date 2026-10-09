@@ -40,6 +40,18 @@ extension AudioQuality: Identifiable {
 	public var id: Self { self }
 }
 
+extension AudioQuality {
+	/// Whether a ceiling at this tier admits the Dolby Atmos rendition.
+	///
+	/// Atmos is a ~768 kbps E-AC-3 stream with no lower variant, so only a High or Max ceiling
+	/// asks for it. A Medium or Low ceiling walks the stereo ladder alone rather than override a
+	/// data-quality cap with a much larger stream (decided 2026-10-08). One place states the rule,
+	/// so the HLS rung builder and the offline sync cannot drift apart on it.
+	public nonisolated var admitsDolbyAtmos: Bool {
+		self == .high || self == .max
+	}
+}
+
 struct LoginResponse: Decodable {
 	let userId: Int
 	let sessionId: String

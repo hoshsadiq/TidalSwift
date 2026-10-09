@@ -351,16 +351,24 @@ class Player {
 		// The cache write behind an online play prunes under this: the prefetch window, the
 		// current track and the queue, so a play never evicts what is about to play.
 		let protection = prefetcher.cacheProtection()
-		if let offlineStream = await session.helpers.offline.stream(for: track) {
+		if let offlineStream = await session.helpers.offline.stream(for: track, ceiling: nextAudioQuality) {
 			guard loadID == itemLoadID else {
 				return nil
 			}
 			print("Play \(track.title) from offline URL: \(offlineStream.url)")
-			print("[PLAYBACK] avSetItem(): resolved URL - title: \(track.title), quality: \(nextAudioQuality), source: offline")
+			print("[PLAYBACK] avSetItem(): resolved URL - title: \(track.title), quality: \(offlineStream.quality?.rawValue ?? nextAudioQuality.rawValue), source: offline")
+			// The badge reads the tier the file holds, not the ceiling: a 24-bit offline file on a
+			// track advertised LOSSLESS must not read 16-bit. The file is local, so its sample rate
+			// is read the same way the cache path reads a cached file's.
+			let rung: HLSRung? = offlineStream.isDolbyAtmos
+				? .dolbyAtmos
+				: offlineStream.quality.map(HLSRung.stereo)
 			playbackInfo.resolvedStream = ResolvedStream(
 				trackId: track.id,
-				quality: nextAudioQuality,
-				isDolbyAtmos: offlineStream.isDolbyAtmos
+				quality: offlineStream.quality ?? nextAudioQuality,
+				isDolbyAtmos: offlineStream.isDolbyAtmos,
+				sampleRate: HLSStreaming.sampleRate(of: offlineStream.url),
+				rung: rung
 			)
 			return offlineStream.url
 		}
@@ -378,12 +386,16 @@ class Player {
 			// A stream URL carries a signed token in its path and query, so only the host is logged.
 			print("Play \(track.title) from online URL on \(stream.url.host ?? "a local file")")
 			print("[PLAYBACK] avSetItem(): resolved URL - title: \(track.title), quality: \(stream.quality), source: online")
+			let rung: HLSRung? = stream.isHLS
+				? (stream.isDolbyAtmos ? .dolbyAtmos : .stereo(stream.quality))
+				: nil
 			playbackInfo.resolvedStream = ResolvedStream(
 				trackId: track.id,
 				quality: stream.quality,
 				isDolbyAtmos: stream.isDolbyAtmos,
 				sampleRate: stream.sampleRate,
-				isHLS: stream.isHLS
+				isHLS: stream.isHLS,
+				rung: rung
 			)
 			return stream.url
 		}
@@ -419,7 +431,7 @@ class Player {
 		itemStatusObservation?.invalidate()
 		itemStatusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
 			guard item.status == .failed else { return }
-			let description = item.error.map { String(describing: $0) }
+			let description = item.error.map { $0.localizedDescription }
 			let itemID = ObjectIdentifier(item)
 			Task { @MainActor [weak self] in
 				guard let self, let current = self.avPlayer.currentItem, ObjectIdentifier(current) == itemID else { return }
@@ -438,7 +450,7 @@ class Player {
 	@objc func playerItemFailedToPlayToEndTime(sender: Notification) {
 		guard let item = sender.object as? AVPlayerItem, item === avPlayer.currentItem else { return }
 		let description = (sender.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error)
-			.map { String(describing: $0) }
+			.map { $0.localizedDescription }
 		playerItemFailed(reason: "AVPlayerItemFailedToPlayToEndTime", errorDescription: description)
 	}
 
@@ -732,8 +744,7 @@ class Player {
 		guard let stream = playbackInfo.resolvedStream, stream.trackId == track.id else {
 			return ""
 		}
-		if stream.isHLS {
-			let rung: HLSRung = stream.isDolbyAtmos ? .dolbyAtmos : .stereo(stream.quality)
+		if let rung = stream.rung {
 			return HLSStreaming.badge(for: rung, sampleRate: stream.sampleRate)
 		}
 		if stream.isDolbyAtmos {
@@ -743,23 +754,7 @@ class Player {
 			return ""
 		}
 
-		return qualityToString(quality: Self.clampedQuality(stream.quality, advertised: quality))
-	}
-
-	/// The direct `streamUrl` fallback answers a HI_RES_LOSSLESS request with the
-	/// lossless 16-bit file, so a Max request that lands here is labelled High.
-	private static func clampedQuality(_ resolved: AudioQuality, advertised: AudioQuality) -> AudioQuality {
-		var quality = resolved
-		if quality == .max {
-			quality = .high
-		}
-		if quality == .high && (advertised == .medium || advertised == .low) {
-			quality = .medium
-		}
-		if quality == .medium && advertised == .low {
-			quality = .low
-		}
-		return quality
+		return qualityToString(quality: stream.quality.servedByDirectStream(advertised: quality))
 	}
 
 	private func qualityToString(quality: AudioQuality) -> String {

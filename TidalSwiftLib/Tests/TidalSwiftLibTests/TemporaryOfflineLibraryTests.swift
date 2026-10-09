@@ -144,6 +144,50 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 
 	// MARK: - Logout
 
+	/// The verifier's size floor and magic check are what keep the fixtures these tests store from
+	/// being re-resolved: a fixture it stopped accepting would send every test that stores one to
+	/// the live resolver. The resolver is stubbed here, so a threshold change is an assertion
+	/// rather than a silent dial-out elsewhere.
+	///
+	/// Each branch is guarded by the smallest fixture the suite can ask it to verify. The FLAC
+	/// fixture is sized from `minimumPlayableFileBytes` (`createOfflineFile`), so it protects by
+	/// construction: a raised floor scales it and it still clears. The MP4 fixture is the fixed
+	/// 588-byte `eac3-init.mp4` the Atmos tests store, the smallest one the suite uses, so this is
+	/// the only assertion that states the fixture itself must clear the floor. It is not the only
+	/// thing that catches a raised one: the other tests that store this fixture red as well.
+	func testTheOfflineFixturesClearTheVerifier() async throws {
+		let flacTrackId = 987_654_601
+		let mp4TrackId = 987_654_602
+		let libraryDirectory = offlineLibrary.root.appendingPathComponent("TidalSwift Offline Library")
+		try createOfflineFile(forTrackId: flacTrackId, createdAt: Date(timeIntervalSince1970: 1_600_000_000))
+		let smallestMP4 = try XCTUnwrap(Bundle.module.url(forResource: "eac3-init", withExtension: "mp4", subdirectory: "Fixtures"))
+		try FileManager.default.copyItem(
+			at: smallestMP4,
+			to: libraryDirectory.appendingPathComponent("\(mp4TrackId).lossless.m4a")
+		)
+
+		let session = offlineLibrary.makeSession()
+		let offline = session.helpers.offline
+		let resolves = Counter()
+		offline.resolveOfflineStream = { _ in
+			resolves.value += 1
+			return nil
+		}
+		offline.setOfflineTracksForTesting([makeTrack(id: flacTrackId), makeTrack(id: mp4TrackId)])
+		let started = await offline.awaitOngoingSync()
+		XCTAssertTrue(started, "the sync must start, or this guard asserts nothing")
+
+		XCTAssertEqual(
+			resolves.value, 0,
+			"the stored fixtures must be accepted by the verifier, or the tests that store one reach the live resolver"
+		)
+		XCTAssertTrue(fileExists(forTrackId: flacTrackId), "an accepted fixture must be kept, not re-resolved")
+		XCTAssertTrue(
+			HLSStreaming.isPlayableMP4File(at: smallestMP4),
+			"the MP4 fixture itself must clear the floor, or every test that stores it reaches the live resolver"
+		)
+	}
+
 	/// The keep path never calls `removeAll()`, so the file and its database entry both survive
 	/// the sync.
 	func testKeepingDownloadsLeavesFileAndDatabaseIntact() async throws {
@@ -281,6 +325,10 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 
 	// MARK: - Helpers
 
+	private final class Counter {
+		var value = 0
+	}
+
 	/// Snapshots and restores the given keys around a call, so a test running
 	/// against the developer's real UserDefaults domain puts back exactly what it
 	/// found.
@@ -326,12 +374,15 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 		}
 	}
 
-	/// A file dated so a test can tell a backfilled date from "now".
+	/// A file dated so a test can tell a backfilled date from "now". It carries a real FLAC header,
+	/// so the sync's verifier accepts it: these tests are about the sync's keep and date paths, and a
+	/// stub the verifier rejects would send the sync off to resolve and download the track instead.
 	private func createOfflineFile(forTrackId trackId: Int, createdAt date: Date) throws {
 		let directory = offlineLibrary.root.appendingPathComponent("TidalSwift Offline Library")
 		try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 		let file = directory.appendingPathComponent("\(trackId).lossless.flac")
-		FileManager.default.createFile(atPath: file.path, contents: Data())
+		let bytes = Data("fLaC".utf8) + Data(repeating: 0, count: HLSStreaming.minimumPlayableFileBytes)
+		try bytes.write(to: file)
 		try FileManager.default.setAttributes([.creationDate: date], ofItemAtPath: file.path)
 	}
 

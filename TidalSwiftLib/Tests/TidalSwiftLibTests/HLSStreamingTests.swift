@@ -453,9 +453,10 @@ final class HLSStreamingTests: XCTestCase {
 	}
 
 	/// With the preference on, the Atmos rung is asked first and a served Atmos stops the walk.
+	/// The served playlist is local, so the background cache write stays off the network.
 	func testTheAtmosPreferenceAsksTheAtmosRungFirst() async throws {
 		var asked: [HLSRung] = []
-		let served = URL(string: "https://im-fa.manifest.tidal.com/atmos.m3u8")!
+		let served = try makeLocalPlaylist(segments: ["AAAA"]).multivariantURL
 
 		let source = await HLSStreaming.playbackSource(
 			for: makeTrack(id: 981_563_431, audioModes: [.stereo, .dolbyAtmos]), session: makeSession(),
@@ -473,9 +474,10 @@ final class HLSStreamingTests: XCTestCase {
 
 	/// With the preference off, the stereo ladder is asked first and the Atmos rung is the
 	/// fallback when every stereo rung is refused, so the track still plays.
+	/// The served playlist is local, so the background cache write stays off the network.
 	func testWithoutTheAtmosPreferenceTheAtmosRungIsTheFallback() async throws {
 		var asked: [HLSRung] = []
-		let served = URL(string: "https://im-fa.manifest.tidal.com/atmos.m3u8")!
+		let served = try makeLocalPlaylist(segments: ["AAAA"]).multivariantURL
 
 		let source = await HLSStreaming.playbackSource(
 			for: makeTrack(id: 981_563_432, audioModes: [.stereo, .dolbyAtmos]), session: makeSession(),
@@ -509,6 +511,27 @@ final class HLSStreamingTests: XCTestCase {
 		)
 	}
 
+	/// The ceiling gates the Atmos rung: only High and Max admit it, so a Low or Medium ceiling
+	/// never places a ~768 kbps E-AC-3 stream under a 96/320 kbps cap (decided 2026-10-08).
+	func testTheCeilingGatesTheAtmosRung() {
+		for quality in [AudioQuality.low, .medium] {
+			for prefer in [true, false] {
+				XCTAssertEqual(
+					HLSStreaming.rungs(for: quality, preferDolbyAtmos: prefer, trackHasDolbyAtmos: true),
+					HLSStreaming.qualityLadder(for: quality).map(HLSRung.stereo),
+					"a \(quality.rawValue) ceiling must not ask the Atmos rung"
+				)
+			}
+		}
+		for quality in [AudioQuality.high, .max] {
+			for prefer in [true, false] {
+				let rungs = HLSStreaming.rungs(for: quality, preferDolbyAtmos: prefer, trackHasDolbyAtmos: true)
+				XCTAssertTrue(rungs.contains(.dolbyAtmos), "a \(quality.rawValue) ceiling must offer the Atmos rung")
+				XCTAssertEqual(rungs.first?.isDolbyAtmos ?? false, prefer, "the preference orders the Atmos rung")
+			}
+		}
+	}
+
 	/// The badge names the rung that was served, so the Atmos rung reads Dolby Atmos.
 	func testBadgeForTheAtmosRung() {
 		XCTAssertEqual(HLSStreaming.badge(for: .dolbyAtmos), "Dolby Atmos")
@@ -521,7 +544,8 @@ final class HLSStreamingTests: XCTestCase {
 	/// lower one, and the first rung served wins without asking anything below it.
 	func testTheLadderStepsDownUntilATierIsServedAndAsksNothingLower() async throws {
 		var asked: [HLSRung] = []
-		let served = URL(string: "https://im-fa.manifest.tidal.com/medium.m3u8")!
+		// Local, so the detached cache write behind the served playlist never dials out.
+		let served = try makeLocalPlaylist(segments: ["AAAA"]).multivariantURL
 
 		let source = await HLSStreaming.playbackSource(
 			for: makeTrack(id: 981_563_421), session: makeSession(), quality: .max, cacheDirectory: directory,

@@ -249,6 +249,12 @@ public final class Offline {
 	private enum FileVariant: Equatable, Hashable {
 		case dolbyAtmos
 		case stereo(AudioQuality?)
+
+		/// The stereo tier the file holds; nil for the Atmos rendition and for an unnamed legacy file.
+		var quality: AudioQuality? {
+			if case .stereo(let quality) = self { return quality }
+			return nil
+		}
 	}
 
 	/// Built on first use, so the launch task and a redirect of `defaults` both land first.
@@ -349,17 +355,51 @@ public final class Offline {
 		return path
 	}
 
-	public func stream(for track: Track) async -> AudioStream? {
+	/// The offline file to play for `track` at the play ceiling, or nil when no stored file may
+	/// be served.
+	///
+	/// The library is a source, not an exception to the settings: a stored file is served only
+	/// when a ceiling admits its rendition and the file is complete (`isPlayableStoredFile`).
+	/// The play ceiling (`ceiling`, the Stream setting)
+	/// governs this play and the offline ceiling governs the library, so an Atmos file needs both
+	/// to admit Atmos. Below High it is kept on disk — until a settings change re-checks it, the
+	/// policy the sync follows — but not played: the track is skipped the same way the streaming
+	/// route skips a rendition it cannot serve. Refusing it here never prunes the file.
+	public func stream(for track: Track, ceiling: AudioQuality) async -> AudioStream? {
 		if !db.tracks.contains(track) {
 			return nil
 		}
 		guard let files = localFilesByTrackId()?[track.id], !files.isEmpty else {
 			return nil
 		}
-		// An older variant can be left over, e.g. when removing it after a download failed
-		let wantedVariant = wantedVariant(of: track)
-		let url = files.first(where: { variant(of: $0, track: track) == wantedVariant }) ?? files[0]
-		return AudioStream(url: url, pathExtension: url.pathExtension, isDolbyAtmos: variant(of: url, track: track) == .dolbyAtmos)
+		// The playable files are the ones a ceiling admits; more than one can be present, e.g.
+		// before a re-download prunes the old one. The sync decides what to keep over the unfiltered
+		// set, so a play can serve a file that same pass is about to prune: with the Stream setting
+		// at Low and the Atmos replacement still downloading, the stereo leftover is served here
+		// and pruned there. Closing that would mean giving the sync the play ceiling, which it has
+		// no access to.
+		let playable = files
+			.filter { isPlayableStoredFile($0) }
+			.filter { isAdmissible(variant(of: $0, track: track), at: ceiling) }
+		guard let url = preferredFile(for: track, in: playable) else {
+			return nil
+		}
+		let fileVariant = variant(of: url, track: track)
+		return AudioStream(
+			url: url,
+			pathExtension: url.pathExtension,
+			isDolbyAtmos: fileVariant == .dolbyAtmos,
+			quality: fileVariant.quality
+		)
+	}
+
+	/// Whether a stored file's rendition may be served at the play ceiling. A stereo file always
+	/// plays: the offline library is what a play falls back to. An Atmos file needs the play
+	/// ceiling and the offline ceiling to admit Atmos, so it is not played below High from either
+	/// setting.
+	private func isAdmissible(_ variant: FileVariant, at ceiling: AudioQuality) -> Bool {
+		guard variant == .dolbyAtmos else { return true }
+		return ceiling.admitsDolbyAtmos && session.config.offlineAudioQuality.admitsDolbyAtmos
 	}
 
 	/// Replaces offline files in other qualities on the next sync
@@ -367,38 +407,69 @@ public final class Offline {
 		guard audioQuality != session.config.offlineAudioQuality else { return }
 		session.config.offlineAudioQuality = audioQuality
 		session.saveConfig()
-		startSync()
+		// A settings change re-checks every file against the new ceiling, so a lower tier is
+		// replaced rather than kept; a plain sync would keep it (see `syncPlan`).
+		startSync(redownloadBelowWanted: true)
 	}
 
 	/// Replaces the offline files of tracks with Dolby Atmos on the next sync
 	public func setPreferDolbyAtmos(to preferDolbyAtmos: Bool) {
 		guard preferDolbyAtmos != self.preferDolbyAtmos else { return }
 		self.preferDolbyAtmos = preferDolbyAtmos
-		startSync()
+		startSync(redownloadBelowWanted: true)
 	}
 
 	/// Same choice as streaming: the Atmos preference or a track with no stereo picks Atmos,
-	/// otherwise the file holds the configured quality.
+	/// otherwise the file holds the configured quality. The ceiling gates Atmos here too, so a
+	/// Low or Medium offline quality stores stereo (see `AudioQuality.admitsDolbyAtmos`).
 	private func wantedVariant(of track: Track) -> FileVariant {
-		if track.hasDolbyAtmos && (preferDolbyAtmos || !track.hasStereo) {
+		if track.hasDolbyAtmos, session.config.offlineAudioQuality.admitsDolbyAtmos,
+		   preferDolbyAtmos || !track.hasStereo {
 			return .dolbyAtmos
 		}
 		return .stereo(session.config.offlineAudioQuality)
 	}
 
-	/// Every variant on disk that satisfies the wish for this track.
+	/// Every variant the sync's own rungs can land on.
 	///
-	/// The configured tier is a ceiling, not "any tier at or below it": the exact wanted
-	/// variant is the wish, so a Low file never satisfies a Max wish. Tidal still decides the
-	/// rendition, so an Atmos-capable stereo track with the preference off may have been served
-	/// the Atmos rung when every stereo rung was refused (see `HLSStreaming.rungs`), and that
-	/// file must count too.
+	/// The offline quality is a ceiling, so the ladder may step down when the chosen tier is
+	/// refused, and may serve the Atmos rendition where the ceiling admits it. The file the sync
+	/// would download is therefore the file it must accept, or it re-resolves every track on
+	/// every sync for nothing. The direct-stream fallback, reached when the session has no HLS or
+	/// every HLS rung is refused, needs no variant of its own: it is named by
+	/// `servedByDirectStream`, which never rises above the request and so always lands on this
+	/// ladder (`testTheDirectStreamTierIsAlreadyOnTheCeilingLadder`). That per-sync upgrade probe
+	/// is gone by decision (2026-10-08): a file below the ceiling is kept until a settings change
+	/// re-checks it and replaces what no longer matches. The playback cache has no such pass: it
+	/// serves a cached file whenever its rung is on the ladder and never replaces it.
 	private func acceptableVariants(of track: Track) -> Set<FileVariant> {
-		var variants: Set<FileVariant> = [wantedVariant(of: track)]
-		if track.hasDolbyAtmos && track.hasStereo && !preferDolbyAtmos {
-			variants.insert(.dolbyAtmos)
+		let rungs = HLSStreaming.rungs(
+			for: session.config.offlineAudioQuality,
+			preferDolbyAtmos: preferDolbyAtmos,
+			trackHasDolbyAtmos: track.hasDolbyAtmos
+		)
+		return Set(rungs.map(variant(of:)))
+	}
+
+	/// The file the library should keep and play when more than one is present. The wanted
+	/// variant wins, then the best stereo tier the ceiling's ladder can serve, then the file name,
+	/// so the same library always resolves to the same file rather than to directory order.
+	private func preferredFile(for track: Track, in files: [URL]) -> URL? {
+		files.min { rank(of: $0, for: track) < rank(of: $1, for: track) }
+	}
+
+	private func rank(of url: URL, for track: Track) -> (tier: Int, name: String) {
+		let fileVariant = variant(of: url, track: track)
+		let ladder = HLSStreaming.qualityLadder(for: session.config.offlineAudioQuality)
+		let tier: Int
+		if case .stereo(let quality) = fileVariant, let quality, let index = ladder.firstIndex(of: quality) {
+			tier = index
+		} else {
+			// The Atmos rendition and an unnamed legacy file outrank nothing on the ladder.
+			tier = ladder.count
 		}
-		return variants
+		let wanted = fileVariant == wantedVariant(of: track) ? 0 : 1
+		return (wanted * 100 + tier, url.lastPathComponent)
 	}
 
 	private func variant(of url: URL, track: Track) -> FileVariant {
@@ -420,35 +491,90 @@ public final class Offline {
 	}
 
 	private func variant(of stream: AudioStream) -> FileVariant {
-		stream.isDolbyAtmos ? .dolbyAtmos : .stereo(session.config.offlineAudioQuality)
+		stream.isDolbyAtmos ? .dolbyAtmos : .stereo(stream.quality ?? session.config.offlineAudioQuality)
+	}
+
+	/// Whether a stored file is a complete download rather than a truncated or half-written
+	/// stub. A file that fails here is a miss, so it is never accepted by a later sync, never
+	/// served, and never kept in place of a source that could replace it.
+	///
+	/// The HLS route assembles one MP4 file and the playback cache already verifies that shape,
+	/// so the library reuses that verifier for it. The `.m4a` of a direct-stream answer is an MP4
+	/// under that name, and the manifest fallback's E-AC-3 arrives as `.mp4`, so those take the
+	/// same branch; the lossless direct stream writes FLAC, which that verifier cannot inspect, so
+	/// it gets its own magic-byte check. Neither reads past the header, so a file truncated after
+	/// it passes both; only a full decode would catch that.
+	///
+	/// An extension the writers never produce is not trusted. They write `.m4a` (the assembled HLS
+	/// file and the v1 direct-stream answers, the low and medium stereo ones and every Atmos one),
+	/// `.flac` (the v1 lossless stereo answer), and on the manifest fallback they keep the answer's
+	/// own extension, or the requested tier's when the URL has none; that fallback is where `.mp4`
+	/// comes from. That extension must follow the answer's URL, because only the URL says what
+	/// format the manifest served; the tier label is a mapping of the request and cannot predict the
+	/// format the manifest chose. An unknown format is not evidence of a good file, so the default
+	/// rejects it.
+	private func isPlayableStoredFile(_ url: URL) -> Bool {
+		switch url.pathExtension.lowercased() {
+		case "m4a", "mp4":
+			HLSStreaming.isPlayableMP4File(at: url)
+		case "flac":
+			Self.isPlayableFLACFile(at: url)
+		default:
+			false
+		}
+	}
+
+	/// FLAC starts with the `fLaC` magic; the size floor is the MP4 verifier's, so a
+	/// header-only stub is rejected.
+	private static func isPlayableFLACFile(at url: URL) -> Bool {
+		let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+		let size = (attributes?[.size] as? NSNumber)?.intValue ?? 0
+		guard size >= HLSStreaming.minimumPlayableFileBytes else { return false }
+		guard let handle = try? FileHandle(forReadingFrom: url), let header = try? handle.read(upToCount: 4) else {
+			return false
+		}
+		try? handle.close()
+		return header == Data("fLaC".utf8)
+	}
+
+	/// What one track's download attempt achieved, so the sync can tell a failed download
+	/// (worth retrying) from a file the source already serves (settled).
+	private enum DownloadOutcome {
+		case downloaded
+		case keptExistingFile
+		case failed
 	}
 
 	/// What it lands on disk is the assembled HLS file for the tier that was served, or the
 	/// direct stream for a track the HLS route cannot serve.
-	private func downloadOfflineTrack(_ track: Track, existingFiles: [URL]) async -> Bool {
+	private func downloadOfflineTrack(_ track: Track, existingFiles: [URL]) async -> DownloadOutcome {
 		guard let source = await downloadSource(for: track) else {
 			reportMissingDownloadSource(for: track, existingFiles: existingFiles)
-			return false
+			return .failed
 		}
-		// The Atmos stream can be unavailable, in which case the existing file can be what we'd download again
+		// The Atmos stream can be unavailable, in which case the existing file can be what we'd download again.
+		// The keep asks the verifier too, so a stub named for the source's variant is replaced
+		// rather than kept on its name alone.
 		let streamVariant = variant(of: source)
-		if existingFiles.contains(where: { variant(of: $0, track: track) == streamVariant }) {
+		if existingFiles.contains(where: { isPlayableStoredFile($0) && variant(of: $0, track: track) == streamVariant }) {
 			print("Offline: Keeping existing file of \(track.title)")
-			return false
+			return .keptExistingFile
 		}
 		print("Offline: Downloading \(track.title)")
 		let pathExtension = pathExtension(of: source)
 		let name = "\(track.id).\(fileMarker(of: source))"
 		guard let path = offlinePath(parentFolder: mainPath, name: name, pathExtension: pathExtension) else {
 			displayError(title: "Offline: Error while loading offline track", content: "Error while building path to: \(mainPath)/\(name).\(pathExtension)")
-			return false
+			return .failed
 		}
 		do {
 			try await write(source, to: path)
 		} catch {
-			if Task.isCancelled { return false }
-			displayError(title: "Offline: Error while loading offline track", content: "Network error: \(error)")
-			return false
+			if Task.isCancelled { return .failed }
+			// `localizedDescription`, not the error itself: `String(describing:)` on a
+			// `URLError` appends the failing URL, whose query carries a token.
+			displayError(title: "Offline: Error while loading offline track", content: "Network error: \(error.localizedDescription)")
+			return .failed
 		}
 		for file in existingFiles where file.standardizedFileURL != path.standardizedFileURL {
 			do {
@@ -460,12 +586,13 @@ public final class Offline {
 		print("Offline: Finished Download of \(track.title)")
 		invalidateOfflineTrackIdsCache()
 		uiRefreshFunc()
-		return true
+		return .downloaded
 	}
 
 	/// HLS serves the tier ladder, so the file takes the tier that was served; the direct
-	/// stream is the fallback for a track it cannot serve, so an Atmos or otherwise-refused
-	/// rendition still lands.
+	/// stream is the fallback for a track it cannot serve, so an otherwise-refused rendition
+	/// still lands. The Atmos rendition lands only where the ceiling admits it: the direct-stream
+	/// manifest refuses an Atmos answer at a Low or Medium ceiling, same as the request is gated.
 	private func downloadSource(for track: Track) async -> OfflineDownloadSource? {
 		if PlaybackRoutingPolicy.usesHLS(sessionHasDesktopPlaybackAccess: session.hasDesktopPlaybackAccess),
 		   let manifest = await resolveHLSPlaylist(for: track) {
@@ -483,6 +610,10 @@ public final class Offline {
 		// A stereo file at or below the ceiling is the best available tier already settled on;
 		// a resolve that fails (usually offline) keeps it quietly rather than crying failure.
 		if existingFiles.contains(where: { isSettledStereoFile($0, for: track) }) { return }
+		// An Atmos file is the same kind of keep: a source that serves no stereo (a device
+		// session, or a track with no stereo rendition) leaves it as the best available file,
+		// so a failed resolve is not a library error.
+		if existingFiles.contains(where: { variant(of: $0, track: track) == .dolbyAtmos }) { return }
 		if !existingFiles.isEmpty {
 			// The old file stays, so a refused quality never shrinks the library
 			displayError(title: "Offline: Error while loading offline track", content: "Couldn't get Audio URL for \(track.title). Keeping the existing file.")
@@ -554,7 +685,11 @@ public final class Offline {
 				return dolbyAtmosFileMarker
 			}
 		case .stream(let stream):
-			return stream.isDolbyAtmos ? dolbyAtmosFileMarker : session.config.offlineAudioQuality.rawValue.lowercased()
+			guard !stream.isDolbyAtmos else { return dolbyAtmosFileMarker }
+			// The tier the direct-stream path served, not the tier that was configured: a `HI_RES_LOSSLESS`
+			// request is answered with the 16-bit lossless file, so the name must say `lossless`.
+			let served = stream.quality ?? session.config.offlineAudioQuality
+			return served.rawValue.lowercased()
 		}
 	}
 
@@ -656,6 +791,10 @@ public final class Offline {
 				return nil
 			}
 			let directoryContents = try FileManager.default.contentsOfDirectory(at: path, includingPropertiesForKeys: nil, options: [])
+				// Sorted so a positional `files.first` is deterministic: directory order is
+				// unspecified. `preferredFile` ranks the files itself, so it does not depend on this
+				// order.
+				.sorted { $0.lastPathComponent < $1.lastPathComponent }
 			var files: [Int: [URL]] = [:]
 			for url in directoryContents {
 				if let idString = url.lastPathComponent.split(separator: ".").first, let id = Int(idString) {
@@ -729,6 +868,25 @@ public final class Offline {
 
 	private var syncRunning = false
 	private var syncAgain = false
+	/// Set when a settings change asked for the sync: the files the new wish rejects are re-checked
+	/// rather than accepted as a below-ceiling tier. Persisted in the offline store, so the wish
+	/// survives a relaunch, and carried across the sync's own restart, so a pass already running
+	/// when the setting changed still re-checks. Sticky while a rejected file still failed to
+	/// download, so a network error or a refused rung does not quietly cancel the change; a
+	/// rejected file the source only serves at a lower tier is kept and does not hold it.
+	private var redownloadBelowWanted: Bool {
+		get { defaults.bool(forKey: "offlineRedownloadBelowWanted") }
+		set { defaults.set(newValue, forKey: "offlineRedownloadBelowWanted") }
+	}
+
+	/// The tracks whose stored file the current wish rejected and has not replaced or settled yet.
+	/// The wish re-checks only these, so a replacement that keeps failing does not put the whole
+	/// below-wanted library back on the per-sync probe. Empty while a fresh settings change has not
+	/// been applied, which is how the first pass knows to re-check every file.
+	private var wishRejectedTrackIds: Set<Int> {
+		get { Set(defaults.array(forKey: "offlineWishRejectedTrackIds") as? [Int] ?? []) }
+		set { defaults.set(newValue.sorted(), forKey: "offlineWishRejectedTrackIds") }
+	}
 
 	private func sync() async {
 
@@ -740,6 +898,8 @@ public final class Offline {
 		guard let localFiles = localFilesByTrackId() else {
 			displayError(title: "Offline: Sync Error", content: "Couldn't load Tracks from Disk")
 			syncAgain = false
+			redownloadBelowWanted = false
+			wishRejectedTrackIds = []
 			syncRunning = false
 			return
 		}
@@ -748,14 +908,28 @@ public final class Offline {
 		print("Offline: Track IDs: \(Array(localFiles.keys))")
 
 		removeOrphanedTemporaryFiles()
-		let plan = syncPlan(dbTracks: dbTracks, localFiles: localFiles)
+		let plan = syncPlan(
+			dbTracks: dbTracks,
+			localFiles: localFiles,
+			redownloadBelowWanted: redownloadBelowWanted,
+			wishRejectedTrackIds: wishRejectedTrackIds
+		)
 
 		// Download first, so nothing is deleted before its replacement is on disk.
+		// Only a file the wish itself rejected keeps the wish alive on a failed pass: a track
+		// that never had a file (a new add) failing, or one `reportMissingDownloadSource`
+		// deliberately keeps quietly, must not hold the whole library in re-check mode for ever.
+		// A rejection that downloaded, or settled at the best tier the source serves, is no longer
+		// rejected.
+		var settledWishRejections: Set<Int> = []
 		for track in plan.toAdd {
 			// `removeAll()` cancels this sync; the rest of the pass would resolve every
 			// remaining track only to report a failed download.
 			if Task.isCancelled { break }
-			_ = await downloadOfflineTrack(track, existingFiles: localFiles[track.id] ?? [])
+			let outcome = await downloadOfflineTrack(track, existingFiles: localFiles[track.id] ?? [])
+			if plan.wishRejected.contains(track.id), outcome != .failed {
+				settledWishRejections.insert(track.id)
+			}
 		}
 
 		removeLeftoverFiles(plan.leftoverFiles)
@@ -766,6 +940,10 @@ public final class Offline {
 			print("Offline: Something changed. Restarting Sync")
 			await sync()
 		} else {
+			// Keep the settings-change wish for the rejections the pass could not replace, so the next
+			// sync re-checks those alone instead of accepting the old tier for good.
+			wishRejectedTrackIds = plan.wishRejected.subtracting(settledWishRejections)
+			redownloadBelowWanted = !wishRejectedTrackIds.isEmpty
 			syncRunning = false
 			print("Offline: --- Finished Sync ---")
 		}
@@ -776,11 +954,27 @@ public final class Offline {
 		var toRemove: [Int] = []
 		var toAdd: [Track] = []
 		var leftoverFiles: [URL] = []
+		/// The tracks whose stored file the current wish rejects, so the sync can tell a failed
+		/// replacement from a new track or a file the wish never touched.
+		var wishRejected: Set<Int> = []
 	}
 
 	/// A wanted track keeps at most one file, matching an acceptable variant; the rest is a
 	/// replacement or a stale file to prune.
-	private func syncPlan(dbTracks: [Track], localFiles: [Int: [URL]]) -> SyncPlan {
+	///
+	/// A plain sync accepts any tier the ceiling's ladder can serve, so a stepped-down file is kept
+	/// instead of re-resolved every pass (the per-sync upgrade probe was dropped by decision,
+	/// 2026-10-08). A settings change sets `redownloadBelowWanted`: then only the wanted variant is
+	/// accepted for the tracks the wish rejected, so a lower tier or the other rendition is replaced,
+	/// which is what "kept until the quality setting changes" means. `wishRejectedTrackIds` is empty
+	/// on the first pass of a wish, which re-checks every file; afterwards the wish re-checks only
+	/// the tracks whose replacement still failed, leaving the rest on the broad acceptance.
+	private func syncPlan(
+		dbTracks: [Track],
+		localFiles: [Int: [URL]],
+		redownloadBelowWanted: Bool,
+		wishRejectedTrackIds: Set<Int>
+	) -> SyncPlan {
 		var plan = SyncPlan()
 		for trackId in localFiles.keys where !dbTracks.contains(where: { $0.id == trackId }) {
 			plan.toRemove.append(trackId)
@@ -790,12 +984,28 @@ public final class Offline {
 				plan.toAdd.append(track)
 				continue
 			}
+			// A settings change re-checks the whole library once (empty set) and afterwards only the
+			// tracks whose replacement still failed; every other track keeps the broad acceptance, so
+			// one stuck replacement cannot put the below-wanted library back on the per-sync probe.
+			let recheck = redownloadBelowWanted
+				&& (wishRejectedTrackIds.isEmpty || wishRejectedTrackIds.contains(track.id))
 			// Any acceptable variant already satisfies the wish; the rest are leftovers once a
-			// replacement is on disk.
-			let acceptable = acceptableVariants(of: track)
-			if let matchingFile = files.first(where: { acceptable.contains(variant(of: $0, track: track)) }) {
-				plan.leftoverFiles += files.filter { $0 != matchingFile }
+			// replacement is on disk. The kept file is the preferred one, so a second file is pruned
+			// deterministically.
+			let acceptable = recheck
+				? Set([wantedVariant(of: track)])
+				: acceptableVariants(of: track)
+			// A stub is not a stored file: the whole pass treats it as absent, so a track whose
+			// only file is damaged is re-resolved rather than accepted on its name alone.
+			let playable = files.filter { isPlayableStoredFile($0) }
+			if playable.contains(where: { acceptable.contains(variant(of: $0, track: track)) }) {
+				if let keep = preferredFile(for: track, in: playable) {
+					plan.leftoverFiles += files.filter { $0 != keep }
+				}
 			} else {
+				if recheck {
+					plan.wishRejected.insert(track.id)
+				}
 				plan.toAdd.append(track)
 			}
 		}
@@ -869,7 +1079,13 @@ public final class Offline {
 
 	private var syncTask: Task<Void, Never>?
 
-	private func startSync() {
+	private func startSync(redownloadBelowWanted: Bool = false) {
+		if redownloadBelowWanted {
+			self.redownloadBelowWanted = true
+			// A new settings change re-checks the whole library, so the previous wish's re-check set
+			// is stale: an empty set is how the next pass knows to look at every file.
+			self.wishRejectedTrackIds = []
+		}
 		if syncRunning {
 			syncAgain = true // If Sync is requested while running, do another one afterwards
 			return
