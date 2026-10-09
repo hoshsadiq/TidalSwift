@@ -508,8 +508,10 @@ public final class Offline {
 	/// An extension the writers never produce is not trusted. They write `.m4a` (the assembled HLS
 	/// file and the v1 direct-stream answers, the low and medium stereo ones and every Atmos one),
 	/// `.flac` (the v1 lossless stereo answer), and on the manifest fallback they keep the answer's
-	/// own extension, or the served tier's when the URL has none; that fallback is where `.mp4`
-	/// comes from. An unknown format is not evidence of a good file, so the default rejects it.
+	/// own extension, or the requested tier's when the URL has none; that fallback is where `.mp4`
+	/// comes from. The served tier is not available there: the manifest answer carries no tier, and
+	/// `servedByDirectStream` describes the direct route, not this one, so naming by it would guess.
+	/// An unknown format is not evidence of a good file, so the default rejects it.
 	private func isPlayableStoredFile(_ url: URL) -> Bool {
 		switch url.pathExtension.lowercased() {
 		case "m4a", "mp4":
@@ -788,6 +790,8 @@ public final class Offline {
 				return nil
 			}
 			let directoryContents = try FileManager.default.contentsOfDirectory(at: path, includingPropertiesForKeys: nil, options: [])
+				// Sorted so the list reaches `preferredFile` in a fixed order: directory order is
+				// unspecified, and the rank's name tie-break has to decide, not the file system.
 				.sorted { $0.lastPathComponent < $1.lastPathComponent }
 			var files: [Int: [URL]] = [:]
 			for url in directoryContents {

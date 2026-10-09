@@ -221,6 +221,34 @@ final class PlaybackManifestCeilingTests: XCTestCase {
 		}
 	}
 
+	/// The served tier for every (requested, advertised) pair, stated as literals rather than
+	/// recomputed through `servedByDirectStream`, so a regression in the mapping reds here instead
+	/// of moving the extension, the offline marker and the badge together (they all read it).
+	///
+	/// Two recorded facts shape the table. A `HI_RES_LOSSLESS` request is answered with the lossless
+	/// file, so Max never serves Max, only High. And the catalogue under-reports, so a request above
+	/// what the track advertises is answered at the advertised tier rather than refused: a High or
+	/// Max request on a 320 or 96 kbps track is clamped down to it, and anything below the request's
+	/// own tier is left as asked.
+	func testTheServedTierForEachRequestAndAdvertisedPair() {
+		let table: [(AudioQuality, [(AudioQuality?, AudioQuality)])] = [
+			(.low, [(nil, .low), (.low, .low), (.medium, .low), (.high, .low), (.max, .low)]),
+			(.medium, [(nil, .medium), (.low, .low), (.medium, .medium), (.high, .medium), (.max, .medium)]),
+			(.high, [(nil, .high), (.low, .low), (.medium, .medium), (.high, .high), (.max, .high)]),
+			(.max, [(nil, .high), (.low, .low), (.medium, .medium), (.high, .high), (.max, .high)])
+		]
+		let rows = table.reduce(0) { $0 + $1.1.count }
+		XCTAssertEqual(rows, AudioQuality.allCases.count * 5, "every ceiling and advertised value must be tabled")
+		for (requested, advertisedPairs) in table {
+			for (advertised, served) in advertisedPairs {
+				XCTAssertEqual(
+					requested.servedByDirectStream(advertised: advertised), served,
+					"a \(requested.rawValue) request on a track advertised \(advertised?.rawValue ?? "nothing") serves \(served.rawValue)"
+				)
+			}
+		}
+	}
+
 	/// The explicit immersive ask is gated on the ceiling too (`ContentUrls.swift`), so the
 	/// preference cannot pull the ~768 kbps E-AC-3 rendition in below High. Dropping
 	/// `preferredQuality.admitsDolbyAtmos` from that site makes the immersive request and fails

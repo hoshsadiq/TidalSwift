@@ -146,16 +146,22 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 
 	/// The verifier's size floor and magic check are what keep the fixtures these tests store from
 	/// being re-resolved: a fixture it stopped accepting would send every test that stores one to
-	/// the live resolver. This is the guard that fails first, with the resolver stubbed, so a
-	/// threshold change is an assertion here rather than a silent dial-out elsewhere.
+	/// the live resolver. The resolver is stubbed here, so a threshold change is an assertion
+	/// rather than a silent dial-out elsewhere.
+	///
+	/// Each branch is guarded by the smallest fixture the suite can ask it to verify. The FLAC
+	/// fixture is sized from `minimumPlayableFileBytes` (`createOfflineFile`), so it protects by
+	/// construction: a raised floor scales it and it still clears. The MP4 fixture is the fixed
+	/// 588-byte `eac3-init.mp4` the Atmos tests store, the smallest one the suite uses, so only
+	/// this assertion can catch an MP4 floor that outgrew it.
 	func testTheOfflineFixturesClearTheVerifier() async throws {
 		let flacTrackId = 987_654_601
 		let mp4TrackId = 987_654_602
 		let libraryDirectory = offlineLibrary.root.appendingPathComponent("TidalSwift Offline Library")
 		try createOfflineFile(forTrackId: flacTrackId, createdAt: Date(timeIntervalSince1970: 1_600_000_000))
-		let silentMP4 = try XCTUnwrap(Bundle.module.url(forResource: "silent", withExtension: "m4a", subdirectory: "Fixtures"))
+		let smallestMP4 = try XCTUnwrap(Bundle.module.url(forResource: "eac3-init", withExtension: "mp4", subdirectory: "Fixtures"))
 		try FileManager.default.copyItem(
-			at: silentMP4,
+			at: smallestMP4,
 			to: libraryDirectory.appendingPathComponent("\(mp4TrackId).lossless.m4a")
 		)
 
@@ -167,13 +173,18 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 			return nil
 		}
 		offline.setOfflineTracksForTesting([makeTrack(id: flacTrackId), makeTrack(id: mp4TrackId)])
-		await offline.awaitOngoingSync()
+		let started = await offline.awaitOngoingSync()
+		XCTAssertTrue(started, "the sync must start, or this guard asserts nothing")
 
 		XCTAssertEqual(
 			resolves.value, 0,
 			"the stored fixtures must be accepted by the verifier, or the tests that store one reach the live resolver"
 		)
 		XCTAssertTrue(fileExists(forTrackId: flacTrackId), "an accepted fixture must be kept, not re-resolved")
+		XCTAssertTrue(
+			FileManager.default.fileExists(atPath: libraryDirectory.appendingPathComponent("\(mp4TrackId).lossless.m4a").path),
+			"the MP4 fixture must be accepted too, or the guard misses its floor"
+		)
 	}
 
 	/// The keep path never calls `removeAll()`, so the file and its database entry both survive

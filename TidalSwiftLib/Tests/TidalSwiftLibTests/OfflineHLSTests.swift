@@ -224,7 +224,10 @@ final class OfflineHLSTests: XCTestCase {
 		let trackId = 779_000_013
 		let libraryDirectory = try makeLibraryDirectory()
 		let stub = libraryDirectory.appendingPathComponent("\(trackId).atmos.mp4")
-		try Data(repeating: 0x41, count: 1024).write(to: stub)
+		// Sized from the floor so it clears it whatever the floor becomes; only the missing box
+		// should reject it.
+		let payload = HLSStreaming.minimumPlayableFileBytes + 512
+		try Data(repeating: 0x41, count: payload).write(to: stub)
 
 		let session = try makeSession(quality: .high)
 		let offline = session.helpers.offline
@@ -244,7 +247,7 @@ final class OfflineHLSTests: XCTestCase {
 		)
 		let streamValue = await offline.stream(for: track, ceiling: .high)
 		XCTAssertNil(streamValue, "a payload without an MP4 box must not be served")
-		XCTAssertEqual(try Data(contentsOf: stub).count, 1024, "with nothing to replace it, the refused file is kept as the only copy")
+		XCTAssertEqual(try Data(contentsOf: stub).count, payload, "with nothing to replace it, the refused file is kept as the only copy")
 	}
 
 	/// An extension the writers never produce is not evidence of a good file, so the verifier rejects it
