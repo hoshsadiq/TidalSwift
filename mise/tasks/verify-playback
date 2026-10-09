@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+#MISE description="Resolve a track at each quality tier and report what is really playing"
+# Builds and runs the verify-playback executable from the TidalSwiftLib package.
+set -Eeuo pipefail
+
+# shellcheck source=mise/tasks/_lib.sh
+. "$(dirname -- "${BASH_SOURCE[0]}")/_lib.sh"
+
+usage() {
+	cat <<'EOF'
+Resolve a track through the app's own playback path at each quality tier, decode what
+comes back, and print what is really there: codec, bit depth, sample rate, channel count,
+bitrate, size, and the badge the app would show. No audio is played.
+
+Usage:
+  mise run verify-playback -- [options]
+
+Options after -- are passed straight to the tool; run `mise run verify-playback -- --help`
+for the full list. Examples:
+  mise run verify-playback -- --track 98156344 --stream-ceiling max --atmos on
+  mise run verify-playback -- --track 241647167 --matrix
+  mise run verify-playback -- --offline --track 1228498 --download-ceiling lossless
+
+Env:
+  TIDAL_TEST_TOKEN  Use this token instead of the app's stored login.
+EOF
+}
+
+main() {
+	if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+		usage
+		return 0
+	fi
+
+	task_in_lib swift run verify-playback "$@"
+}
+
+main "$@"

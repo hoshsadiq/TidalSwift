@@ -648,18 +648,18 @@ struct TrackManifestAttributes: Decodable {
 }
 
 /// Where a play starts, and the cache write running behind it.
-struct HLSPlaybackSource {
+public struct HLSPlaybackSource {
 	/// The cached file when one is present, otherwise the track's HLS playlist.
-	let url: URL
+	public let url: URL
 	/// The rung Tidal served, which is the Atmos rendition or a lower stereo tier when the
 	/// chosen one was refused; the badge and the cache name read this, not the request.
-	let rung: HLSRung
+	public let rung: HLSRung
 	/// Read from a cached file; nil while streaming, since a playlist reports no format
 	/// synchronously.
-	let sampleRate: Int?
+	public let sampleRate: Int?
 	/// The background cache write, so a caller that needs the file can wait for it.
 	/// A play discards it: the point is that nothing waits.
-	let backgroundDownload: Task<URL?, Never>?
+	public let backgroundDownload: Task<URL?, Never>?
 }
 
 extension HLSStreaming {
@@ -670,7 +670,7 @@ extension HLSStreaming {
 	/// playlist is downloaded into the cache for a later play. Returns `nil` when the
 	/// manifest cannot be resolved, so the caller keeps walking its route ladder.
 	@MainActor
-	static func playbackSource(
+	public static func playbackSource(
 		for track: Track,
 		session: Session,
 		quality: AudioQuality,

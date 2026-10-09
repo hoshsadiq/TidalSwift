@@ -6,7 +6,7 @@
 import Foundation
 
 /// Which path a track's playback takes, in the order to try.
-enum PlaybackRoute: Equatable {
+public enum PlaybackRoute: Equatable {
 	/// Tidal's HLS manifest: the playlist hands AVPlayer the variant it names, so the
 	/// track starts without waiting; the same playlist is written to the cache behind it.
 	/// Every stereo tier is served this way.
@@ -26,7 +26,7 @@ enum PlaybackRoute: Equatable {
 public enum PlaybackRoutingPolicy {
 	/// The ladder a play walks: HLS leads, so a track starts from the playlist before its file
 	/// is written, then the direct stream.
-	static func routes(sessionHasDesktopPlaybackAccess: Bool) -> [PlaybackRoute] {
+	public static func routes(sessionHasDesktopPlaybackAccess: Bool) -> [PlaybackRoute] {
 		guard sessionHasDesktopPlaybackAccess else { return [.directStream] }
 		return [.hls, .directStream]
 	}

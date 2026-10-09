@@ -11,7 +11,7 @@ import Foundation
 public class Session {
 	public var config: Config
 
-	var countryCode: String?
+	public var countryCode: String?
 	public var userId: Int?
 
 	var sessionParameters: [String: String] {

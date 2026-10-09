@@ -225,8 +225,10 @@ public final class Offline {
 	public var uiRefreshFunc: () -> Void = {}
 
 	/// Read when the database is first touched, so redirecting it right after the session is
-	/// built takes effect.
-	var defaults: UserDefaults = .standard
+	/// built takes effect. Public so a caller that is not the app (a tool that must not touch
+	/// the developer's real library or settings) can point the offline manager at its own
+	/// private defaults suite.
+	public var defaults: UserDefaults = .standard
 
 	public var saveFavoritesOffline: Bool {
 		get { defaults.bool(forKey: "SaveFavoritesOffline") }
