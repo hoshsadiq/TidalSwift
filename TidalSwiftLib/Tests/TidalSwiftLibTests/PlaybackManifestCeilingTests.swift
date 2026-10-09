@@ -16,6 +16,9 @@ class CeilingStubURLProtocol: URLProtocol {
 	/// the same answer.
 	nonisolated(unsafe) static var atmosCodecs: String? = "eac3"
 	nonisolated(unsafe) static var atmosLabel = "DOLBY_ATMOS"
+	/// When set, `/streamUrl` answers 200 with a direct file URL instead of the 404 that sends
+	/// the ladder to the manifest. A test turns it on to exercise the direct-stream body.
+	nonisolated(unsafe) static var answersStreamUrl = false
 	/// Requests this stub answered. A test asserts it moved, which proves the call reached the
 	/// injected `Session.requestSession` instead of falling through to the network before it
 	/// ever reached the ceiling assertion.
@@ -42,6 +45,18 @@ class CeilingStubURLProtocol: URLProtocol {
 
 	override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
+	/// The `/streamUrl` body: a direct file the caller saves under the served tier's extension.
+	/// The URL is extensionless so the extension comes from the tier, which is what the test reads.
+	private static func streamBody() throws -> Data {
+		try JSONSerialization.data(withJSONObject: [
+			"url": "https://stub.invalid/mediatracks/stream",
+			"trackId": 0,
+			"soundQuality": "LOSSLESS",
+			"encryptionKey": "",
+			"codec": "flac"
+		])
+	}
+
 	override func startLoading() {
 		Self.hitCount += 1
 		guard let url = request.url else {
@@ -49,16 +64,25 @@ class CeilingStubURLProtocol: URLProtocol {
 			return
 		}
 		let isManifest = url.path.hasSuffix("/playbackinfopostpaywall")
+		let isStreamUrl = url.path.hasSuffix("/streamUrl")
+		let servesDirectStream = isStreamUrl && Self.answersStreamUrl
 		guard let response = HTTPURLResponse(
 			url: url,
-			statusCode: isManifest ? 200 : 404,
+			statusCode: (isManifest || servesDirectStream) ? 200 : 404,
 			httpVersion: "HTTP/1.1",
 			headerFields: nil
 		) else {
 			client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
 			return
 		}
-		let body = isManifest ? (try? Self.atmosBody()) ?? Data() : Data("{}".utf8)
+		let body: Data
+		if isManifest {
+			body = (try? Self.atmosBody()) ?? Data()
+		} else if servesDirectStream {
+			body = (try? Self.streamBody()) ?? Data("{}".utf8)
+		} else {
+			body = Data("{}".utf8)
+		}
 		client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
 		client?.urlProtocol(self, didLoad: body)
 		client?.urlProtocolDidFinishLoading(self)
@@ -83,6 +107,7 @@ final class PlaybackManifestCeilingTests: XCTestCase {
 		super.setUp()
 		CeilingStubURLProtocol.atmosCodecs = "eac3"
 		CeilingStubURLProtocol.atmosLabel = "DOLBY_ATMOS"
+		CeilingStubURLProtocol.answersStreamUrl = false
 	}
 
 	override func tearDown() {
@@ -98,7 +123,11 @@ final class PlaybackManifestCeilingTests: XCTestCase {
 		return session
 	}
 
-	private func makeTrack(id: Int, audioModes: [AudioMode] = [.stereo, .dolbyAtmos]) -> Track {
+	private func makeTrack(
+		id: Int,
+		audioModes: [AudioMode] = [.stereo, .dolbyAtmos],
+		advertisedQuality: AudioQuality? = .max
+	) -> Track {
 		let artist = Artist(
 			id: 1, name: "Tester", artistTypes: nil, url: nil, picture: nil,
 			popularity: nil, type: nil, banner: nil, relationType: nil
@@ -115,7 +144,7 @@ final class PlaybackManifestCeilingTests: XCTestCase {
 			allowStreaming: true, streamReady: true, streamStartDate: nil, premiumStreamingOnly: nil,
 			trackNumber: 1, volumeNumber: 1, version: nil, popularity: 1, copyright: nil,
 			description: nil, url: URL(string: "https://tidal.com/track/\(id)")!, isrc: nil,
-			editable: false, explicit: false, audioQuality: .max, audioModes: audioModes,
+			editable: false, explicit: false, audioQuality: advertisedQuality, audioModes: audioModes,
 			artist: artist, artists: [artist], album: album, mixes: nil, dateAdded: nil,
 			index: nil, itemUuid: nil, bpm: nil, key: nil, keyScale: nil
 		)
@@ -164,6 +193,32 @@ final class PlaybackManifestCeilingTests: XCTestCase {
 			preferDolbyAtmos: false
 		)
 		XCTAssertEqual(stream?.isDolbyAtmos, true, "a High ceiling admits the Atmos answer")
+	}
+
+	/// A direct-stream answer is named for the tier Tidal serves, not the one the request asked
+	/// for. A Max request on a track advertised 320 kbps is answered below High, so the file must
+	/// carry `.m4a` and the served tier, matching the offline marker; naming it `.flac` from the
+	/// request stores AAC-in-MP4 under a FLAC name, which the offline FLAC check then refuses on
+	/// every sync. Proven for every ceiling and advertised tier the direct stream can see.
+	func testADirectStreamAnswerIsNamedForTheTierServedNotTheRequest() async {
+		CeilingStubURLProtocol.answersStreamUrl = true
+		let session = makeSession()
+		let advertisedQualities: [AudioQuality?] = [nil, .low, .medium, .high, .max]
+		for ceiling in AudioQuality.allCases {
+			for advertised in advertisedQualities {
+				let stream = await makeTrack(id: trackId, audioModes: [.stereo], advertisedQuality: advertised).audioStream(
+					session: session,
+					audioQuality: ceiling,
+					preferDolbyAtmos: false
+				)
+				let served = ceiling.servedByDirectStream(advertised: advertised)
+				XCTAssertEqual(stream?.quality, served)
+				XCTAssertEqual(
+					stream?.pathExtension, session.pathExtension(for: served),
+					"a \(ceiling.rawValue) request on a track advertised \(advertised?.rawValue ?? "nothing") serves \(served.rawValue), so the file must be named for the bytes, not the request"
+				)
+			}
+		}
 	}
 
 	/// The explicit immersive ask is gated on the ceiling too (`ContentUrls.swift`), so the

@@ -151,7 +151,7 @@ final class OfflineHLSTests: XCTestCase {
 		try await assertFLACBytesAreRejected(Data("fLaC".utf8), trackId: 779_000_008)
 	}
 
-	/// The direct-stream fallback keeps the answer's own extension, so an E-AC-3 Atmos answer
+	/// The manifest fallback keeps the answer's own extension, so an E-AC-3 Atmos answer
 	/// lands as `.atmos.mp4`; it must clear the MP4 verifier rather than being trusted by its name.
 	func testATruncatedAtmosDirectStreamMP4IsNotAcceptedAndNotServed() async throws {
 		let trackId = 779_000_009
@@ -183,7 +183,8 @@ final class OfflineHLSTests: XCTestCase {
 	/// The other half of the `.mp4` branch: a sound `.atmos.mp4` is a real download, so the
 	/// verifier accepts it and the sync keeps and serves it. Deleting `"mp4"` from the case list
 	/// drops it into the reject-by-default branch, which reds this test: the file would look
-	/// damaged, be re-resolved every sync and never be kept or served.
+	/// damaged, be re-resolved every sync, and never be kept in place of a source that could
+	/// replace it or served.
 	func testAValidAtmosDirectStreamMP4IsAcceptedKeptAndServed() async throws {
 		let trackId = 779_000_010
 		let libraryDirectory = try makeLibraryDirectory()
@@ -214,6 +215,36 @@ final class OfflineHLSTests: XCTestCase {
 		let stream = try XCTUnwrap(streamValue, "the valid Atmos MP4 must be served offline")
 		XCTAssertEqual(stream.url.lastPathComponent, "\(trackId).atmos.mp4")
 		XCTAssertTrue(stream.isDolbyAtmos, "the served file must be reported as Atmos")
+	}
+
+	/// The `.mp4`/`.m4a` branch has a size floor and a box check, and the truncated stub above
+	/// fails both, so the box check needs a payload that fails only it: long enough, but with none
+	/// of `ftyp`/`styp`/`moov` in its first eight bytes.
+	func testAMP4WithTheWrongBoxTypeIsNotAcceptedAndNotServed() async throws {
+		let trackId = 779_000_013
+		let libraryDirectory = try makeLibraryDirectory()
+		let stub = libraryDirectory.appendingPathComponent("\(trackId).atmos.mp4")
+		try Data(repeating: 0x41, count: 1024).write(to: stub)
+
+		let session = try makeSession(quality: .high)
+		let offline = session.helpers.offline
+		let resolves = Counter()
+		offline.resolveOfflineHLSPlaylist = { _, _ in throw HLSStreamError.requestRefused(status: 403) }
+		offline.resolveOfflineStream = { _ in
+			resolves.value += 1
+			return nil
+		}
+		let track = makeTrack(id: trackId, audioModes: [.dolbyAtmos])
+		offline.setOfflineTracksForTesting([track])
+		await offline.awaitOngoingSync()
+
+		XCTAssertEqual(
+			resolves.value, 1,
+			"a file above the size floor but without an MP4 box must not satisfy the wish, so the sync must re-resolve the track"
+		)
+		let streamValue = await offline.stream(for: track, ceiling: .high)
+		XCTAssertNil(streamValue, "a payload without an MP4 box must not be served")
+		XCTAssertEqual(try Data(contentsOf: stub).count, 1024, "with nothing to replace it, the refused file is kept as the only copy")
 	}
 
 	/// An extension the writers never produce is not evidence of a good file, so the verifier rejects it
@@ -621,8 +652,9 @@ final class OfflineHLSTests: XCTestCase {
 	func testTheOfflineFileForATrackIsChosenDeterministically() async throws {
 		let trackId = 779_000_025
 		let libraryDirectory = try makeLibraryDirectory()
-		// Both files are real MP4s, so the ranking is exercised rather than the verifier. The lower
-		// tier is written first, so directory order would pick it if the rule were `files[0]`.
+		// Both files are real MP4s, so the ranking is exercised rather than the verifier. The
+		// enumeration is sorted (`localFilesByTrackId`), and `.high` (320 kbps) sorts before
+		// `.lossless`, so a positional `files.first` would pick the lower tier and fail this.
 		try FileManager.default.copyItem(
 			at: try silentM4AFixture(),
 			to: libraryDirectory.appendingPathComponent("\(trackId).high.m4a")

@@ -144,6 +144,38 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 
 	// MARK: - Logout
 
+	/// The verifier's size floor and magic check are what keep the fixtures these tests store from
+	/// being re-resolved: a fixture it stopped accepting would send every test that stores one to
+	/// the live resolver. This is the guard that fails first, with the resolver stubbed, so a
+	/// threshold change is an assertion here rather than a silent dial-out elsewhere.
+	func testTheOfflineFixturesClearTheVerifier() async throws {
+		let flacTrackId = 987_654_601
+		let mp4TrackId = 987_654_602
+		let libraryDirectory = offlineLibrary.root.appendingPathComponent("TidalSwift Offline Library")
+		try createOfflineFile(forTrackId: flacTrackId, createdAt: Date(timeIntervalSince1970: 1_600_000_000))
+		let silentMP4 = try XCTUnwrap(Bundle.module.url(forResource: "silent", withExtension: "m4a", subdirectory: "Fixtures"))
+		try FileManager.default.copyItem(
+			at: silentMP4,
+			to: libraryDirectory.appendingPathComponent("\(mp4TrackId).lossless.m4a")
+		)
+
+		let session = offlineLibrary.makeSession()
+		let offline = session.helpers.offline
+		let resolves = Counter()
+		offline.resolveOfflineStream = { _ in
+			resolves.value += 1
+			return nil
+		}
+		offline.setOfflineTracksForTesting([makeTrack(id: flacTrackId), makeTrack(id: mp4TrackId)])
+		await offline.awaitOngoingSync()
+
+		XCTAssertEqual(
+			resolves.value, 0,
+			"the stored fixtures must be accepted by the verifier, or the tests that store one reach the live resolver"
+		)
+		XCTAssertTrue(fileExists(forTrackId: flacTrackId), "an accepted fixture must be kept, not re-resolved")
+	}
+
 	/// The keep path never calls `removeAll()`, so the file and its database entry both survive
 	/// the sync.
 	func testKeepingDownloadsLeavesFileAndDatabaseIntact() async throws {
@@ -280,6 +312,10 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 	}
 
 	// MARK: - Helpers
+
+	private final class Counter {
+		var value = 0
+	}
 
 	/// Snapshots and restores the given keys around a call, so a test running
 	/// against the developer's real UserDefaults domain puts back exactly what it

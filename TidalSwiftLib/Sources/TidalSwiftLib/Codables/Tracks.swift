@@ -143,7 +143,12 @@ public struct Track: Codable, Equatable, Identifiable, Hashable {
 		if let url = await session.audioUrl(trackId: id, audioQuality: audioQuality) {
 			return AudioStream(
 				url: url,
-				pathExtension: session.pathExtension(for: audioQuality),
+				// The extension describes the bytes, and the bytes are the served tier's: a Max
+				// request on a track advertised 320 kbps is answered below High, so naming it
+				// `.flac` from the request would store AAC-in-MP4 under a FLAC name, which the
+				// offline FLAC check then refuses on every sync. The offline marker uses the same
+				// served tier (`Offline.fileMarker`), so name and marker agree.
+				pathExtension: session.pathExtension(for: servedQuality),
 				isDolbyAtmos: false,
 				quality: servedQuality
 			)
