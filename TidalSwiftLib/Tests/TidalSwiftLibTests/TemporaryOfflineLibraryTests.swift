@@ -152,8 +152,9 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 	/// Each branch is guarded by the smallest fixture the suite can ask it to verify. The FLAC
 	/// fixture is sized from `minimumPlayableFileBytes` (`createOfflineFile`), so it protects by
 	/// construction: a raised floor scales it and it still clears. The MP4 fixture is the fixed
-	/// 588-byte `eac3-init.mp4` the Atmos tests store, the smallest one the suite uses, so only
-	/// this assertion can catch an MP4 floor that outgrew it.
+	/// 588-byte `eac3-init.mp4` the Atmos tests store, the smallest one the suite uses, so this is
+	/// the only assertion that states the fixture itself must clear the floor. It is not the only
+	/// thing that catches a raised one: the other tests that store this fixture red as well.
 	func testTheOfflineFixturesClearTheVerifier() async throws {
 		let flacTrackId = 987_654_601
 		let mp4TrackId = 987_654_602
@@ -182,8 +183,8 @@ final class TemporaryOfflineLibraryTests: XCTestCase {
 		)
 		XCTAssertTrue(fileExists(forTrackId: flacTrackId), "an accepted fixture must be kept, not re-resolved")
 		XCTAssertTrue(
-			FileManager.default.fileExists(atPath: libraryDirectory.appendingPathComponent("\(mp4TrackId).lossless.m4a").path),
-			"the MP4 fixture must be accepted too, or the guard misses its floor"
+			HLSStreaming.isPlayableMP4File(at: smallestMP4),
+			"the MP4 fixture itself must clear the floor, or every test that stores it reaches the live resolver"
 		)
 	}
 

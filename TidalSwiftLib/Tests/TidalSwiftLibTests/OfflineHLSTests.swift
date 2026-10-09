@@ -218,8 +218,9 @@ final class OfflineHLSTests: XCTestCase {
 	}
 
 	/// The `.mp4`/`.m4a` branch has a size floor and a box check, and the truncated stub above
-	/// fails both, so the box check needs a payload that fails only it: long enough, but with none
-	/// of `ftyp`/`styp`/`moov` in its first eight bytes.
+	/// fails only the size floor: its first eight bytes are a valid `ftyp`, which the box check
+	/// passes, and it is 64 bytes, under the floor. So the box check needs a payload that fails
+	/// only it: long enough, but with none of `ftyp`/`styp`/`moov` in its first eight bytes.
 	func testAMP4WithTheWrongBoxTypeIsNotAcceptedAndNotServed() async throws {
 		let trackId = 779_000_013
 		let libraryDirectory = try makeLibraryDirectory()

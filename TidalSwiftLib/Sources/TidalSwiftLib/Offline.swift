@@ -509,9 +509,10 @@ public final class Offline {
 	/// file and the v1 direct-stream answers, the low and medium stereo ones and every Atmos one),
 	/// `.flac` (the v1 lossless stereo answer), and on the manifest fallback they keep the answer's
 	/// own extension, or the requested tier's when the URL has none; that fallback is where `.mp4`
-	/// comes from. The served tier is not available there: the manifest answer carries no tier, and
-	/// `servedByDirectStream` describes the direct route, not this one, so naming by it would guess.
-	/// An unknown format is not evidence of a good file, so the default rejects it.
+	/// comes from. That extension must follow the answer's URL, because only the URL says what
+	/// format the manifest served; the tier label is a mapping of the request and cannot predict the
+	/// format the manifest chose. An unknown format is not evidence of a good file, so the default
+	/// rejects it.
 	private func isPlayableStoredFile(_ url: URL) -> Bool {
 		switch url.pathExtension.lowercased() {
 		case "m4a", "mp4":
@@ -790,8 +791,9 @@ public final class Offline {
 				return nil
 			}
 			let directoryContents = try FileManager.default.contentsOfDirectory(at: path, includingPropertiesForKeys: nil, options: [])
-				// Sorted so the list reaches `preferredFile` in a fixed order: directory order is
-				// unspecified, and the rank's name tie-break has to decide, not the file system.
+				// Sorted so a positional `files.first` is deterministic: directory order is
+				// unspecified. `preferredFile` ranks the files itself, so it does not depend on this
+				// order.
 				.sorted { $0.lastPathComponent < $1.lastPathComponent }
 			var files: [Int: [URL]] = [:]
 			for url in directoryContents {
