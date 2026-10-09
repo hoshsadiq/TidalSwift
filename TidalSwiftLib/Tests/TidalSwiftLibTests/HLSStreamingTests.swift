@@ -453,9 +453,10 @@ final class HLSStreamingTests: XCTestCase {
 	}
 
 	/// With the preference on, the Atmos rung is asked first and a served Atmos stops the walk.
+	/// The served playlist is local, so the background cache write stays off the network.
 	func testTheAtmosPreferenceAsksTheAtmosRungFirst() async throws {
 		var asked: [HLSRung] = []
-		let served = URL(string: "https://im-fa.manifest.tidal.com/atmos.m3u8")!
+		let served = try makeLocalPlaylist(segments: ["AAAA"]).multivariantURL
 
 		let source = await HLSStreaming.playbackSource(
 			for: makeTrack(id: 981_563_431, audioModes: [.stereo, .dolbyAtmos]), session: makeSession(),
@@ -473,9 +474,10 @@ final class HLSStreamingTests: XCTestCase {
 
 	/// With the preference off, the stereo ladder is asked first and the Atmos rung is the
 	/// fallback when every stereo rung is refused, so the track still plays.
+	/// The served playlist is local, so the background cache write stays off the network.
 	func testWithoutTheAtmosPreferenceTheAtmosRungIsTheFallback() async throws {
 		var asked: [HLSRung] = []
-		let served = URL(string: "https://im-fa.manifest.tidal.com/atmos.m3u8")!
+		let served = try makeLocalPlaylist(segments: ["AAAA"]).multivariantURL
 
 		let source = await HLSStreaming.playbackSource(
 			for: makeTrack(id: 981_563_432, audioModes: [.stereo, .dolbyAtmos]), session: makeSession(),
@@ -542,7 +544,8 @@ final class HLSStreamingTests: XCTestCase {
 	/// lower one, and the first rung served wins without asking anything below it.
 	func testTheLadderStepsDownUntilATierIsServedAndAsksNothingLower() async throws {
 		var asked: [HLSRung] = []
-		let served = URL(string: "https://im-fa.manifest.tidal.com/medium.m3u8")!
+		// Local, so the detached cache write behind the served playlist never dials out.
+		let served = try makeLocalPlaylist(segments: ["AAAA"]).multivariantURL
 
 		let source = await HLSStreaming.playbackSource(
 			for: makeTrack(id: 981_563_421), session: makeSession(), quality: .max, cacheDirectory: directory,

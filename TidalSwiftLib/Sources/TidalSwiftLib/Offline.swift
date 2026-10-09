@@ -499,14 +499,17 @@ public final class Offline {
 	/// served, and never kept in place of a source that could replace it.
 	///
 	/// The HLS route assembles one MP4 file and the playback cache already verifies that shape,
-	/// so the library reuses that verifier for it; the Atmos direct stream is also an E-AC-3 MP4,
-	/// so it takes the same branch. The stereo direct stream writes FLAC, which that verifier
-	/// cannot inspect, so it gets its own magic-byte check. Neither reads past the header, so a
-	/// file truncated after it passes both; only a full decode would catch that.
+	/// so the library reuses that verifier for it. The `.m4a` of a direct-stream answer is an MP4
+	/// under that name, and the manifest fallback's E-AC-3 arrives as `.mp4`, so those take the
+	/// same branch; the lossless direct stream writes FLAC, which that verifier cannot inspect, so
+	/// it gets its own magic-byte check. Neither reads past the header, so a file truncated after
+	/// it passes both; only a full decode would catch that.
 	///
-	/// An extension the writers never produce is not trusted: they only write `.m4a` (HLS),
-	/// `.mp4` (the Atmos direct stream) and `.flac` (the stereo direct stream), so an unknown
-	/// format is not evidence of a good file and the default rejects it.
+	/// An extension the writers never produce is not trusted. They write `.m4a` (the assembled HLS
+	/// file and the v1 direct-stream answers, the low and medium stereo ones and every Atmos one),
+	/// `.flac` (the v1 lossless stereo answer), and they keep the answer's own extension on the
+	/// manifest fallback, which is where `.mp4` comes from. An unknown format is not evidence of a
+	/// good file, so the default rejects it.
 	private func isPlayableStoredFile(_ url: URL) -> Bool {
 		switch url.pathExtension.lowercased() {
 		case "m4a", "mp4":

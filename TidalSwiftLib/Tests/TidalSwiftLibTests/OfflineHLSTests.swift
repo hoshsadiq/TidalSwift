@@ -79,6 +79,10 @@ final class OfflineHLSTests: XCTestCase {
 
 		let streamValue = await offline.stream(for: makeTrack(id: trackId), ceiling: .high)
 		XCTAssertNil(streamValue, "a truncated file must not be served")
+		XCTAssertTrue(
+			FileManager.default.fileExists(atPath: stub.path),
+			"with nothing resolved to replace it, refusing the only copy must not delete it"
+		)
 	}
 
 	/// The verifier decides whether a file is kept, not its name: a truncated file the source can
@@ -131,6 +135,10 @@ final class OfflineHLSTests: XCTestCase {
 
 		let streamValue = await offline.stream(for: makeTrack(id: trackId), ceiling: .high)
 		XCTAssertNil(streamValue, "a truncated FLAC must not be served")
+		XCTAssertTrue(
+			FileManager.default.fileExists(atPath: stub.path),
+			"with nothing resolved to replace it, refusing the only copy must not delete it"
+		)
 	}
 
 	/// The FLAC branch has a size floor and a magic check, and the 64-byte stub above fails both, so
@@ -143,8 +151,8 @@ final class OfflineHLSTests: XCTestCase {
 		try await assertFLACBytesAreRejected(Data("fLaC".utf8), trackId: 779_000_008)
 	}
 
-	/// The Atmos direct stream is an E-AC-3 MP4, so it is written under the `.mp4` extension the
-	/// writers use and must clear the MP4 verifier rather than being trusted by its name.
+	/// The direct-stream fallback keeps the answer's own extension, so an E-AC-3 Atmos answer
+	/// lands as `.atmos.mp4`; it must clear the MP4 verifier rather than being trusted by its name.
 	func testATruncatedAtmosDirectStreamMP4IsNotAcceptedAndNotServed() async throws {
 		let trackId = 779_000_009
 		let libraryDirectory = try makeLibraryDirectory()
@@ -167,9 +175,45 @@ final class OfflineHLSTests: XCTestCase {
 			resolves.value, 1,
 			"a truncated Atmos MP4 must not satisfy the wish, so the sync must re-resolve the track"
 		)
-		XCTAssertEqual(try Data(contentsOf: stub).count, 64, "the truncated file must not be kept on its name")
+		XCTAssertEqual(try Data(contentsOf: stub).count, 64, "with nothing to replace it, the truncated file is kept as the only copy")
 		let streamValue = await offline.stream(for: track, ceiling: .high)
 		XCTAssertNil(streamValue, "a truncated Atmos MP4 must not be served")
+	}
+
+	/// The other half of the `.mp4` branch: a sound `.atmos.mp4` is a real download, so the
+	/// verifier accepts it and the sync keeps and serves it. Deleting `"mp4"` from the case list
+	/// drops it into the reject-by-default branch, which reds this test: the file would look
+	/// damaged, be re-resolved every sync and never be kept or served.
+	func testAValidAtmosDirectStreamMP4IsAcceptedKeptAndServed() async throws {
+		let trackId = 779_000_010
+		let libraryDirectory = try makeLibraryDirectory()
+		let stored = libraryDirectory.appendingPathComponent("\(trackId).atmos.mp4")
+		try eac3InitFixture().write(to: stored)
+
+		let session = try makeSession(quality: .high)
+		let offline = session.helpers.offline
+		let resolves = Counter()
+		offline.resolveOfflineHLSPlaylist = { _, _ in
+			resolves.value += 1
+			throw HLSStreamError.requestRefused(status: 403)
+		}
+		offline.resolveOfflineStream = { _ in
+			resolves.value += 1
+			return nil
+		}
+		let track = makeTrack(id: trackId, audioModes: [.dolbyAtmos])
+		offline.setOfflineTracksForTesting([track])
+		await offline.awaitOngoingSync()
+
+		XCTAssertEqual(
+			resolves.value, 0,
+			"a complete Atmos MP4 must satisfy the wish, so the sync must not re-resolve the track"
+		)
+		XCTAssertEqual(try libraryFileNames(), ["\(trackId).atmos.mp4"], "the valid file must be kept, not replaced")
+		let streamValue = await offline.stream(for: track, ceiling: .high)
+		let stream = try XCTUnwrap(streamValue, "the valid Atmos MP4 must be served offline")
+		XCTAssertEqual(stream.url.lastPathComponent, "\(trackId).atmos.mp4")
+		XCTAssertTrue(stream.isDolbyAtmos, "the served file must be reported as Atmos")
 	}
 
 	/// An extension the writers never produce is not evidence of a good file, so the verifier rejects it
@@ -197,6 +241,10 @@ final class OfflineHLSTests: XCTestCase {
 		)
 		let streamValue = await offline.stream(for: makeTrack(id: trackId), ceiling: .high)
 		XCTAssertNil(streamValue, "an unrecognised format must not be served")
+		XCTAssertTrue(
+			FileManager.default.fileExists(atPath: stub.path),
+			"with nothing resolved to replace it, refusing the only copy must not delete it"
+		)
 	}
 
 	/// Drives a sync over one `.lossless.flac` payload and asserts the verifier rejects it, so the
@@ -222,6 +270,10 @@ final class OfflineHLSTests: XCTestCase {
 		)
 		let streamValue = await offline.stream(for: makeTrack(id: trackId), ceiling: .high)
 		XCTAssertNil(streamValue, "a file that is not a complete FLAC must not be served")
+		XCTAssertTrue(
+			FileManager.default.fileExists(atPath: libraryDirectory.appendingPathComponent("\(trackId).lossless.flac").path),
+			"with nothing resolved to replace it, refusing the only copy must not delete it"
+		)
 	}
 
 	func testAnOfflineTrackPlaysFromItsStoredFile() async throws {
