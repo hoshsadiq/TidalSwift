@@ -359,7 +359,8 @@ public final class Offline {
 	/// be served.
 	///
 	/// The library is a source, not an exception to the settings: a stored file is served only
-	/// when a ceiling admits its rendition. The play ceiling (`ceiling`, the Stream setting)
+	/// when a ceiling admits its rendition and the file is complete (`isPlayableStoredFile`).
+	/// The play ceiling (`ceiling`, the Stream setting)
 	/// governs this play and the offline ceiling governs the library, so an Atmos file needs both
 	/// to admit Atmos. Below High it is kept on disk — until a settings change re-checks it, the
 	/// policy the sync follows — but not played: the track is skipped the same way the streaming
@@ -377,7 +378,9 @@ public final class Offline {
 		// at Low and the Atmos replacement still downloading, the stereo leftover is served here
 		// and pruned there. Closing that would mean giving the sync the play ceiling, which it has
 		// no access to.
-		let playable = files.filter { isAdmissible(variant(of: $0, track: track), at: ceiling) }
+		let playable = files
+			.filter { isPlayableStoredFile($0) }
+			.filter { isAdmissible(variant(of: $0, track: track), at: ceiling) }
 		guard let url = preferredFile(for: track, in: playable) else {
 			return nil
 		}
@@ -491,6 +494,16 @@ public final class Offline {
 		stream.isDolbyAtmos ? .dolbyAtmos : .stereo(stream.quality ?? session.config.offlineAudioQuality)
 	}
 
+	/// Whether a stored file is a complete download rather than a truncated or half-written
+	/// stub. The HLS route assembles one MP4 file and the playback cache already verifies that
+	/// shape, so the library reuses that verifier: a file it rejects is a miss here too, never
+	/// accepted by a later sync and never served. The direct-stream fallback is not MP4, so it
+	/// is left as the source wrote it.
+	private func isPlayableStoredFile(_ url: URL) -> Bool {
+		guard url.pathExtension.lowercased() == "m4a" else { return true }
+		return HLSStreaming.isPlayableMP4File(at: url)
+	}
+
 	/// What one track's download attempt achieved, so the sync can tell a failed download
 	/// (worth retrying) from a file the source already serves (settled).
 	private enum DownloadOutcome {
@@ -562,6 +575,10 @@ public final class Offline {
 		// A stereo file at or below the ceiling is the best available tier already settled on;
 		// a resolve that fails (usually offline) keeps it quietly rather than crying failure.
 		if existingFiles.contains(where: { isSettledStereoFile($0, for: track) }) { return }
+		// An Atmos file is the same kind of keep: a source that serves no stereo (a device
+		// session, or a track with no stereo rendition) leaves it as the best available file,
+		// so a failed resolve is not a library error.
+		if existingFiles.contains(where: { variant(of: $0, track: track) == .dolbyAtmos }) { return }
 		if !existingFiles.isEmpty {
 			// The old file stays, so a refused quality never shrinks the library
 			displayError(title: "Offline: Error while loading offline track", content: "Couldn't get Audio URL for \(track.title). Keeping the existing file.")
@@ -939,8 +956,11 @@ public final class Offline {
 			let acceptable = recheck
 				? Set([wantedVariant(of: track)])
 				: acceptableVariants(of: track)
-			if files.contains(where: { acceptable.contains(variant(of: $0, track: track)) }) {
-				if let keep = preferredFile(for: track, in: files) {
+			// A stub is not a stored file: the whole pass treats it as absent, so a track whose
+			// only file is damaged is re-resolved rather than accepted on its name alone.
+			let playable = files.filter { isPlayableStoredFile($0) }
+			if playable.contains(where: { acceptable.contains(variant(of: $0, track: track)) }) {
+				if let keep = preferredFile(for: track, in: playable) {
 					plan.leftoverFiles += files.filter { $0 != keep }
 				}
 			} else {

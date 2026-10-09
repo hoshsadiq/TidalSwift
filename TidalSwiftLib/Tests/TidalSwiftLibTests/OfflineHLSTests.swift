@@ -51,6 +51,34 @@ final class OfflineHLSTests: XCTestCase {
 		XCTAssertEqual(try libraryFileNames(), ["\(trackId).lossless.m4a"])
 	}
 
+	/// A truncated file is not a download. The playback cache already verifies the assembled MP4
+	/// shape (`HLSStreaming.isPlayableMP4File`), and the library uses the same verifier, so a
+	/// half-written file is never accepted on its name and never served.
+	func testATruncatedOfflineFileIsNotAcceptedAndNotServed() async throws {
+		let trackId = 779_000_004
+		let libraryDirectory = try makeLibraryDirectory()
+		let stub = libraryDirectory.appendingPathComponent("\(trackId).lossless.m4a")
+		try Data(try Data(contentsOf: try silentM4AFixture()).prefix(64)).write(to: stub)
+
+		let session = try makeSession()
+		let offline = session.helpers.offline
+		let resolves = Counter()
+		offline.resolveOfflineStream = { _ in
+			resolves.value += 1
+			return nil
+		}
+		offline.setOfflineTracksForTesting([makeTrack(id: trackId)])
+		await offline.awaitOngoingSync()
+
+		XCTAssertEqual(
+			resolves.value, 1,
+			"a truncated file must not satisfy the wish, so the sync must re-resolve the track"
+		)
+
+		let streamValue = await offline.stream(for: makeTrack(id: trackId), ceiling: .high)
+		XCTAssertNil(streamValue, "a truncated file must not be served")
+	}
+
 	func testAnOfflineTrackPlaysFromItsStoredFile() async throws {
 		let trackId = 779_000_003
 		let playlist = try makeLocalPlaylist(in: offlineLibrary.root)

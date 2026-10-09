@@ -320,6 +320,53 @@ final class OfflineSyncOrderTests: XCTestCase {
 		)
 	}
 
+	/// A new settings change re-checks the whole library, so the previous wish's re-check set is
+	/// cleared. With a stale set a second change would re-check only the old stuck track and leave
+	/// every other below-wanted file accepted.
+	func testASecondSettingsChangeReChecksTheWholeLibraryAgain() async throws {
+		let stuckId = 778_000_016
+		let settledIdA = 778_000_017
+		let settledIdB = 778_000_018
+		let libraryDirectory = try makeLibraryDirectory()
+		for trackId in [stuckId, settledIdA, settledIdB] {
+			try FileManager.default.copyItem(
+				at: try silentFlacFixture(),
+				to: libraryDirectory.appendingPathComponent("\(trackId).low.flac")
+			)
+		}
+
+		let session = makeSession(offlineAudioQuality: .low)
+		let offline = session.helpers.offline
+		let resolves = Counter()
+		offline.resolveOfflineStream = { track in
+			resolves.value += 1
+			// The stuck track's replacement cannot resolve; the other two are served only at the tier
+			// already on disk, so they settle rather than keep the wish alive.
+			guard track.id != stuckId else { return nil }
+			return AudioStream(
+				url: libraryDirectory.appendingPathComponent("\(track.id).low.flac"),
+				pathExtension: "flac",
+				isDolbyAtmos: false,
+				quality: .low
+			)
+		}
+		let tracks = [stuckId, settledIdA, settledIdB].map { makeTrack(id: $0) }
+		offline.setOfflineTracksForTesting(tracks)
+		await offline.awaitOngoingSync()
+		XCTAssertEqual(resolves.value, 0, "the launch sync keeps the below-ceiling files without resolving them")
+
+		offline.setAudioQuality(to: .max)
+		await offline.awaitOngoingSync()
+		XCTAssertEqual(resolves.value, 3, "the first settings change re-checks every below-wanted file once")
+
+		offline.setAudioQuality(to: .high)
+		await offline.awaitOngoingSync()
+		XCTAssertEqual(
+			resolves.value, 6,
+			"a second settings change must re-check the whole library again, not only the previous wish's rejections"
+		)
+	}
+
 	/// The offline ceiling refuses the Atmos rendition, so below High the stereo file is the wanted
 	/// variant and the Atmos file is the one pruned. The consequence is unservability, not a wrong
 	/// badge: with the Atmos file kept and the stereo file gone, every play ceiling below High
@@ -358,7 +405,8 @@ final class OfflineSyncOrderTests: XCTestCase {
 
 	/// A direct-stream download is named for the tier that path served, not the tier that was asked
 	/// for: a Max request the endpoint answers with the 16-bit lossless file must land as
-	/// `<id>.lossless.m4a`, or the name disagrees with the file and the next sync re-resolves it.
+	/// `<id>.lossless.m4a`, or the file would be served as `24-bit` (the badge reads the name), a
+	/// tier the bytes do not have.
 	func testADirectStreamDownloadIsNamedForTheServedTier() async throws {
 		let trackId = 778_000_014
 		let libraryDirectory = try makeLibraryDirectory()
@@ -376,6 +424,34 @@ final class OfflineSyncOrderTests: XCTestCase {
 			try libraryFileNames(in: libraryDirectory),
 			["\(trackId).lossless.m4a"],
 			"the name must carry the tier that was served, not the configured Max ceiling"
+		)
+	}
+
+	/// An Atmos file with no stereo rendition to replace it is kept by policy, so the sync must
+	/// not report the failed resolve as an error on every pass.
+	func testAnAtmosFileKeptBelowTheCeilingDoesNotReportASyncError() async throws {
+		let trackId = 778_000_015
+		let libraryDirectory = try makeLibraryDirectory()
+		let track = makeDualFormatTrack(id: trackId)
+		try FileManager.default.copyItem(
+			at: try silentM4AFixture(),
+			to: libraryDirectory.appendingPathComponent("\(trackId).atmos.m4a")
+		)
+
+		var messages: [String] = []
+		displayErrorHandler = { _, content in messages.append(content) }
+
+		let session = makeSession(offlineAudioQuality: .low)
+		let offline = session.helpers.offline
+		offline.resolveOfflineStream = { _ in nil }
+		offline.setOfflineTracksForTesting([track])
+		await offline.awaitOngoingSync()
+
+		XCTAssertTrue(messages.isEmpty, "a by-design keep must not be reported as a sync error")
+		XCTAssertEqual(
+			try libraryFileNames(in: libraryDirectory),
+			["\(trackId).atmos.m4a"],
+			"the kept Atmos file must stay on disk"
 		)
 	}
 

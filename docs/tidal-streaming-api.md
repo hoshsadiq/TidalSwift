@@ -12,9 +12,9 @@ All tests used a premium account in Germany (`countryCode=DE`). Reference tracks
 
 ## Quality tiers
 
-Tidal's current tiers, with this client's names for them and their API values:
+Tidal's current tiers, with this document's names for them and their API values:
 
-| TidalSwift name | API value | `AudioQuality` case | Format |
+| Name in this document | API value | `AudioQuality` case | Format |
 |---|---|---|---|
 | Low (96 kbps) | `LOW` | `.low` | HE-AAC (`mp4a.40.5`) |
 | Medium (320 kbps) | `HIGH` | `.medium` | AAC-LC (`mp4a.40.2`) |
@@ -24,7 +24,7 @@ Tidal's current tiers, with this client's names for them and their API values:
 
 Tracks never report `HI_RES_LOSSLESS` as their `audioQuality` in the v1 API; the maximum there is `LOSSLESS`. Hi-Res availability only shows up in `mediaMetadata.tags` (`HIRES_LOSSLESS`). Subscriptions and some other objects still send `HI_RES_LOSSLESS`, which decodes to `.max`.
 
-The name column is this client's, not Tidal's: Tidal's own quality menu names both 96 and 320 kbps **Low** (a 96/320 selector inside it), so `HIGH`/320 is this client's "Medium".
+The name column is this document's and the README's, not the app's: both Tidal's own quality menu and this app's Quality pane name 96 and 320 kbps **Low** (a 96/320 selector inside it), so only this document, the README and the `AudioQuality` case name call `HIGH`/320 "Medium".
 
 ## Endpoints
 
@@ -56,7 +56,7 @@ Parameters: `audioquality`, `playbackmode`, `assetpresentation=FULL`, optionally
 - Tracks with both modes return **Atmos by default**. Only `immersiveaudio=false` forces stereo; `audiomode=STEREO` has no effect.
 - Adding the iOS app's parameters (`deviceType=PHONE`, `platform=IOS`, `locale`) changes nothing.
 - The Atmos file is a 5.1-bed E-AC-3 JOC stream in MP4. `afinfo` lists the Atmos (`ec+3`) layouts up to 9.1.6, `ffprobe` reports "Dolby Digital Plus + Dolby Atmos", and `AVPlayer` plays it from a local file.
-- This table's Atmos row is the endpoint's answer for a track it serves; the same endpoint with this app's own desktop headers returned nothing usable for the Atmos-only track 241,647,167 (probed below), so the app takes Atmos from the manifest `EAC3_JOC` rung rather than from here.
+- This table's Atmos row was measured with `Authorization`, `X-Tidal-Token` and the desktop TIDAL user agent, like the rest of the table. The same endpoint with this app's own desktop-client session (its token, no `X-Tidal-Token`) returned nothing usable for the Atmos-only track 241,647,167 (probed below). The app takes Atmos from the manifest `EAC3_JOC` rung on the HLS route, and still takes it from this endpoint on the direct-stream fallback, which is the only route for a session without the desktop `cuk` claim.
 
 ### openapi `GET https://openapi.tidal.com/v2/trackManifests/{id}`
 
@@ -288,7 +288,7 @@ Two conclusions. `audioModes` is not a stereo test: the catalogue omits `STEREO`
 
 **Offline** downloads the same manifest to `<trackId>.<quality>.m4a` in `~/Music/TidalSwift Offline Library`, and the served rung names the file: a stereo tier by its quality, the Atmos `EAC3_JOC` rung as `<trackId>.atmos.m4a`. An Atmos-advertised track with the preference on asks the Atmos rung first and stores the Atmos file at a High or Max ceiling; below that the Atmos rung is not on the ladder at all, so the stereo ladder is asked alone. An Atmos file is served only when both the play ceiling and the offline ceiling admit Atmos, so it stops playing when either setting drops below High; a stereo file always plays, whatever the ceilings say. The Atmos file itself stays on disk: dropping the Stream ceiling alone runs no sync, so nothing replaces it, and a Download-side change replaces it only once a replacement resolves. With the preference off the stereo ladder is asked first and the Atmos rung is the fallback where the ceiling admits it. A copy already on disk outranks the preference: the playback cache serves the first rung it holds a file for, and the offline library keeps an Atmos file until a Download-side change replaces it, so turning the preference off does not re-resolve or re-check the library. A direct-stream fallback file is named for the tier that path serves, so a `HI_RES_LOSSLESS` request the endpoint answers with the 16-bit lossless file lands as `<trackId>.lossless.m4a`.
 
-A plain sync accepts any tier the ceiling's ladder can serve, so a stepped-down file (e.g. `FLAC_HIRES` refused, `FLAC` stored) is kept rather than re-resolved on every pass — the per-sync upgrade probe was dropped by decision (2026-10-08). A settings change (the Download quality or the Atmos preference) re-checks every file against the new wish and replaces the ones it no longer wants, except where the source already resolves to the variant on disk, which is kept as it is; and when nothing resolves at all, the rejected file is kept and the wish stays, so the next sync retries the replacement rather than accepting the old tier for good. When more than one file is present the choice is deterministic: the wanted variant, then the best tier on the ceiling's ladder, then the file name. The offline library was empty when this landed, so no migration was needed.
+A plain sync accepts any tier the ceiling's ladder can serve, so a stepped-down file (e.g. `FLAC_HIRES` refused, `FLAC` stored) is kept rather than re-resolved on every pass — the per-sync upgrade probe was dropped by decision (2026-10-08). A settings change (the Download quality or the Download Atmos preference) re-checks every file against the new wish and replaces the ones it no longer wants, except where the source already resolves to the variant on disk, which is kept as it is; and when nothing resolves at all, the rejected file is kept and the wish stays, so the next sync retries the replacement rather than accepting the old tier for good. When more than one file is present the choice is deterministic: the wanted variant, then the best tier on the ceiling's ladder, then the file name. The offline library was empty when this landed, so no migration was needed.
 
 **The quality setting is a ceiling, not an exact tier.** The fetch starts where the setting points and walks down until Tidal serves something, so a track with no hi-res master still plays. Atmos is outside that ladder and is only requested when the setting is High or Max; a Low or Medium ceiling also refuses an Atmos answer the v1 endpoint returns anyway, so a track Tidal serves no stereo rendition for is skipped below that rather than played as Atmos. Measured against the official macOS client: it asks for `HI_RES_LOSSLESS` and is answered `audioMode: STEREO` for a track the catalogue badges `DOLBY_ATMOS`, plays that stereo version, and never requests Atmos at all (`.omo/evidence/upstream-merge/tidal-app-probe.md`). The catalogue's `audioModes` describes what Tidal holds, not what any client plays.
 
