@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 #MISE description="Resolve a track at each quality tier and report what is really playing"
+#USAGE about "Resolve a track at each quality tier and report what is really playing. mise takes the bare --help, so pass the flag through: mise run verify-playback -- --help prints this task's usage and the tool's full option list."
 # Builds and runs the verify-playback executable from the TidalSwiftLib package.
 set -Eeuo pipefail
 

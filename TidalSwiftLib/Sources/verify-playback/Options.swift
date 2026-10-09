@@ -254,9 +254,10 @@ struct Options {
 	  lossless stereo row), 7 mismatch — the lossy rows at both ceilings and the two Atmos rows
 	  on codec (the bytes are flac, the rules expect aac or ec-3), and the Max stereo row on
 	  depth (the rules expect 24-bit, the bytes are 16-bit). The default three-track matrix
-	  prints 24 combinations, 5 match, 19 mismatch: it adds two badge mismatches on the
-	  Atmos-only track, whose ladder reaches the 24-bit rung while the rules expect the 16-bit
-	  one, a rung the fixture cannot refuse. The verdict reads the codec family, channel count
-	  and bit depth out of the decoded file, not the request.
+	  prints 24 combinations, 5 match, 19 mismatch: it adds three badge mismatches, two on the
+	  plain stereo track and one on the Atmos-only track, each from a Max rung the fixture
+	  answers with its 16-bit FLAC while the badge is built from the rung, so it reads 24-bit
+	  where the rules expect 16-bit — a rung the fixture cannot refuse. The verdict reads the
+	  codec family, channel count and bit depth out of the decoded file, not the request.
 	"""
 }
