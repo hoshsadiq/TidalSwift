@@ -87,7 +87,7 @@ struct NowPlayingDrawer: View {
 				  !event.isARepeat,
 				  event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.function, .capsLock]).isEmpty,
 				  !playbackInfo.isFullscreen,
-				  NSApp.keyWindow?.identifier?.rawValue != "com_apple_SwiftUI_Settings_window",
+				  !SettingsWindow.isKeyWindow,
 				  !(NSApp.keyWindow?.firstResponder is NSTextView) else {
 				return event
 			}
