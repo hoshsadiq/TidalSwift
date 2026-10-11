@@ -14,8 +14,8 @@ import TidalSwiftLib
 ///
 /// Renders the top-right action cluster, the large artwork and the host region
 /// for the active panel. The ambient background is layered behind this view by
-/// `TopDetailView`. Panel contents are owned by later tasks; this view only
-/// renders the host region and a placeholder.
+/// `TopDetailView`. The host region renders the active panel — credits, similar
+/// tracks or lyrics — falling back to a placeholder when a panel has nothing to show.
 struct NowPlayingDrawer: View {
 	let session: Session
 	let player: Player
