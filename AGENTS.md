@@ -85,3 +85,17 @@ PRs should include:
 
 Do not add personal tokens, account data, or local secrets to commits.
 Treat auth/config constants in `TidalSwiftLib/Config.swift` as sensitive integration settings; discuss API/auth changes in the PR description.
+
+## Probes, Tests, and Generated Files
+
+A verification run must not damage anything it did not create.
+
+- Create one temp directory for the run, under the system temp directory, and keep everything the run generates inside it. Do not write to `$HOME`, to `/tmp` root, or to any shared or pre-existing path.
+- Remove only what the run created. Cleaning up your own temp directory is expected; deleting, replacing or emptying anything else is not. A path that existed before the run was not yours to touch, and a directory that merely looks like scratch may not be.
+- Stop only processes the run started. If you did not launch it, do not kill it. When it is unclear whether a process is yours, leave it alone and report it.
+- Never pipe an unbounded stream into a file. A log stream, a network capture, a server's output: bound it by size or duration, or write it where you will delete it, because an open-ended capture grows until the disk fills.
+- Prefer a bounded, disposable artefact to a long-lived one, and give it a name that says what it is.
+- Report what is left, and where. If something has to keep running, or a file has to stay, say so.
+- Verify a cleanliness claim by inventory, not by the one path in view: list every directory and process the run touched, show them empty, and check again after a delay, because daemons and caches write late. "Nothing leaves the temp directory" is false the moment one path is overlooked.
+- When cleanup does not work, say so instead of chasing it. If a process will not die, a file will not delete, or a permission is refused, stop after one or two clear attempts, report what is still there and why it matters, and let the user decide. A rabbit hole is worse than a leftover nobody was told about.
+- Keep instrumentation out of the repository. Interposers, capture scripts and scratch fixtures stay outside the checkout or under a gitignored path, and never in a commit.
