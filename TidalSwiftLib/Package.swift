@@ -36,6 +36,15 @@ let package = Package(
 		.target(
 			name: "LRCParser"
 		),
+		.executableTarget(
+			name: "verify-playback",
+			dependencies: ["TidalSwiftLib"],
+			swiftSettings: [
+				.defaultIsolation(MainActor.self),
+				.enableUpcomingFeature("InferIsolatedConformances"),
+				.enableUpcomingFeature("NonisolatedNonsendingByDefault")
+			]
+		),
 		.testTarget(
 			name: "LRCParserTests",
 			dependencies: ["LRCParser"]
