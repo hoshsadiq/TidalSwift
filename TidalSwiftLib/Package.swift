@@ -22,6 +22,7 @@ let package = Package(
         .target(
             name: "TidalSwiftLib",
 			dependencies: ["LRCParser"],
+			exclude: ["Info.plist"],
 			swiftSettings: [
 				.defaultIsolation(MainActor.self),
 				.enableUpcomingFeature("InferIsolatedConformances"),
