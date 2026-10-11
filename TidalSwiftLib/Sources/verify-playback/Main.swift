@@ -14,6 +14,8 @@ struct VerifyPlaybackTool {
 		let arguments = Array(CommandLine.arguments.dropFirst())
 		if arguments.contains("--help") || arguments.contains("-h") {
 			print(Options.usage)
+			print()
+			print(Verifier.preamble)
 			exit(0)
 		}
 

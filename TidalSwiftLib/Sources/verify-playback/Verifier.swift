@@ -141,7 +141,6 @@ struct Verifier {
 			// The header prints before the session is built so the library's own startup log lands
 			// below the tool's words instead of above them.
 			print()
-			print(Self.preamble)
 			Self.printRunHeader(options)
 			if let source { print("session: \(source)") }
 			let session = Self.makeSession(config: config, offlineRoot: offlineRoot, offlineDefaults: offlineDefaults)
@@ -582,6 +581,7 @@ struct Verifier {
 
 	// MARK: - Output
 
+	/// Printed by `--help`, not by a run. A run prints the report, which is the thing to read.
 	static let preamble = """
 	verify-playback — rules versus reality.
 
