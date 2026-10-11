@@ -85,6 +85,7 @@ PRs should include:
 
 Do not add personal tokens, account data, or local secrets to commits.
 Treat auth/config constants in `TidalSwiftLib/Config.swift` as sensitive integration settings; discuss API/auth changes in the PR description.
+
 ## Probes, Tests, and Generated Files
 
 A verification run must not damage anything it did not create.
