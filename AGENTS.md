@@ -85,3 +85,14 @@ PRs should include:
 
 Do not add personal tokens, account data, or local secrets to commits.
 Treat auth/config constants in `TidalSwiftLib/Config.swift` as sensitive integration settings; discuss API/auth changes in the PR description.
+
+## Probes, Tests, and Generated Files
+
+Anything you run for verification is yours to clean up before you report back.
+
+- Put every artefact outside the repository under a temp directory created for that run, and remove it when the run ends. Nothing you generate belongs in `$HOME`, `/tmp` root, or a shared path under a name someone has to guess.
+- Never pipe an unbounded stream into a file. `log stream`, `tcpdump`, `lsof -r`, a server's output: bound it by size or duration, or write it to a temp path you delete. A capture left running grows until the disk fills.
+- Stop what you start. An app instance, a `log stream`, a local server, a debugger, an injected interposer, a launched helper: if your run started it, your run ends it. Check with `ps` for the process you spawned, not just for the feature you were testing.
+- Report the leftovers. If something must keep running or a file must stay, say so in your report and say where it is.
+- Verify by inventory, not by the one path you happen to be looking at. When you claim nothing was written or nothing is still running, list the directories and processes you touched and show them empty, and check once more after a delay, because daemons and caches write late. Claims like "nothing leaves the temp directory" are false the moment one path was overlooked.
+- Keep instrumentation out of the repository. Interposers, capture scripts and scratch fixtures stay outside the checkout, or under a gitignored path, and never in a commit.
