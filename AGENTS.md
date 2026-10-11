@@ -96,4 +96,5 @@ A verification run must not damage anything it did not create.
 - Prefer a bounded, disposable artefact to a long-lived one, and give it a name that says what it is.
 - Report what is left, and where. If something has to keep running, or a file has to stay, say so.
 - Verify a cleanliness claim by inventory, not by the one path in view: list every directory and process the run touched, show them empty, and check again after a delay, because daemons and caches write late. "Nothing leaves the temp directory" is false the moment one path is overlooked.
+- When cleanup does not work, say so instead of chasing it. If a process will not die, a file will not delete, or a permission is refused, stop after one or two clear attempts, report what is still there and why it matters, and let the user decide. A rabbit hole is worse than a leftover nobody was told about.
 - Keep instrumentation out of the repository. Interposers, capture scripts and scratch fixtures stay outside the checkout or under a gitignored path, and never in a commit.
