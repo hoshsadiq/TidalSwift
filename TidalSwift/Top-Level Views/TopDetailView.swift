@@ -14,6 +14,10 @@ extension Notification.Name {
 	static let focusSearchField = Notification.Name("io.hosh.TidalSwift.focusSearchField")
 	static let favoriteTrackChanged = Notification.Name("io.hosh.TidalSwift.favoriteTrackChanged")
 	static let favoritePlaylistChanged = Notification.Name("io.hosh.TidalSwift.favoritePlaylistChanged")
+	/// A playlist was created, deleted or renamed, so the set of playlists or a
+	/// playlist's title changed. Distinct from `.favoritePlaylistChanged`, which
+	/// means only that the favourite set moved.
+	static let playlistListChanged = Notification.Name("io.hosh.TidalSwift.playlistListChanged")
 }
 
 struct TopDetailView: View {
@@ -456,6 +460,15 @@ struct TopView: View {
 		}
 		.onReceive(NotificationCenter.default.publisher(for: .favoritePlaylistChanged)) { _ in
 			favoritedPlaylistUuids = viewState.cache.favoritedPlaylistUuids ?? []
+		}
+		.onReceive(NotificationCenter.default.publisher(for: .playlistListChanged)) { _ in
+			// The library stays the source of truth, so re-read it rather than
+			// trusting the cache a delete or rename may not have refreshed.
+			Task {
+				let result = await viewState.refreshAllPlaylists()
+				allPlaylists = result.playlists
+				favoritedPlaylistUuids = result.favoritedUuids
+			}
 		}
 	}
 
