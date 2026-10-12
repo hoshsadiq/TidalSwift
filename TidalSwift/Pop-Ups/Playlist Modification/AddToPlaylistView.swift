@@ -95,6 +95,9 @@ struct AddToPlaylistView: View {
 								}
 								playlistId = playlist.uuid
 								selectedPlaylist = playlistId
+								// The sidebar keeps its own playlist list, so announce the create now:
+								// a failed add still leaves a playlist that should appear there.
+								NotificationCenter.default.post(name: .playlistListChanged, object: nil)
 							}
 							let ids = playlistEditingValues.tracks.map { $0.id }
 							let success = await session.playlistEditing.addTracks(ids, to: playlistId, duplicate: false)

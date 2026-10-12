@@ -20,13 +20,15 @@ extension Notification.Name {
 	static let favoriteAlbumChanged = Notification.Name("io.hosh.TidalSwift.favoriteAlbumChanged")
 	/// Posted whenever the offline set changes: a download finishing, or a track,
 	/// album or playlist marked or unmarked. Surfaces that keep a seeded `isOffline`
-	/// copy re-read the offline module on this announcement, so the library stays
-	/// the source of truth and no two of them can disagree.
+	/// copy re-read the offline module on this announcement, so the library stays the
+	/// source of truth. They settle to agree rather than never disagreeing: the database
+	/// records membership before the files land, so a header can show a cloud its rows
+	/// do not have yet.
 	static let offlineChanged = Notification.Name("io.hosh.TidalSwift.offlineChanged")
 
-	/// A playlist was deleted or renamed, so the set of playlists or a playlist's
+	/// A playlist was created, deleted or renamed, so the set of playlists or a playlist's
 	/// title changed. Distinct from `.favoritePlaylistChanged`, which means only
-	/// that the favourite set moved. Creation posts nothing: it is disabled in the UI.
+	/// that the favourite set moved.
 	static let playlistListChanged = Notification.Name("io.hosh.TidalSwift.playlistListChanged")
 }
 
