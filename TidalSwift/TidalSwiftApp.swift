@@ -228,6 +228,10 @@ final class TidalSwiftAppModel {
 	@ObservationIgnored private var saveTask: Task<Void, Never>?
 	/// Gates the Now Playing elapsed-time write to one a second.
 	@ObservationIgnored private var lastNowPlayingFractionUpdate = Date.distantPast
+	/// Mirrors a heart toggled in any list onto the player bar. Rows already
+	/// announce their change on `.favoriteTrackChanged`; the bar was the one
+	/// surface not listening, so it stayed stale until the queue moved.
+	@ObservationIgnored private var favoriteTrackObserver: NSObjectProtocol?
 
 	var trackIsFavorite = false
 	var albumIsFavorite = false
@@ -319,6 +323,7 @@ final class TidalSwiftAppModel {
 		initCancellables()
 		viewState.refreshCurrentView()
 		refreshFavoriteState()
+		observeFavoriteTrackChanges()
 
 		#if canImport(AppKit)
 		initSecondaryWindows()
@@ -846,6 +851,10 @@ final class TidalSwiftAppModel {
 
 	func cancelCancellables() {
 		saveTask?.cancel()
+		if let favoriteTrackObserver {
+			NotificationCenter.default.removeObserver(favoriteTrackObserver)
+			self.favoriteTrackObserver = nil
+		}
 	}
 
 	// MARK: Menu Actions
@@ -923,6 +932,7 @@ final class TidalSwiftAppModel {
 				session.helpers.offline.asyncSyncFavoriteTracks()
 				refreshFavoriteState()
 				viewState.refreshCurrentView()
+				NotificationCenter.default.post(name: .favoriteTrackChanged, object: nil, userInfo: ["trackId": trackId, "isFavorite": true])
 			}
 		}
 	}
@@ -935,6 +945,7 @@ final class TidalSwiftAppModel {
 				session.helpers.offline.asyncSyncFavoriteTracks()
 				refreshFavoriteState()
 				viewState.refreshCurrentView()
+				NotificationCenter.default.post(name: .favoriteTrackChanged, object: nil, userInfo: ["trackId": trackId, "isFavorite": false])
 			}
 		}
 	}
@@ -1137,6 +1148,34 @@ final class TidalSwiftAppModel {
 			self.trackIsFavorite = trackFavorite
 			self.albumIsFavorite = albumFavorite
 		}
+	}
+
+	/// The player bar's heart reads `trackIsFavorite`, a snapshot refreshed on queue
+	/// and index changes only. This keeps it current when a list or context menu
+	/// toggles the playing track, without a second favourite store: the library stays
+	/// the source of truth and its `.favoriteTrackChanged` announcement is read here.
+	private func observeFavoriteTrackChanges() {
+		guard favoriteTrackObserver == nil else { return }
+		favoriteTrackObserver = NotificationCenter.default.addObserver(
+			forName: .favoriteTrackChanged,
+			object: nil,
+			queue: .main
+		) { [weak self] notification in
+			let trackId = notification.userInfo?["trackId"] as? Int
+			let isFavorite = notification.userInfo?["isFavorite"] as? Bool
+			// Safe because the observer asks for delivery on the main queue
+			MainActor.assumeIsolated {
+				self?.applyFavoriteTrackChange(trackId: trackId, isFavorite: isFavorite)
+			}
+		}
+	}
+
+	private func applyFavoriteTrackChange(trackId: Int?, isFavorite: Bool?) {
+		guard hasCurrentTrack,
+			  let trackId,
+			  let isFavorite,
+			  player.queueInfo.queue[player.queueInfo.currentIndex].track.id == trackId else { return }
+		trackIsFavorite = isFavorite
 	}
 }
 

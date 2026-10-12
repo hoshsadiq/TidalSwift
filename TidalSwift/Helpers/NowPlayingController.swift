@@ -180,6 +180,7 @@ import TidalSwiftLib
 			Task { @MainActor in
 				guard let track = Self.currentTrack(for: player) else { return }
 				_ = await session.favorites?.addTrack(trackId: track.id)
+				NotificationCenter.default.post(name: .favoriteTrackChanged, object: nil, userInfo: ["trackId": track.id, "isFavorite": true])
 			}
 			return .success
 		}
@@ -190,6 +191,7 @@ import TidalSwiftLib
 			Task { @MainActor in
 				guard let track = Self.currentTrack(for: player) else { return }
 				_ = await session.favorites?.removeTrack(trackId: track.id)
+				NotificationCenter.default.post(name: .favoriteTrackChanged, object: nil, userInfo: ["trackId": track.id, "isFavorite": false])
 			}
 			return .success
 		}
