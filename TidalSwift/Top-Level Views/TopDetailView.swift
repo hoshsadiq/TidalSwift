@@ -14,6 +14,10 @@ extension Notification.Name {
 	static let focusSearchField = Notification.Name("io.hosh.TidalSwift.focusSearchField")
 	static let favoriteTrackChanged = Notification.Name("io.hosh.TidalSwift.favoriteTrackChanged")
 	static let favoritePlaylistChanged = Notification.Name("io.hosh.TidalSwift.favoritePlaylistChanged")
+	/// Posted whenever an album is added to or removed from the favourites. The
+	/// library stays the source of truth: the album header re-reads it, and the
+	/// menu-bar album command's `albumIsFavorite` snapshot is refilled from it.
+	static let favoriteAlbumChanged = Notification.Name("io.hosh.TidalSwift.favoriteAlbumChanged")
 	/// Posted whenever the offline set changes: a download finishing, or a track,
 	/// album or playlist marked or unmarked. Surfaces that keep a seeded `isOffline`
 	/// copy re-read the offline module on this announcement, so the library stays

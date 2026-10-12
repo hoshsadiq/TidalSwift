@@ -232,6 +232,10 @@ final class TidalSwiftAppModel {
 	/// announce their change on `.favoriteTrackChanged`; the bar was the one
 	/// surface not listening, so it stayed stale until the queue moved.
 	@ObservationIgnored private var favoriteTrackObserver: NSObjectProtocol?
+	/// Refills the `albumIsFavorite` snapshot the menu-bar album command reads when
+	/// an album heart is toggled anywhere else. Without it that snapshot only moved
+	/// on a queue or index change, so the command disagreed with the library.
+	@ObservationIgnored private var favoriteAlbumObserver: NSObjectProtocol?
 
 	var trackIsFavorite = false
 	var albumIsFavorite = false
@@ -327,6 +331,7 @@ final class TidalSwiftAppModel {
 		viewState.refreshCurrentView()
 		refreshFavoriteState()
 		observeFavoriteTrackChanges()
+		observeFavoriteAlbumChanges()
 
 		#if canImport(AppKit)
 		initSecondaryWindows()
@@ -858,6 +863,10 @@ final class TidalSwiftAppModel {
 			NotificationCenter.default.removeObserver(favoriteTrackObserver)
 			self.favoriteTrackObserver = nil
 		}
+		if let favoriteAlbumObserver {
+			NotificationCenter.default.removeObserver(favoriteAlbumObserver)
+			self.favoriteAlbumObserver = nil
+		}
 	}
 
 	// MARK: Menu Actions
@@ -989,6 +998,7 @@ final class TidalSwiftAppModel {
 			if await session.favorites?.addAlbum(albumId: albumId) == true {
 				refreshFavoriteState()
 				viewState.refreshCurrentView()
+				NotificationCenter.default.post(name: .favoriteAlbumChanged, object: nil, userInfo: ["albumId": albumId, "isFavorite": true])
 			}
 		}
 	}
@@ -1000,6 +1010,7 @@ final class TidalSwiftAppModel {
 			if await session.favorites?.removeAlbum(albumId: albumId) == true {
 				refreshFavoriteState()
 				viewState.refreshCurrentView()
+				NotificationCenter.default.post(name: .favoriteAlbumChanged, object: nil, userInfo: ["albumId": albumId, "isFavorite": false])
 			}
 		}
 	}
@@ -1179,6 +1190,34 @@ final class TidalSwiftAppModel {
 			  let isFavorite,
 			  player.queueInfo.queue[player.queueInfo.currentIndex].track.id == trackId else { return }
 		trackIsFavorite = isFavorite
+	}
+
+	/// Keeps the menu-bar album command honest when an album is hearted off the
+	/// player path, e.g. in its detail view or context menu. As with the track
+	/// channel, the notification carries only the new value; the library, not the
+	/// notification, remains authoritative.
+	private func observeFavoriteAlbumChanges() {
+		guard favoriteAlbumObserver == nil else { return }
+		favoriteAlbumObserver = NotificationCenter.default.addObserver(
+			forName: .favoriteAlbumChanged,
+			object: nil,
+			queue: .main
+		) { [weak self] notification in
+			let albumId = notification.userInfo?["albumId"] as? Int
+			let isFavorite = notification.userInfo?["isFavorite"] as? Bool
+			// Safe because the observer asks for delivery on the main queue
+			MainActor.assumeIsolated {
+				self?.applyFavoriteAlbumChange(albumId: albumId, isFavorite: isFavorite)
+			}
+		}
+	}
+
+	private func applyFavoriteAlbumChange(albumId: Int?, isFavorite: Bool?) {
+		guard hasCurrentTrack,
+			  let albumId,
+			  let isFavorite,
+			  player.queueInfo.queue[player.queueInfo.currentIndex].track.album.id == albumId else { return }
+		albumIsFavorite = isFavorite
 	}
 }
 
