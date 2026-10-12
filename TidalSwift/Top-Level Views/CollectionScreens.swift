@@ -593,7 +593,7 @@ private struct CollectionTrackRow: View {
 			isFavorite = await track.isInFavorites(session: session)
 		}
 		.onReceive(NotificationCenter.default.publisher(for: .offlineChanged)) { _ in
-			isOffline = session.helpers.offline.isTrackOffline(track: track)
+			Task { isOffline = await track.isOffline(session: session) }
 		}
 		// The whole row is one VoiceOver element; its text and buttons merge into
 		// it, so each interactive child is re-exposed by name below.
