@@ -4,10 +4,15 @@
 //
 
 import SwiftUI
+import AppKit
 import TidalSwiftLib
 
 struct PreferencesView: View {
 	@Environment(TidalSwiftAppModel.self) private var appModel
+
+	/// Local key monitor for Escape. A `Settings` window never receives the SwiftUI
+	/// exit command, so the key is watched while the window is on screen.
+	@State private var escKeyMonitor: Any?
 
 	var body: some View {
 		TabView {
@@ -25,6 +30,33 @@ struct PreferencesView: View {
 				}
 		}
 		.frame(width: 520, height: 600)
+		.onAppear { registerEscKeyMonitor() }
+		.onDisappear { removeEscKeyMonitor() }
+	}
+
+	// MARK: - Escape handling
+
+	/// Escape closes the window, the way Cmd-W does. Text entry keeps the key for itself.
+	private func registerEscKeyMonitor() {
+		guard escKeyMonitor == nil else { return }
+		escKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+			guard event.keyCode == 53,
+				  !event.isARepeat,
+				  event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.function, .capsLock]).isEmpty,
+				  SettingsWindow.isKeyWindow,
+				  !KeyboardGuard.isTextEntryActive else {
+				return event
+			}
+			SettingsWindow.close()
+			return nil
+		}
+	}
+
+	private func removeEscKeyMonitor() {
+		if let escKeyMonitor {
+			NSEvent.removeMonitor(escKeyMonitor)
+			self.escKeyMonitor = nil
+		}
 	}
 }
 
