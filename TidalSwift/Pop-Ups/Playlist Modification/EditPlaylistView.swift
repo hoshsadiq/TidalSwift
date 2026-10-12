@@ -52,6 +52,10 @@ struct EditPlaylistView: View {
 								await playlist.removeOffline(session: session)
 								playlistEditingValues.showEditModal = false
 								viewState.refreshCurrentView()
+								// The offline playlist is dropped whether or not a file was deleted, so
+								// announce the offline change like the cloud button does; otherwise a
+								// row whose tracks are wanted elsewhere keeps a stale cloud.
+								NotificationCenter.default.post(name: .offlineChanged, object: nil)
 								NotificationCenter.default.post(name: .playlistListChanged, object: nil)
 							}
 						}

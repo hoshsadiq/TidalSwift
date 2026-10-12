@@ -126,8 +126,9 @@ struct PlayerInfoView: View {
 
 /// Heart toggle for the current track, shared by the player bar and miniplayer.
 ///
-/// State comes from `TidalSwiftAppModel.trackIsFavorite` (refreshed on queue /
-/// index changes) so every host stays in sync without owning favorite state.
+/// State comes from `TidalSwiftAppModel.trackIsFavorite`, refreshed on queue and
+/// index changes and on the library's `.favoriteTrackChanged` announcement, so
+/// every host stays in sync without owning favorite state.
 struct FavoriteButton: View {
 	let track: Track
 	let session: Session
