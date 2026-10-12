@@ -24,9 +24,9 @@ extension Notification.Name {
 	/// the source of truth and no two of them can disagree.
 	static let offlineChanged = Notification.Name("io.hosh.TidalSwift.offlineChanged")
 
-	/// A playlist was created, deleted or renamed, so the set of playlists or a
-	/// playlist's title changed. Distinct from `.favoritePlaylistChanged`, which
-	/// means only that the favourite set moved.
+	/// A playlist was deleted or renamed, so the set of playlists or a playlist's
+	/// title changed. Distinct from `.favoritePlaylistChanged`, which means only
+	/// that the favourite set moved. Creation posts nothing: it is disabled in the UI.
 	static let playlistListChanged = Notification.Name("io.hosh.TidalSwift.playlistListChanged")
 }
 
