@@ -140,12 +140,15 @@ import TidalSwiftLib
 			switch event.shuffleType {
 			case .items:
 				Task { @MainActor in
-					player.shuffle(enabled: true)
+					// Write the flag, as the app's own toggle does: the queue reorder and the
+					// now-playing indicator both read it, so calling `player.shuffle` alone left
+					// the persisted value and the app's indicator disagreeing.
+					player.playbackInfo.shuffle = true
 				}
 				return .success
 			case .off:
 				Task { @MainActor in
-					player.shuffle(enabled: false)
+					player.playbackInfo.shuffle = false
 				}
 				return .success
 			default:
