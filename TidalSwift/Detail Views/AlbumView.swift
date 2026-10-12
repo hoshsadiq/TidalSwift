@@ -137,16 +137,16 @@ struct AlbumView: View {
 											print("Remove from Offline")
 											await album.removeOffline(session: session)
 											cloudPressed = false
-											isOffline = false
 											viewState.refreshCurrentView()
+											NotificationCenter.default.post(name: .offlineChanged, object: nil)
 										}
 									} else {
 										Task {
 											print("Add to Offline")
 											cloudPressed = true
 											await album.addOffline(session: session)
-											isOffline = true
 											viewState.refreshCurrentView()
+											NotificationCenter.default.post(name: .offlineChanged, object: nil)
 										}
 									}
 								} label: {
@@ -179,6 +179,10 @@ struct AlbumView: View {
 			guard let album = viewState.stack.last?.album else { return }
 			isFavorite = await album.isInFavorites(session: session)
 			isOffline = await album.isOffline(session: session)
+		}
+		.onReceive(NotificationCenter.default.publisher(for: .offlineChanged)) { _ in
+			guard let album = viewState.stack.last?.album else { return }
+			Task { isOffline = await album.isOffline(session: session) }
 		}
 	}
 }

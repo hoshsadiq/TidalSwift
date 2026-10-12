@@ -112,15 +112,15 @@ struct PlaylistView: View {
 								Task {
 									print("Remove from Offline")
 									await playlist.removeOffline(session: session)
-									isOffline = false
 									viewState.refreshCurrentView()
+									NotificationCenter.default.post(name: .offlineChanged, object: nil)
 								}
 							} else {
 								Task {
 									print("Add to Offline")
 									await playlist.addOffline(session: session)
-									isOffline = true
 									viewState.refreshCurrentView()
+									NotificationCenter.default.post(name: .offlineChanged, object: nil)
 								}
 							}
 						} label: {
@@ -157,6 +157,10 @@ struct PlaylistView: View {
 		.onReceive(NotificationCenter.default.publisher(for: .favoritePlaylistChanged)) { _ in
 			guard let playlist = viewState.stack.last?.playlist else { return }
 			isFavorite = viewState.cache.favoritedPlaylistUuids?.contains(playlist.uuid)
+		}
+		.onReceive(NotificationCenter.default.publisher(for: .offlineChanged)) { _ in
+			guard let playlist = viewState.stack.last?.playlist else { return }
+			Task { isOffline = await playlist.isOffline(session: session) }
 		}
 	}
 }

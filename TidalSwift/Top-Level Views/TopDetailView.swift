@@ -14,6 +14,11 @@ extension Notification.Name {
 	static let focusSearchField = Notification.Name("io.hosh.TidalSwift.focusSearchField")
 	static let favoriteTrackChanged = Notification.Name("io.hosh.TidalSwift.favoriteTrackChanged")
 	static let favoritePlaylistChanged = Notification.Name("io.hosh.TidalSwift.favoritePlaylistChanged")
+	/// Posted whenever the offline set changes: a download finishing, or a track,
+	/// album or playlist marked or unmarked. Surfaces that keep a seeded `isOffline`
+	/// copy re-read the offline module on this announcement, so the library stays
+	/// the source of truth and no two of them can disagree.
+	static let offlineChanged = Notification.Name("io.hosh.TidalSwift.offlineChanged")
 }
 
 struct TopDetailView: View {

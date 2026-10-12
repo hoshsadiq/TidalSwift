@@ -246,6 +246,9 @@ struct TrackRow: View {
 			isOffline = await track.isOffline(session: session)
 			isFavorite = await track.isInFavorites(session: session)
 		}
+		.onReceive(NotificationCenter.default.publisher(for: .offlineChanged)) { _ in
+			isOffline = session.helpers.offline.isTrackOffline(track: track)
+		}
 	}
 		.lineLimit(1)
 		.frame(height: showCover ? 30 : 16) // Values tested "by hand"

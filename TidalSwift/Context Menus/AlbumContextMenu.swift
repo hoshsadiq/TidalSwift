@@ -140,8 +140,8 @@ struct AlbumContextMenu: View {
 							Task {
 								print("Remove from Offline")
 								await album.removeOffline(session: session)
-								isOffline = false
 								viewState.refreshCurrentView()
+								NotificationCenter.default.post(name: .offlineChanged, object: nil)
 							}
 						} label: {
 							Text("Remove from Offline")
@@ -151,8 +151,8 @@ struct AlbumContextMenu: View {
 							Task {
 								print("Add to Offline")
 								await album.addOffline(session: session)
-								isOffline = true
 								viewState.refreshCurrentView()
+								NotificationCenter.default.post(name: .offlineChanged, object: nil)
 							}
 						} label: {
 							Text("Add to Offline")

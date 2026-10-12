@@ -139,8 +139,8 @@ struct TrackContextMenu: View {
 							Task {
 								print("Remove from Offline")
 								await session.helpers.offline.remove(track: track)
-								isOffline = false
 								viewState.refreshCurrentView()
+								NotificationCenter.default.post(name: .offlineChanged, object: nil)
 							}
 						} label: {
 							Text("Remove from offline")
@@ -150,8 +150,8 @@ struct TrackContextMenu: View {
 							Task {
 								print("Make available offline")
 								await session.helpers.offline.add(track: track)
-								isOffline = true
 								viewState.refreshCurrentView()
+								NotificationCenter.default.post(name: .offlineChanged, object: nil)
 							}
 						} label: {
 							Text("Make available offline")

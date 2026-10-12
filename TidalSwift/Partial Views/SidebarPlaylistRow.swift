@@ -44,6 +44,9 @@ struct SidebarPlaylistRow: View {
 		.task(id: playlist.uuid) {
 			isOffline = await playlist.isOffline(session: session)
 		}
+		.onReceive(NotificationCenter.default.publisher(for: .offlineChanged)) { _ in
+			Task { isOffline = await playlist.isOffline(session: session) }
+		}
 	}
 
 	@ViewBuilder

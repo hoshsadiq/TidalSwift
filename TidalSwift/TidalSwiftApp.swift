@@ -307,6 +307,9 @@ final class TidalSwiftAppModel {
 	private func startup() {
 		session.helpers.offline.uiRefreshFunc = { [weak self] in
 			self?.viewState.refreshCurrentView()
+			// The library announces every offline change here; the displays that keep
+			// their own `isOffline` copy hear it and re-read the library.
+			NotificationCenter.default.post(name: .offlineChanged, object: nil)
 		}
 
 		let loggedIn = session.loadSession()
