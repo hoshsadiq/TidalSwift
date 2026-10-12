@@ -212,6 +212,15 @@ import TidalSwiftLib
 		(commandCenter.changeShuffleModeCommand as MPChangeShuffleModeCommand).currentShuffleType = enabled ? .items : .off
 	}
 
+	/// Seeds the remote shuffle and repeat indicators from the restored playback state.
+	/// `registerCommands()` runs in `init`, before `restorePlaybackState()` writes the
+	/// flags, and the observers that keep the indicators current fire only on change, so
+	/// without this a relaunch shows the mode the app launched with, not the one it restored.
+	func seedRemoteIndicators() {
+		updateShuffleType(enabled: player.playbackInfo.shuffle)
+		updateRepeatType(player.playbackInfo.repeatState)
+	}
+
 	/// Refreshes the repeat indicator the system remote UI shows, for the same reason
 	/// as `updateShuffleType(enabled:)`.
 	func updateRepeatType(_ repeatState: RepeatState) {

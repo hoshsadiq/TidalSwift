@@ -322,6 +322,9 @@ final class TidalSwiftAppModel {
 
 		if loggedIn {
 			restorePlaybackState()
+			// The restored shuffle and repeat flags land after the remote commands were
+			// registered, so seed the indicators from them before any toggle can.
+			nowPlayingController.seedRemoteIndicators()
 			restoreSortingState()
 			restoreViewState()
 			Task { await loadHighestSoundQuality() }
@@ -1166,10 +1169,11 @@ final class TidalSwiftAppModel {
 		}
 	}
 
-	/// The player bar's heart reads `trackIsFavorite`, a snapshot refreshed on queue
-	/// and index changes only. This keeps it current when a list or context menu
-	/// toggles the playing track, without a second favourite store: the library stays
-	/// the source of truth, so the announcement only prompts a re-read of it.
+	/// The player bar's heart reads `trackIsFavorite`, a snapshot the queue and index
+	/// observers refresh and `refreshFavoriteState()` also refreshes directly. This keeps
+	/// it current when a list or context menu toggles the playing track, without a second
+	/// favourite store: the library stays the source of truth, so the announcement only
+	/// prompts a re-read of it.
 	private func observeFavoriteTrackChanges() {
 		guard favoriteTrackObserver == nil else { return }
 		favoriteTrackObserver = NotificationCenter.default.addObserver(

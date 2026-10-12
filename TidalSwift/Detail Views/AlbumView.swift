@@ -74,7 +74,7 @@ struct AlbumView: View {
 									.buttonStyle(.plain)
 									#endif
 									Button {
-										if isFavorite ?? true {
+										if isFavorite ?? false {
 											Task {
 												print("Remove from Favorites")
 												if await session.favorites?.removeAlbum(albumId: album.id) == true {
@@ -94,9 +94,9 @@ struct AlbumView: View {
 											}
 										}
 									} label: {
-										Image(systemName: isFavorite ?? true ? "heart.fill" : "heart")
+										Image(systemName: isFavorite ?? false ? "heart.fill" : "heart")
 											.accessibilityLabel("Favorite")
-											.accessibilityAddTraits(isFavorite ?? true ? .isSelected : [])
+											.accessibilityAddTraits(isFavorite ?? false ? .isSelected : [])
 									}
 									.buttonStyle(.plain)
 									if let url = album.url {
@@ -147,6 +147,11 @@ struct AlbumView: View {
 											print("Add to Offline")
 											cloudPressed = true
 											await album.addOffline(session: session)
+											// `add(album:)` returns early when the album or track fetch fails, leaving
+											// the album unmarked; clear the placeholder and let the re-read decide, so a
+											// failed add cannot leave a plain cloud fill with no button behind it.
+											cloudPressed = false
+											isOffline = await album.isOffline(session: session)
 											viewState.refreshCurrentView()
 											NotificationCenter.default.post(name: .offlineChanged, object: nil)
 										}
@@ -179,7 +184,12 @@ struct AlbumView: View {
 		}
 		.task(id: viewState.stack.last?.album?.id) {
 			guard let album = viewState.stack.last?.album else { return }
-			isFavorite = await album.isInFavorites(session: session)
+			// The favourites cache reports nil while it is empty or failed to load, so clear
+			// the previous album's answer, then take only a value the library can confirm.
+			isFavorite = nil
+			if let favorite = await album.isInFavorites(session: session) {
+				isFavorite = favorite
+			}
 			isOffline = await album.isOffline(session: session)
 		}
 		.onReceive(NotificationCenter.default.publisher(for: .offlineChanged)) { _ in
@@ -192,7 +202,13 @@ struct AlbumView: View {
 			// re-seed a `.task(id:)` whose album id did not change.
 			guard let album = viewState.stack.last?.album,
 				  note.userInfo?["albumId"] as? Int == album.id else { return }
-			Task { isFavorite = await album.isInFavorites(session: session) }
+			Task {
+				// Only a confirmed value may replace the shown one; an empty or failed
+				// favourites cache returns nil and must not clear a known heart.
+				if let favorite = await album.isInFavorites(session: session) {
+					isFavorite = favorite
+				}
+			}
 		}
 	}
 }
