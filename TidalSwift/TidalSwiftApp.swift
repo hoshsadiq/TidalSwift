@@ -1169,7 +1169,7 @@ final class TidalSwiftAppModel {
 	/// The player bar's heart reads `trackIsFavorite`, a snapshot refreshed on queue
 	/// and index changes only. This keeps it current when a list or context menu
 	/// toggles the playing track, without a second favourite store: the library stays
-	/// the source of truth and its `.favoriteTrackChanged` announcement is read here.
+	/// the source of truth, so the announcement only prompts a re-read of it.
 	private func observeFavoriteTrackChanges() {
 		guard favoriteTrackObserver == nil else { return }
 		favoriteTrackObserver = NotificationCenter.default.addObserver(
@@ -1178,26 +1178,24 @@ final class TidalSwiftAppModel {
 			queue: .main
 		) { [weak self] notification in
 			let trackId = notification.userInfo?["trackId"] as? Int
-			let isFavorite = notification.userInfo?["isFavorite"] as? Bool
 			// Safe because the observer asks for delivery on the main queue
 			MainActor.assumeIsolated {
-				self?.applyFavoriteTrackChange(trackId: trackId, isFavorite: isFavorite)
+				self?.applyFavoriteTrackChange(trackId: trackId)
 			}
 		}
 	}
 
-	private func applyFavoriteTrackChange(trackId: Int?, isFavorite: Bool?) {
+	private func applyFavoriteTrackChange(trackId: Int?) {
 		guard hasCurrentTrack,
 			  let trackId,
-			  let isFavorite,
 			  player.queueInfo.queue[player.queueInfo.currentIndex].track.id == trackId else { return }
-		trackIsFavorite = isFavorite
+		refreshFavoriteState()
 	}
 
 	/// Keeps the menu-bar album command honest when an album is hearted off the
 	/// player path, e.g. in its detail view or context menu. As with the track
-	/// channel, the notification carries only the new value; the library, not the
-	/// notification, remains authoritative.
+	/// channel, the announcement only prompts a re-read; the library, not the
+	/// notification payload, is authoritative.
 	private func observeFavoriteAlbumChanges() {
 		guard favoriteAlbumObserver == nil else { return }
 		favoriteAlbumObserver = NotificationCenter.default.addObserver(
@@ -1206,20 +1204,18 @@ final class TidalSwiftAppModel {
 			queue: .main
 		) { [weak self] notification in
 			let albumId = notification.userInfo?["albumId"] as? Int
-			let isFavorite = notification.userInfo?["isFavorite"] as? Bool
 			// Safe because the observer asks for delivery on the main queue
 			MainActor.assumeIsolated {
-				self?.applyFavoriteAlbumChange(albumId: albumId, isFavorite: isFavorite)
+				self?.applyFavoriteAlbumChange(albumId: albumId)
 			}
 		}
 	}
 
-	private func applyFavoriteAlbumChange(albumId: Int?, isFavorite: Bool?) {
+	private func applyFavoriteAlbumChange(albumId: Int?) {
 		guard hasCurrentTrack,
 			  let albumId,
-			  let isFavorite,
 			  player.queueInfo.queue[player.queueInfo.currentIndex].track.album.id == albumId else { return }
-		albumIsFavorite = isFavorite
+		refreshFavoriteState()
 	}
 }
 

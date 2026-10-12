@@ -179,7 +179,9 @@ import TidalSwiftLib
 		commandCenter.likeCommand.addTarget { _ in
 			Task { @MainActor in
 				guard let track = Self.currentTrack(for: player) else { return }
-				_ = await session.favorites?.addTrack(trackId: track.id)
+				// Only announce once the library holds the favourite; a failed POST must not
+				// leave a heart the library cannot confirm.
+				guard await session.favorites?.addTrack(trackId: track.id) == true else { return }
 				NotificationCenter.default.post(name: .favoriteTrackChanged, object: nil, userInfo: ["trackId": track.id, "isFavorite": true])
 			}
 			return .success
@@ -190,7 +192,7 @@ import TidalSwiftLib
 		commandCenter.dislikeCommand.addTarget { _ in
 			Task { @MainActor in
 				guard let track = Self.currentTrack(for: player) else { return }
-				_ = await session.favorites?.removeTrack(trackId: track.id)
+				guard await session.favorites?.removeTrack(trackId: track.id) == true else { return }
 				NotificationCenter.default.post(name: .favoriteTrackChanged, object: nil, userInfo: ["trackId": track.id, "isFavorite": false])
 			}
 			return .success
