@@ -1162,10 +1162,14 @@ final class TidalSwiftAppModel {
 
 		let track = player.queueInfo.queue[player.queueInfo.currentIndex].track
 		Task {
-			let trackFavorite = await track.isInFavorites(session: session) ?? false
-			let albumFavorite = await track.album.isInFavorites(session: session) ?? false
-			self.trackIsFavorite = trackFavorite
-			self.albumIsFavorite = albumFavorite
+			// An empty or failed favourites cache reads nil, so the last confirmed value is kept
+			// rather than painting a favourite away. The album header reads it the same way.
+			if let trackFavorite = await track.isInFavorites(session: session) {
+				self.trackIsFavorite = trackFavorite
+			}
+			if let albumFavorite = await track.album.isInFavorites(session: session) {
+				self.albumIsFavorite = albumFavorite
+			}
 		}
 	}
 
