@@ -1136,6 +1136,9 @@ public final class Offline {
 				}
 			}
 			invalidateOfflineTrackIdsCache()
+			// The removal happened here, the sync that follows finds nothing left to remove, so
+			// without this the displays keep their offline mark until the next relaunch.
+			uiRefreshFunc()
 			startSync()
 		}
 	}

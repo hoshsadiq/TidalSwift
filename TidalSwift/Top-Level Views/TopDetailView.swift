@@ -14,6 +14,22 @@ extension Notification.Name {
 	static let focusSearchField = Notification.Name("io.hosh.TidalSwift.focusSearchField")
 	static let favoriteTrackChanged = Notification.Name("io.hosh.TidalSwift.favoriteTrackChanged")
 	static let favoritePlaylistChanged = Notification.Name("io.hosh.TidalSwift.favoritePlaylistChanged")
+	/// Posted whenever an album is added to or removed from the favourites. The
+	/// library stays the source of truth: the album header re-reads it, and the
+	/// menu-bar album command's `albumIsFavorite` snapshot is refilled from it.
+	static let favoriteAlbumChanged = Notification.Name("io.hosh.TidalSwift.favoriteAlbumChanged")
+	/// Posted whenever the offline set changes: a download finishing, or a track,
+	/// album or playlist marked or unmarked. Surfaces that keep a seeded `isOffline`
+	/// copy re-read the offline module on this announcement, so the library stays the
+	/// source of truth. They settle to agree rather than never disagreeing: the database
+	/// records membership before the files land, so a header can show a cloud its rows
+	/// do not have yet.
+	static let offlineChanged = Notification.Name("io.hosh.TidalSwift.offlineChanged")
+
+	/// A playlist was created, deleted or renamed, so the set of playlists or a playlist's
+	/// title changed. Distinct from `.favoritePlaylistChanged`, which means only
+	/// that the favourite set moved.
+	static let playlistListChanged = Notification.Name("io.hosh.TidalSwift.playlistListChanged")
 }
 
 struct TopDetailView: View {
@@ -456,6 +472,15 @@ struct TopView: View {
 		}
 		.onReceive(NotificationCenter.default.publisher(for: .favoritePlaylistChanged)) { _ in
 			favoritedPlaylistUuids = viewState.cache.favoritedPlaylistUuids ?? []
+		}
+		.onReceive(NotificationCenter.default.publisher(for: .playlistListChanged)) { _ in
+			// The library stays the source of truth, so re-read it rather than
+			// trusting the cache a delete or rename may not have refreshed.
+			Task {
+				let result = await viewState.refreshAllPlaylists()
+				allPlaylists = result.playlists
+				favoritedPlaylistUuids = result.favoritedUuids
+			}
 		}
 	}
 

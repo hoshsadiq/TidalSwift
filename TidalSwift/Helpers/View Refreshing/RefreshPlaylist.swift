@@ -42,6 +42,9 @@ extension ViewState {
 			return
 		}
 
+		// The stack holds the copy `push(playlist:)` stored, which a rename leaves stale.
+		// Re-read the playlist so the header follows the library, like every other surface.
+		view.playlist = await session.playlist(playlistId: playlist.id) ?? playlist
 		view.tracks = await session.playlistTracks(playlistId: playlist.id)
 
 		if view.tracks != nil {

@@ -108,8 +108,8 @@ struct PlaylistContextMenu: View {
 						Task {
 							print("Remove from Offline")
 							await playlist.removeOffline(session: session)
-							isOffline = false
 							viewState.refreshCurrentView()
+							NotificationCenter.default.post(name: .offlineChanged, object: nil)
 						}
 					} label: {
 						Text("Remove from Offline")
@@ -119,8 +119,8 @@ struct PlaylistContextMenu: View {
 						Task {
 							print("Add to Offline")
 							await playlist.addOffline(session: session)
-							isOffline = true
 							viewState.refreshCurrentView()
+							NotificationCenter.default.post(name: .offlineChanged, object: nil)
 						}
 					} label: {
 						Text("Add to Offline")

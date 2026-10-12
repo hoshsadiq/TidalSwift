@@ -134,18 +134,21 @@ import TidalSwiftLib
 
 		let changeShuffleModeCommand = commandCenter.changeShuffleModeCommand as MPChangeShuffleModeCommand
 		changeShuffleModeCommand.isEnabled = true
-		changeShuffleModeCommand.currentShuffleType = player.playbackInfo.shuffle ? .items : .off
+		updateShuffleType(enabled: player.playbackInfo.shuffle)
 		changeShuffleModeCommand.addTarget { event in
 			guard let event = event as? MPChangeShuffleModeCommandEvent else { return .commandFailed }
 			switch event.shuffleType {
 			case .items:
 				Task { @MainActor in
-					player.shuffle(enabled: true)
+					// Write the flag, as the app's own toggle does: the queue reorder and the
+					// now-playing indicator both read it, so calling `player.shuffle` alone left
+					// the persisted value and the app's indicator disagreeing.
+					player.playbackInfo.shuffle = true
 				}
 				return .success
 			case .off:
 				Task { @MainActor in
-					player.shuffle(enabled: false)
+					player.playbackInfo.shuffle = false
 				}
 				return .success
 			default:
@@ -159,7 +162,7 @@ import TidalSwiftLib
 
 		let changeRepeatModeCommand = commandCenter.changeRepeatModeCommand as MPChangeRepeatModeCommand
 		changeRepeatModeCommand.isEnabled = true
-		changeRepeatModeCommand.currentRepeatType = Self.repeatType(for: player.playbackInfo.repeatState)
+		updateRepeatType(player.playbackInfo.repeatState)
 		changeRepeatModeCommand.addTarget { event in
 			guard let event = event as? MPChangeRepeatModeCommandEvent,
 				let repeatState = Self.repeatState(for: event.repeatType) else { return .commandFailed }
@@ -179,7 +182,10 @@ import TidalSwiftLib
 		commandCenter.likeCommand.addTarget { _ in
 			Task { @MainActor in
 				guard let track = Self.currentTrack(for: player) else { return }
-				_ = await session.favorites?.addTrack(trackId: track.id)
+				// Only announce once the library holds the favourite; a failed POST must not
+				// leave a heart the library cannot confirm.
+				guard await session.favorites?.addTrack(trackId: track.id) == true else { return }
+				NotificationCenter.default.post(name: .favoriteTrackChanged, object: nil, userInfo: ["trackId": track.id, "isFavorite": true])
 			}
 			return .success
 		}
@@ -189,13 +195,38 @@ import TidalSwiftLib
 		commandCenter.dislikeCommand.addTarget { _ in
 			Task { @MainActor in
 				guard let track = Self.currentTrack(for: player) else { return }
-				_ = await session.favorites?.removeTrack(trackId: track.id)
+				guard await session.favorites?.removeTrack(trackId: track.id) == true else { return }
+				NotificationCenter.default.post(name: .favoriteTrackChanged, object: nil, userInfo: ["trackId": track.id, "isFavorite": false])
 			}
 			return .success
 		}
 	}
 
 	// MPRemoteCommand handlers can arrive off the main actor; helpers are @MainActor and called from Task { @MainActor in } blocks.
+
+	/// Refreshes the shuffle indicator Control Center and the Lock Screen show. The
+	/// system reads `currentShuffleType` when the command is registered, so setting it
+	/// once left the remote UI showing whatever the state was at launch; the app model
+	/// calls this on every `PlaybackInfo.shuffle` change.
+	func updateShuffleType(enabled: Bool) {
+		(commandCenter.changeShuffleModeCommand as MPChangeShuffleModeCommand).currentShuffleType = enabled ? .items : .off
+	}
+
+	/// Seeds the remote shuffle and repeat indicators from the restored playback state.
+	/// `registerCommands()` runs in `init`, before `restorePlaybackState()` writes the
+	/// flags, and the observers that keep the indicators current fire only on change, so
+	/// without this a relaunch shows the mode the app launched with, not the one it restored.
+	func seedRemoteIndicators() {
+		updateShuffleType(enabled: player.playbackInfo.shuffle)
+		updateRepeatType(player.playbackInfo.repeatState)
+	}
+
+	/// Refreshes the repeat indicator the system remote UI shows, for the same reason
+	/// as `updateShuffleType(enabled:)`.
+	func updateRepeatType(_ repeatState: RepeatState) {
+		(commandCenter.changeRepeatModeCommand as MPChangeRepeatModeCommand).currentRepeatType = Self.repeatType(for: repeatState)
+	}
+
 	private static func currentTrack(for player: Player) -> Track? {
 		guard !player.queueInfo.queue.isEmpty, player.queueInfo.currentIndex < player.queueInfo.queue.count else { return nil }
 		return player.queueInfo.queue[player.queueInfo.currentIndex].track

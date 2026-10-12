@@ -35,6 +35,10 @@ struct DeletePlaylistView: View {
 								await playlist.removeOffline(session: session)
 								playlistEditingValues.showDeleteModal = false
 								viewState.refreshCurrentView()
+								// Deleting drops the offline playlist whether or not a file was deleted,
+								// so the offline change is announced alongside the playlist one.
+								NotificationCenter.default.post(name: .offlineChanged, object: nil)
+								NotificationCenter.default.post(name: .playlistListChanged, object: nil)
 							}
 						}
 					} label: {

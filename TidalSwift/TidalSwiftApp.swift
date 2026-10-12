@@ -228,6 +228,14 @@ final class TidalSwiftAppModel {
 	@ObservationIgnored private var saveTask: Task<Void, Never>?
 	/// Gates the Now Playing elapsed-time write to one a second.
 	@ObservationIgnored private var lastNowPlayingFractionUpdate = Date.distantPast
+	/// Mirrors a heart toggled in any list onto the player bar. Rows already
+	/// announce their change on `.favoriteTrackChanged`; the bar was the one
+	/// surface not listening, so it stayed stale until the queue moved.
+	@ObservationIgnored private var favoriteTrackObserver: NSObjectProtocol?
+	/// Refills the `albumIsFavorite` snapshot the menu-bar album command reads when
+	/// an album heart is toggled anywhere else. Without it that snapshot only moved
+	/// on a queue or index change, so the command disagreed with the library.
+	@ObservationIgnored private var favoriteAlbumObserver: NSObjectProtocol?
 
 	var trackIsFavorite = false
 	var albumIsFavorite = false
@@ -303,6 +311,9 @@ final class TidalSwiftAppModel {
 	private func startup() {
 		session.helpers.offline.uiRefreshFunc = { [weak self] in
 			self?.viewState.refreshCurrentView()
+			// The library announces every offline change here; the displays that keep
+			// their own `isOffline` copy hear it and re-read the library.
+			NotificationCenter.default.post(name: .offlineChanged, object: nil)
 		}
 
 		let loggedIn = session.loadSession()
@@ -311,6 +322,9 @@ final class TidalSwiftAppModel {
 
 		if loggedIn {
 			restorePlaybackState()
+			// The restored shuffle and repeat flags land after the remote commands were
+			// registered, so seed the indicators from them before any toggle can.
+			nowPlayingController.seedRemoteIndicators()
 			restoreSortingState()
 			restoreViewState()
 			Task { await loadHighestSoundQuality() }
@@ -319,6 +333,8 @@ final class TidalSwiftAppModel {
 		initCancellables()
 		viewState.refreshCurrentView()
 		refreshFavoriteState()
+		observeFavoriteTrackChanges()
+		observeFavoriteAlbumChanges()
 
 		#if canImport(AppKit)
 		initSecondaryWindows()
@@ -646,7 +662,7 @@ final class TidalSwiftAppModel {
 			offlinePlaylistSorting: sortingState.offlinePlaylistSorting,
 			offlinePlaylistReversed: sortingState.offlinePlaylistReversed,
 			offlineAlbumSorting: sortingState.offlineAlbumSorting,
-			offlineAlbumReversed: sortingState.offlinePlaylistReversed,
+			offlineAlbumReversed: sortingState.offlineAlbumReversed,
 			offlineTrackSorting: sortingState.offlineTrackSorting,
 			offlineTrackReversed: sortingState.offlineTrackReversed
 		)
@@ -758,6 +774,7 @@ final class TidalSwiftAppModel {
 
 	private func updateNowPlayingShuffle() {
 		MPNowPlayingInfoCenter.default().nowPlayingInfo?[Self.nowPlayingShuffleKey] = player.playbackInfo.shuffle
+		nowPlayingController.updateShuffleType(enabled: player.playbackInfo.shuffle)
 	}
 
 	private func observeNowPlayingRepeatState() {
@@ -773,6 +790,7 @@ final class TidalSwiftAppModel {
 
 	private func updateNowPlayingRepeatState() {
 		MPNowPlayingInfoCenter.default().nowPlayingInfo?[Self.nowPlayingRepeatKey] = player.playbackInfo.repeatState.rawValue
+		nowPlayingController.updateRepeatType(player.playbackInfo.repeatState)
 	}
 
 	private func observeNowPlayingQueue() {
@@ -846,6 +864,14 @@ final class TidalSwiftAppModel {
 
 	func cancelCancellables() {
 		saveTask?.cancel()
+		if let favoriteTrackObserver {
+			NotificationCenter.default.removeObserver(favoriteTrackObserver)
+			self.favoriteTrackObserver = nil
+		}
+		if let favoriteAlbumObserver {
+			NotificationCenter.default.removeObserver(favoriteAlbumObserver)
+			self.favoriteAlbumObserver = nil
+		}
 	}
 
 	// MARK: Menu Actions
@@ -923,6 +949,7 @@ final class TidalSwiftAppModel {
 				session.helpers.offline.asyncSyncFavoriteTracks()
 				refreshFavoriteState()
 				viewState.refreshCurrentView()
+				NotificationCenter.default.post(name: .favoriteTrackChanged, object: nil, userInfo: ["trackId": trackId, "isFavorite": true])
 			}
 		}
 	}
@@ -935,6 +962,7 @@ final class TidalSwiftAppModel {
 				session.helpers.offline.asyncSyncFavoriteTracks()
 				refreshFavoriteState()
 				viewState.refreshCurrentView()
+				NotificationCenter.default.post(name: .favoriteTrackChanged, object: nil, userInfo: ["trackId": trackId, "isFavorite": false])
 			}
 		}
 	}
@@ -975,6 +1003,7 @@ final class TidalSwiftAppModel {
 			if await session.favorites?.addAlbum(albumId: albumId) == true {
 				refreshFavoriteState()
 				viewState.refreshCurrentView()
+				NotificationCenter.default.post(name: .favoriteAlbumChanged, object: nil, userInfo: ["albumId": albumId, "isFavorite": true])
 			}
 		}
 	}
@@ -986,6 +1015,7 @@ final class TidalSwiftAppModel {
 			if await session.favorites?.removeAlbum(albumId: albumId) == true {
 				refreshFavoriteState()
 				viewState.refreshCurrentView()
+				NotificationCenter.default.post(name: .favoriteAlbumChanged, object: nil, userInfo: ["albumId": albumId, "isFavorite": false])
 			}
 		}
 	}
@@ -1132,11 +1162,68 @@ final class TidalSwiftAppModel {
 
 		let track = player.queueInfo.queue[player.queueInfo.currentIndex].track
 		Task {
-			let trackFavorite = await track.isInFavorites(session: session) ?? false
-			let albumFavorite = await track.album.isInFavorites(session: session) ?? false
-			self.trackIsFavorite = trackFavorite
-			self.albumIsFavorite = albumFavorite
+			// An empty or failed favourites cache reads nil, so the last confirmed value is kept
+			// rather than painting a favourite away. The album header reads it the same way.
+			if let trackFavorite = await track.isInFavorites(session: session) {
+				self.trackIsFavorite = trackFavorite
+			}
+			if let albumFavorite = await track.album.isInFavorites(session: session) {
+				self.albumIsFavorite = albumFavorite
+			}
 		}
+	}
+
+	/// The player bar's heart reads `trackIsFavorite`, a snapshot the queue and index
+	/// observers refresh and `refreshFavoriteState()` also refreshes directly. This keeps
+	/// it current when a list or context menu toggles the playing track, without a second
+	/// favourite store: the library stays the source of truth, so the announcement only
+	/// prompts a re-read of it.
+	private func observeFavoriteTrackChanges() {
+		guard favoriteTrackObserver == nil else { return }
+		favoriteTrackObserver = NotificationCenter.default.addObserver(
+			forName: .favoriteTrackChanged,
+			object: nil,
+			queue: .main
+		) { [weak self] notification in
+			let trackId = notification.userInfo?["trackId"] as? Int
+			// Safe because the observer asks for delivery on the main queue
+			MainActor.assumeIsolated {
+				self?.applyFavoriteTrackChange(trackId: trackId)
+			}
+		}
+	}
+
+	private func applyFavoriteTrackChange(trackId: Int?) {
+		guard hasCurrentTrack,
+			  let trackId,
+			  player.queueInfo.queue[player.queueInfo.currentIndex].track.id == trackId else { return }
+		refreshFavoriteState()
+	}
+
+	/// Keeps the menu-bar album command honest when an album is hearted off the
+	/// player path, e.g. in its detail view or context menu. As with the track
+	/// channel, the announcement only prompts a re-read; the library, not the
+	/// notification payload, is authoritative.
+	private func observeFavoriteAlbumChanges() {
+		guard favoriteAlbumObserver == nil else { return }
+		favoriteAlbumObserver = NotificationCenter.default.addObserver(
+			forName: .favoriteAlbumChanged,
+			object: nil,
+			queue: .main
+		) { [weak self] notification in
+			let albumId = notification.userInfo?["albumId"] as? Int
+			// Safe because the observer asks for delivery on the main queue
+			MainActor.assumeIsolated {
+				self?.applyFavoriteAlbumChange(albumId: albumId)
+			}
+		}
+	}
+
+	private func applyFavoriteAlbumChange(albumId: Int?) {
+		guard hasCurrentTrack,
+			  let albumId,
+			  player.queueInfo.queue[player.queueInfo.currentIndex].track.album.id == albumId else { return }
+		refreshFavoriteState()
 	}
 }
 

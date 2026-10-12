@@ -68,6 +68,7 @@ struct AlbumContextMenu: View {
 							if await session.favorites?.removeAlbum(albumId: album.id) == true {
 								isFavorite = false
 								viewState.refreshCurrentView()
+								NotificationCenter.default.post(name: .favoriteAlbumChanged, object: nil, userInfo: ["albumId": album.id, "isFavorite": false])
 							}
 						}
 					} label: {
@@ -79,6 +80,7 @@ struct AlbumContextMenu: View {
 							print("Add to Favorites")
 							if await session.favorites?.addAlbum(albumId: album.id) == true {
 								isFavorite = true
+								NotificationCenter.default.post(name: .favoriteAlbumChanged, object: nil, userInfo: ["albumId": album.id, "isFavorite": true])
 							}
 						}
 					} label: {
@@ -140,8 +142,8 @@ struct AlbumContextMenu: View {
 							Task {
 								print("Remove from Offline")
 								await album.removeOffline(session: session)
-								isOffline = false
 								viewState.refreshCurrentView()
+								NotificationCenter.default.post(name: .offlineChanged, object: nil)
 							}
 						} label: {
 							Text("Remove from Offline")
@@ -151,8 +153,8 @@ struct AlbumContextMenu: View {
 							Task {
 								print("Add to Offline")
 								await album.addOffline(session: session)
-								isOffline = true
 								viewState.refreshCurrentView()
+								NotificationCenter.default.post(name: .offlineChanged, object: nil)
 							}
 						} label: {
 							Text("Add to Offline")

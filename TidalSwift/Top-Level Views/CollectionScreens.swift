@@ -592,6 +592,9 @@ private struct CollectionTrackRow: View {
 			isOffline = await track.isOffline(session: session)
 			isFavorite = await track.isInFavorites(session: session)
 		}
+		.onReceive(NotificationCenter.default.publisher(for: .offlineChanged)) { _ in
+			Task { isOffline = await track.isOffline(session: session) }
+		}
 		// The whole row is one VoiceOver element; its text and buttons merge into
 		// it, so each interactive child is re-exposed by name below.
 		.accessibilityElement(children: .combine)

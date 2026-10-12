@@ -137,6 +137,9 @@ struct AlbumGridItem: View {
 		.task(id: album.id) {
 			isOffline = await album.isOffline(session: session)
 		}
+		.onReceive(NotificationCenter.default.publisher(for: .offlineChanged)) { _ in
+			Task { isOffline = await album.isOffline(session: session) }
+		}
 	}
 
 	private func open() {
