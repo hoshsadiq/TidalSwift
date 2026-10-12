@@ -28,7 +28,8 @@ struct VideoContextMenu: View {
 						guard let url = await video.videoUrl(session: session) else {
 							return
 						}
-						print(url)
+						// A stream URL carries a signed token in its path and query, so only the host is logged.
+						print("Video URL host: \(url.host ?? "unknown")")
 						player.pause()
 						let controller = VideoPlayerController(videoUrl: url, volume: playbackInfo.volume)
 						controller.window?.title = "\(video.title) - \(video.artists.formArtistString())"
