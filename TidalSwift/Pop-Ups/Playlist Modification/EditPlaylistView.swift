@@ -52,6 +52,7 @@ struct EditPlaylistView: View {
 								await playlist.removeOffline(session: session)
 								playlistEditingValues.showEditModal = false
 								viewState.refreshCurrentView()
+								NotificationCenter.default.post(name: .playlistListChanged, object: nil)
 							}
 						}
 					} label: {

@@ -35,6 +35,7 @@ struct DeletePlaylistView: View {
 								await playlist.removeOffline(session: session)
 								playlistEditingValues.showDeleteModal = false
 								viewState.refreshCurrentView()
+								NotificationCenter.default.post(name: .playlistListChanged, object: nil)
 							}
 						}
 					} label: {
