@@ -771,6 +771,7 @@ final class TidalSwiftAppModel {
 
 	private func updateNowPlayingShuffle() {
 		MPNowPlayingInfoCenter.default().nowPlayingInfo?[Self.nowPlayingShuffleKey] = player.playbackInfo.shuffle
+		nowPlayingController.updateShuffleType(enabled: player.playbackInfo.shuffle)
 	}
 
 	private func observeNowPlayingRepeatState() {
@@ -786,6 +787,7 @@ final class TidalSwiftAppModel {
 
 	private func updateNowPlayingRepeatState() {
 		MPNowPlayingInfoCenter.default().nowPlayingInfo?[Self.nowPlayingRepeatKey] = player.playbackInfo.repeatState.rawValue
+		nowPlayingController.updateRepeatType(player.playbackInfo.repeatState)
 	}
 
 	private func observeNowPlayingQueue() {

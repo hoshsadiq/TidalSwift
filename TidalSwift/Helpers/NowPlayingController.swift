@@ -134,7 +134,7 @@ import TidalSwiftLib
 
 		let changeShuffleModeCommand = commandCenter.changeShuffleModeCommand as MPChangeShuffleModeCommand
 		changeShuffleModeCommand.isEnabled = true
-		changeShuffleModeCommand.currentShuffleType = player.playbackInfo.shuffle ? .items : .off
+		updateShuffleType(enabled: player.playbackInfo.shuffle)
 		changeShuffleModeCommand.addTarget { event in
 			guard let event = event as? MPChangeShuffleModeCommandEvent else { return .commandFailed }
 			switch event.shuffleType {
@@ -159,7 +159,7 @@ import TidalSwiftLib
 
 		let changeRepeatModeCommand = commandCenter.changeRepeatModeCommand as MPChangeRepeatModeCommand
 		changeRepeatModeCommand.isEnabled = true
-		changeRepeatModeCommand.currentRepeatType = Self.repeatType(for: player.playbackInfo.repeatState)
+		updateRepeatType(player.playbackInfo.repeatState)
 		changeRepeatModeCommand.addTarget { event in
 			guard let event = event as? MPChangeRepeatModeCommandEvent,
 				let repeatState = Self.repeatState(for: event.repeatType) else { return .commandFailed }
@@ -198,6 +198,21 @@ import TidalSwiftLib
 	}
 
 	// MPRemoteCommand handlers can arrive off the main actor; helpers are @MainActor and called from Task { @MainActor in } blocks.
+
+	/// Refreshes the shuffle indicator Control Center and the Lock Screen show. The
+	/// system reads `currentShuffleType` when the command is registered, so setting it
+	/// once left the remote UI showing whatever the state was at launch; the app model
+	/// calls this on every `PlaybackInfo.shuffle` change.
+	func updateShuffleType(enabled: Bool) {
+		(commandCenter.changeShuffleModeCommand as MPChangeShuffleModeCommand).currentShuffleType = enabled ? .items : .off
+	}
+
+	/// Refreshes the repeat indicator the system remote UI shows, for the same reason
+	/// as `updateShuffleType(enabled:)`.
+	func updateRepeatType(_ repeatState: RepeatState) {
+		(commandCenter.changeRepeatModeCommand as MPChangeRepeatModeCommand).currentRepeatType = Self.repeatType(for: repeatState)
+	}
+
 	private static func currentTrack(for player: Player) -> Track? {
 		guard !player.queueInfo.queue.isEmpty, player.queueInfo.currentIndex < player.queueInfo.queue.count else { return nil }
 		return player.queueInfo.queue[player.queueInfo.currentIndex].track
