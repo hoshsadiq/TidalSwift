@@ -61,7 +61,9 @@ struct TopDetailView: View {
 	/// control, the four icon buttons, the download indicator, the quality badge
 	/// and the ten 8pt stack gaps — come to about 560, and the text block's own
 	/// fixed content (40pt artwork, the heart, the ellipsis menu and their gaps) to
-	/// about 135, leaving the title about 100pt at 840. Set on the whole column
+	/// about 150, so the bar spends about 710 of its width before the title. The
+	/// bar is about 808 wide inside an 840 window once its own horizontal padding
+	/// is counted, which leaves the title about 100pt. Set on the whole column
 	/// stack rather than left to the split view so the minimum does not move with
 	/// the sidebar: collapsing it would otherwise drop the window to the detail
 	/// column alone, where the player bar has less room than it needs.
