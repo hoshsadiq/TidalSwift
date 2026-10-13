@@ -65,6 +65,9 @@ struct TopDetailView: View {
 	/// stack rather than left to the split view so the minimum does not move with
 	/// the sidebar: collapsing it would otherwise drop the window to the detail
 	/// column alone, where the player bar has less room than it needs.
+	/// The quality badge is one of the terms above, so a longer badge string
+	/// makes this number wrong: "16-bit 44.1kHz" and "Dolby Atmos" are the
+	/// widest today.
 	private static let windowMinWidth: CGFloat = 840
 
 	init(session: Session, player: Player) {

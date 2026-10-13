@@ -299,6 +299,7 @@ struct QualityBadge: View {
 			EmptyView()
 		} else {
 			Text(text)
+				.lineLimit(1)
 				.font(.system(size: 9, weight: .semibold))
 				.foregroundColor(tint)
 				.padding(.horizontal, 5)
