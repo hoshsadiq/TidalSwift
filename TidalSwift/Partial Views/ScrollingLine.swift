@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import TidalSwiftLib
 
 /// One line of content that scrolls leftwards when it is wider than the space it
 /// has, and stays still when it fits.
@@ -36,9 +37,7 @@ struct ScrollingLine<Content: View, ID: Hashable>: View {
 	@State private var availableWidth: CGFloat = 0
 	@State private var isHovering = false
 	@FocusState private var isFocused: Bool
-	@State private var anchor = Date()
-	@State private var pausedAt: Date?
-	@State private var isPaused = false
+	@State private var timing = ScrollingLineTiming(anchor: Date())
 	@State private var resumeTask: Task<Void, Never>?
 
 	init(
@@ -59,7 +58,9 @@ struct ScrollingLine<Content: View, ID: Hashable>: View {
 	private var scrolls: Bool { overflows && !reduceMotion }
 	private var pauseRequested: Bool { isHovering || isFocused }
 	private var loopWidth: CGFloat { lineSize.width + gap }
-	private var period: Double { max(1, Double(loopWidth) / pointsPerSecond) }
+	private var period: Double {
+		ScrollingLineTiming.period(loopWidth: loopWidth, pointsPerSecond: pointsPerSecond)
+	}
 
 	var body: some View {
 		ZStack(alignment: .leading) {
@@ -107,14 +108,14 @@ struct ScrollingLine<Content: View, ID: Hashable>: View {
 				.allowsHitTesting(!scrolls)
 				.overlay(alignment: .leading) {
 					if scrolls {
-						TimelineView(.animation(minimumInterval: nil, paused: isPaused)) { context in
+						TimelineView(.animation(minimumInterval: nil, paused: timing.isPaused)) { context in
 							HStack(spacing: gap) {
 								content
 								content
 									.accessibilityHidden(true)
 							}
 							.fixedSize()
-							.offset(x: -phase(at: context.date) * loopWidth)
+							.offset(x: -displayPhase(at: context.date) * loopWidth)
 						}
 					}
 				}
@@ -140,12 +141,7 @@ struct ScrollingLine<Content: View, ID: Hashable>: View {
 	/// Puts the line back at the start of its loop, which is what a new identity,
 	/// a new measured width and the start of a scroll all want.
 	private func restart() {
-		let now = Date()
-		anchor = now
-		// A pause measures its resume shift from `pausedAt`, so restarting while
-		// paused has to move that mark too: otherwise the shift would replay time
-		// that the restarted phase no longer counts.
-		if isPaused { pausedAt = now }
+		timing.restart(at: Date())
 	}
 
 	/// Stops the line while a pointer or the keyboard is on it, and starts it
@@ -153,26 +149,22 @@ struct ScrollingLine<Content: View, ID: Hashable>: View {
 	private func updatePause(_ requested: Bool) {
 		resumeTask?.cancel()
 		if requested {
-			guard !isPaused else { return }
-			pausedAt = Date()
-			isPaused = true
+			guard !timing.isPaused else { return }
+			timing.pause(at: Date(), period: period)
 		} else {
 			resumeTask = Task {
 				try? await Task.sleep(for: .milliseconds(600))
 				guard !Task.isCancelled else { return }
-				if let pausedAt {
-					anchor = anchor.addingTimeInterval(Date().timeIntervalSince(pausedAt))
-					self.pausedAt = nil
-				}
-				isPaused = false
+				timing.resume(at: Date())
 			}
 		}
 	}
 
-	/// The completed fraction of one loop at a given moment.
-	private func phase(at date: Date) -> Double {
-		let fraction = date.timeIntervalSince(anchor).truncatingRemainder(dividingBy: period) / period
-		return fraction < 0 ? fraction + 1 : fraction
+	/// The loop fraction to draw. While paused the timeline's frozen date is not
+	/// used — the fraction held by the pause is — so a restart on that pause can
+	/// drop the line at its start and have it stay there.
+	private func displayPhase(at date: Date) -> Double {
+		timing.isPaused ? timing.pausedPhase : timing.phase(at: date, period: period)
 	}
 }
 
