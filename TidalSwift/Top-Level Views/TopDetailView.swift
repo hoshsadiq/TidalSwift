@@ -55,13 +55,17 @@ struct TopDetailView: View {
 	/// cover, the text beside it and the 30pt cloud button.
 	private static let detailColumnMinWidth: CGFloat = 580
 
-	/// The window's minimum content width, which is the sidebar's 220pt minimum
-	/// plus the detail column's 580. Set on the whole column stack rather than left
-	/// to the split view so the minimum does not move with the sidebar: collapsing
-	/// it would otherwise drop the window to the detail column alone, where the
-	/// player bar has less room than it needs (about 780pt once its controls
-	/// tighten).
-	private static let windowMinWidth: CGFloat = 800
+	/// The window's minimum content width. Two things set it: the sidebar's 220pt
+	/// minimum plus the detail column's 580 (800), and the player bar, which is
+	/// wider. The bar's fixed pieces — the tight transport controls, the volume
+	/// control, the four icon buttons, the download indicator, the quality badge
+	/// and the ten 8pt stack gaps — come to about 560, and the text block's own
+	/// fixed content (40pt artwork, the heart, the ellipsis menu and their gaps) to
+	/// about 135, leaving the title about 100pt at 840. Set on the whole column
+	/// stack rather than left to the split view so the minimum does not move with
+	/// the sidebar: collapsing it would otherwise drop the window to the detail
+	/// column alone, where the player bar has less room than it needs.
+	private static let windowMinWidth: CGFloat = 840
 
 	init(session: Session, player: Player) {
 		self.session = session

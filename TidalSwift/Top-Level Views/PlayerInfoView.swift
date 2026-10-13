@@ -16,7 +16,7 @@ struct PlayerInfoView: View {
 	let session: Session
 	let player: Player
 
-	/// The window minimum is 800pt (`TopDetailView.windowMinWidth`), but the bar is
+	/// The window minimum is 840pt (`TopDetailView.windowMinWidth`), but the bar is
 	/// laid out from its own measured width, so its tight form starts a little
 	/// above that. Below this the full-width transport controls and a readable
 	/// track title no longer fit side by side.
@@ -68,10 +68,11 @@ struct PlayerInfoView: View {
 					}
 					// Capped at half the bar, but free to fall below that: at narrow
 					// widths the text truncates rather than pushing the controls off
-					// the edge. The priority keeps it ahead of the two spacers, which
-					// is what holds its width at the cap when there is room.
+					// the edge. It deliberately has no layout priority: a priority
+					// outranks the fixed pieces and would crush the content-sized
+					// quality badge to nothing instead, leaving a wide title beside an
+					// invisible badge.
 					.frame(minWidth: 0, maxWidth: max(0, metrics.size.width / 2 - 100))
-					.layoutPriority(1)
 
 					PlaybackControls(player: player)
 						.frame(width: isCompact ? Self.compactPlaybackControlsWidth : Self.playbackControlsWidth)
