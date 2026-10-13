@@ -16,6 +16,16 @@ struct PlayerInfoView: View {
 	let session: Session
 	let player: Player
 
+	/// The window minimum is 800pt (`TopDetailView.windowMinWidth`), but the bar is
+	/// laid out from its own measured width, so its tight form starts a little
+	/// above that. Below this the full-width transport controls and a readable
+	/// track title no longer fit side by side.
+	private static let compactWidthThreshold: CGFloat = 900
+	/// The transport controls when there is room: the 188pt their five glyph
+	/// buttons and the gaps between them need, plus slack at each end.
+	private static let playbackControlsWidth: CGFloat = 260
+	/// The same controls with that slack given to the track text instead.
+	private static let compactPlaybackControlsWidth: CGFloat = 188
 
 	@Environment(QueueInfo.self) private var queueInfo
 	@Environment(TidalSwiftAppModel.self) private var appModel
@@ -24,6 +34,7 @@ struct PlayerInfoView: View {
 	var body: some View {
 		VStack {
 			GeometryReader { metrics in
+				let isCompact = metrics.size.width < Self.compactWidthThreshold
 				HStack {
 					HStack {
 						TrackInfoView(player: player, session: session)
@@ -55,10 +66,15 @@ struct PlayerInfoView: View {
 							TrackContextMenu(track: track, session: session, player: player)
 						}
 					}
-					.frame(width: metrics.size.width / 2 - 100)
+					// Capped at half the bar, but free to fall below that: at narrow
+					// widths the text truncates rather than pushing the controls off
+					// the edge. The priority keeps it ahead of the two spacers, which
+					// is what holds its width at the cap when there is room.
+					.frame(minWidth: 0, maxWidth: max(0, metrics.size.width / 2 - 100))
+					.layoutPriority(1)
 
 					PlaybackControls(player: player)
-						.frame(width: 260)
+						.frame(width: isCompact ? Self.compactPlaybackControlsWidth : Self.playbackControlsWidth)
 					Spacer()
 					VolumeControl(player: player)
 					Spacer()
@@ -220,8 +236,12 @@ struct TrackInfoView: View {
 									.layoutPriority(-1)
 							}
 						}
+						// Truncate rather than wrap: the bar is 64pt tall, so a wrapped title
+						// pushes the lines below it out of the visible box.
+						.lineLimit(1)
 						.help(trackToolTipString(for: track))
 						Text("\(track.artists.formArtistString()) – \(track.album.title)")
+							.lineLimit(1)
 							.foregroundColor(.secondary)
 							.help("\(track.artists.formArtistString()) – \(track.album.title)")
 						if let source = queueInfo.source {
