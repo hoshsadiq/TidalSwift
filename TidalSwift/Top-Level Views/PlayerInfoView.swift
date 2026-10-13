@@ -229,6 +229,8 @@ struct TrackInfoView: View {
 							Text(" – ")
 							LinkedText(text: track.album.title) { viewState.push(album: track.album) }
 						}
+						.lineLimit(1)
+						.truncationMode(.tail)
 						.foregroundColor(.secondary)
 						.help("\(track.artists.formArtistString()) – \(track.album.title)")
 						if let source = queueInfo.source {
