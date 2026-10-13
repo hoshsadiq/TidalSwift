@@ -182,6 +182,7 @@ struct TrackInfoView: View {
 	@Environment(QueueInfo.self) private var queueInfo
 	@Environment(ViewState.self) private var viewState
 	@Environment(ToastCenter.self) private var toastCenter
+	@State private var sourceTask: Task<Void, Never>?
 
 	var body: some View {
 		HStack {
@@ -266,33 +267,53 @@ struct TrackInfoView: View {
 	/// Opens the queue's source. Artist, album and playlist resolve by id; a mix is
 	/// looked up in the user's own mixes, which is where a mix source comes from.
 	/// A resolution that fails says so through the toast instead of doing nothing.
+	///
+	/// A click can be repeated, so each lookup cancels the one before it and only
+	/// the latest reaches the navigation stack.
 	private func open(source: QueueSource) {
 		guard let id = source.id else {
 			toastCenter.show("Couldn't open \(source.title)")
 			return
 		}
-		Task {
+		sourceTask?.cancel()
+		sourceTask = Task {
 			switch source.type {
 			case .artist:
-				guard let artistId = Int(id), let artist = await session.artist(artistId: artistId) else {
+				guard let artistId = Int(id) else {
+					toastCenter.show("Couldn't open \(source.title)")
+					return
+				}
+				let artist = await session.artist(artistId: artistId)
+				guard !Task.isCancelled else { return }
+				guard let artist else {
 					toastCenter.show("Couldn't open \(source.title)")
 					return
 				}
 				viewState.push(artist: artist)
 			case .album:
-				guard let albumId = Int(id), let album = await session.album(albumId: albumId) else {
+				guard let albumId = Int(id) else {
+					toastCenter.show("Couldn't open \(source.title)")
+					return
+				}
+				let album = await session.album(albumId: albumId)
+				guard !Task.isCancelled else { return }
+				guard let album else {
 					toastCenter.show("Couldn't open \(source.title)")
 					return
 				}
 				viewState.push(album: album)
 			case .playlist:
-				guard let playlist = await session.playlist(playlistId: id) else {
+				let playlist = await session.playlist(playlistId: id)
+				guard !Task.isCancelled else { return }
+				guard let playlist else {
 					toastCenter.show("Couldn't open \(source.title)")
 					return
 				}
 				viewState.push(playlist: playlist)
 			case .mix:
-				guard let mix = await session.mixes()?.first(where: { $0.id == id }) else {
+				let mix = await session.mixes()?.first(where: { $0.id == id })
+				guard !Task.isCancelled else { return }
+				guard let mix else {
 					toastCenter.show("Couldn't open \(source.title)")
 					return
 				}
