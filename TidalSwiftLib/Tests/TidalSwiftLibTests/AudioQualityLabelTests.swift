@@ -12,8 +12,8 @@ import XCTest
 /// Pins the one vocabulary both quality pickers read. These assertions fail if a second
 /// vocabulary comes back: a tier dropped from the labels, "High" claimed by two tiers, or
 /// "HiFi" reappearing.
+@MainActor
 final class AudioQualityLabelTests: XCTestCase {
-	@MainActor
 	func testEveryTierHasANameAndDetail() {
 		for quality in AudioQuality.allCases {
 			XCTAssertFalse(quality.label.name.isEmpty, "\(quality) has no name")
@@ -22,7 +22,6 @@ final class AudioQualityLabelTests: XCTestCase {
 	}
 
 	/// The only name two tiers may share is "Low", and only for the two lossy tiers.
-	@MainActor
 	func testNoTwoTiersShareAName() {
 		for first in AudioQuality.allCases {
 			for second in AudioQuality.allCases where second != first {
@@ -33,24 +32,20 @@ final class AudioQualityLabelTests: XCTestCase {
 		}
 	}
 
-	@MainActor
 	func testNamesCoverOnlyLowHighAndMax() {
 		let names = Set(AudioQuality.allCases.map(\.label.name))
 		XCTAssertEqual(names, ["Low", "High", "Max"])
 	}
 
-	@MainActor
 	func testHighIsNeverNamedHiFi() {
 		XCTAssertNotEqual(AudioQuality.high.label.name, "HiFi")
 		XCTAssertFalse(AudioQuality.allCases.contains { $0.label.name == "HiFi" })
 	}
 
-	@MainActor
 	func testMediumIsNotNamedHigh() {
 		XCTAssertNotEqual(AudioQuality.medium.label.name, "High")
 	}
 
-	@MainActor
 	func testLossyTiersAreBothLowWithTheirBitrates() {
 		XCTAssertEqual(AudioQuality.low.label.name, "Low")
 		XCTAssertEqual(AudioQuality.low.label.optionLabel, "96 kbps")
@@ -58,7 +53,6 @@ final class AudioQualityLabelTests: XCTestCase {
 		XCTAssertEqual(AudioQuality.medium.label.optionLabel, "320 kbps")
 	}
 
-	@MainActor
 	func testLosslessTiersCarryNoBitrate() {
 		XCTAssertNil(AudioQuality.high.label.bitrate)
 		XCTAssertNil(AudioQuality.max.label.bitrate)
