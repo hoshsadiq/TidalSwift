@@ -166,7 +166,7 @@ private struct PlaybackPreferencesTab: View {
 					case .stream:
 						Text("Applies to the next track you play.")
 						if let highest = appModel.highestSoundQuality {
-							Text("Your subscription supports up to \(highest.shortTitle).")
+							Text("Your subscription supports up to \(highest.label.name).")
 						}
 					case .download:
 						Text("Changing this re-checks your offline library and can re-download files.")
@@ -283,9 +283,9 @@ private struct AudioQualityRows: View {
 						.imageScale(.large)
 
 					VStack(alignment: .leading) {
-						Text("Low")
+						Text(AudioQuality.low.label.name)
 							.foregroundStyle(.primary)
-						Text("Balance audio quality and data consumption")
+						Text(AudioQuality.low.label.detail)
 							.font(.caption)
 							.foregroundStyle(.secondary)
 					}
@@ -305,10 +305,10 @@ private struct AudioQualityRows: View {
 					select(newValue)
 				}
 			)) {
-				Text("96 kbps")
+				Text(AudioQuality.low.label.optionLabel)
 					.tag(AudioQuality.low)
 					.disabled(!isAvailable(.low))
-				Text("320 kbps")
+				Text(AudioQuality.medium.label.optionLabel)
 					.tag(AudioQuality.medium)
 					.disabled(!isAvailable(.medium))
 			}
@@ -316,12 +316,13 @@ private struct AudioQualityRows: View {
 			.fixedSize()
 		}
 
-		qualityRow(title: "High", subtitle: "16-bit, 44.1 kHz", quality: .high)
-		qualityRow(title: "Max", subtitle: "Up to 24-bit, 192 kHz", quality: .max)
+		qualityRow(quality: .high)
+		qualityRow(quality: .max)
 	}
 
 	@ViewBuilder
-	private func qualityRow(title: String, subtitle: String, quality: AudioQuality) -> some View {
+	private func qualityRow(quality: AudioQuality) -> some View {
+		let label = quality.label
 		let isSelected = selection == quality
 		Button {
 			select(quality)
@@ -332,9 +333,9 @@ private struct AudioQualityRows: View {
 					.imageScale(.large)
 
 				VStack(alignment: .leading) {
-					Text(title)
+					Text(label.name)
 						.foregroundStyle(.primary)
-					Text(subtitle)
+					Text(label.detail)
 						.font(.caption)
 						.foregroundStyle(.secondary)
 				}
@@ -344,15 +345,5 @@ private struct AudioQualityRows: View {
 		}
 		.buttonStyle(.plain)
 		.disabled(!isAvailable(quality))
-	}
-}
-
-extension AudioQuality {
-	fileprivate var shortTitle: String {
-		switch self {
-		case .low, .medium: "Low"
-		case .high: "High"
-		case .max: "Max"
-		}
 	}
 }

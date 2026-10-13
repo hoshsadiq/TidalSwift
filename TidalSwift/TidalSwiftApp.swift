@@ -1371,10 +1371,20 @@ struct TidalSwiftCommands: Commands {
 			))
 
 			Menu("Audio Quality") {
-				audioQualityButton(title: "Low", quality: .low)
-				audioQualityButton(title: "High", quality: .medium)
-				audioQualityButton(title: "HiFi", quality: .high)
-				audioQualityButton(title: "Max", quality: .max)
+				// The two lossy tiers share the name "Low", so they sit in a submenu and are
+				// picked by bitrate instead of owning a name each. High and Max stay flat.
+				Menu {
+					audioQualityButton(title: AudioQuality.low.label.optionLabel, quality: .low)
+					audioQualityButton(title: AudioQuality.medium.label.optionLabel, quality: .medium)
+				} label: {
+					if appModel.isAudioQualitySelected(.low) || appModel.isAudioQualitySelected(.medium) {
+						Label(AudioQuality.low.label.name, systemImage: "checkmark")
+					} else {
+						Text(AudioQuality.low.label.name)
+					}
+				}
+				audioQualityButton(title: AudioQuality.high.label.name, quality: .high)
+				audioQualityButton(title: AudioQuality.max.label.name, quality: .max)
 			}
 
 			Button("Clear Queue") {
