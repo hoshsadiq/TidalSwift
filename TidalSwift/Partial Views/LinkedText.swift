@@ -16,6 +16,12 @@ import TidalSwiftLib
 /// right-click and focus behaviour stays intact everywhere else. It uses a tap
 /// gesture rather than a `Button` because the rows manage focus themselves and a
 /// button would add a keyboard-focus stop inside them.
+///
+/// The link is its own accessibility element with a label and a default action,
+/// so VoiceOver, Voice Control and Switch Control can reach and activate it
+/// without a pointer. A row that combines its children into one element lifts
+/// that action onto the row as a named action, the same way it exposes its other
+/// controls.
 struct LinkedText: View {
 	let text: String
 	let action: () -> Void
@@ -27,6 +33,10 @@ struct LinkedText: View {
 			.underline(isHovering)
 			.onHover { isHovering = $0 }
 			.onTapGesture(perform: action)
+			.accessibilityElement(children: .ignore)
+			.accessibilityLabel(text)
+			.accessibilityAddTraits(.isButton)
+			.accessibilityAction { action() }
 	}
 }
 
