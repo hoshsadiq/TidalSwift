@@ -298,22 +298,23 @@ class Player {
 		let item = AVPlayerItem(url: url)
 		installCurrentItem(item)
 		playbackInfo.playbackPosition = 0
-		fillHLSStreamSampleRate(from: item, loadID: loadID)
+		fillStreamSampleRate(from: item, loadID: loadID)
 
 		if shouldResume {
 			play()
 		}
 	}
 
-	/// Fills the sample rate the player reports for a streamed HLS track, which the playlist
-	/// itself cannot supply, so a streamed track reads like a cached one. Only the track's
-	/// own resolved stream is touched, and only while it still describes this load.
+	/// Fills the sample rate the player reports for a tier-based stream, which a playlist cannot
+	/// supply and a FLAC-in-fMP4 file often does not, so a streamed or offline track reads like
+	/// a cached one. Only the track's own resolved stream is touched, and only while it still
+	/// describes this load. A direct stream's badge clamps and names no rate, so it is skipped.
 	///
 	/// A Tidal playlist's `item.asset.tracks` stays empty; the rate arrives with the item's
 	/// own `tracks` once the item is installed and loading begins, so observe them rather
 	/// than reading once.
-	private func fillHLSStreamSampleRate(from item: AVPlayerItem, loadID: Int) {
-		guard let stream = playbackInfo.resolvedStream, stream.isHLS, stream.sampleRate == nil else {
+	private func fillStreamSampleRate(from item: AVPlayerItem, loadID: Int) {
+		guard let stream = playbackInfo.resolvedStream, stream.rung != nil, stream.sampleRate == nil else {
 			return
 		}
 		let trackId = stream.trackId
@@ -745,7 +746,10 @@ class Player {
 			return ""
 		}
 		if let rung = stream.rung {
-			return HLSStreaming.badge(for: rung, sampleRate: stream.sampleRate)
+			// A bit-depth label waits for the sample rate rather than showing a partial one:
+			// the rate arrives with the loaded item, and a badge that gains it a moment later
+			// changes under the reader.
+			return HLSStreaming.completeBadge(for: rung, sampleRate: stream.sampleRate) ?? ""
 		}
 		if stream.isDolbyAtmos {
 			return "Dolby Atmos"

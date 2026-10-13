@@ -999,6 +999,27 @@ final class HLSStreamingTests: XCTestCase {
 		XCTAssertEqual(HLSStreaming.badge(for: .low), "96 kbps")
 	}
 
+	/// A bit-depth label is withheld until the sample rate is known, so it never reads "16-bit"
+	/// and then changes to "16-bit 44.1kHz" under the reader. The rate-free labels are complete
+	/// at once.
+	func testCompleteBadgeWithholdsABitDepthUntilTheRateIsKnown() {
+		XCTAssertNil(HLSStreaming.completeBadge(for: .high, sampleRate: nil))
+		XCTAssertNil(HLSStreaming.completeBadge(for: .max, sampleRate: nil))
+		XCTAssertNil(HLSStreaming.completeBadge(for: .high, sampleRate: 0))
+		XCTAssertEqual(HLSStreaming.completeBadge(for: .high, sampleRate: 44_100), "16-bit 44.1kHz")
+		XCTAssertEqual(HLSStreaming.completeBadge(for: .max, sampleRate: 96_000), "24-bit 96kHz")
+		XCTAssertEqual(HLSStreaming.completeBadge(for: .medium, sampleRate: nil), "320 kbps")
+		XCTAssertEqual(HLSStreaming.completeBadge(for: .low, sampleRate: nil), "96 kbps")
+	}
+
+	/// The rung overload follows the tier for a stereo rung and names Atmos at once, since the
+	/// Atmos label carries no rate.
+	func testCompleteBadgeFollowsTheRung() {
+		XCTAssertEqual(HLSStreaming.completeBadge(for: .stereo(.high), sampleRate: 44_100), "16-bit 44.1kHz")
+		XCTAssertNil(HLSStreaming.completeBadge(for: .stereo(.max), sampleRate: nil))
+		XCTAssertEqual(HLSStreaming.completeBadge(for: .dolbyAtmos, sampleRate: nil), "Dolby Atmos")
+	}
+
 	// MARK: - Helpers
 
 	private func parse(_ text: String) throws -> HLSPlaylist {
