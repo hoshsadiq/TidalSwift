@@ -195,7 +195,7 @@ struct TrackRow: View {
 					.help(trackToolTipString)
 					if showArtist {
 						HStack {
-							Text(track.artists.formArtistString())
+							ArtistLinks(artists: track.artists) { viewState.push(artist: $0) }
 							Spacer(minLength: 5)
 						}
 						.frame(width: metrics.size.width * widthFactorArtist)
@@ -203,7 +203,7 @@ struct TrackRow: View {
 					}
 					if showAlbum {
 						HStack {
-							Text(track.album.title)
+							LinkedText(text: track.album.title) { viewState.push(album: track.album) }
 							Spacer(minLength: 5)
 						}
 						.frame(width: metrics.size.width * widthFactorAlbum)
