@@ -224,13 +224,15 @@ struct TrackInfoView: View {
 							}
 						}
 						.help(trackToolTipString(for: track))
-						HStack(spacing: 0) {
-							ArtistLinks(artists: track.artists) { viewState.push(artist: $0) }
-							Text(" – ")
-							LinkedText(text: track.album.title) { viewState.push(album: track.album) }
+						ScrollingLine {
+							HStack(spacing: 0) {
+								ArtistLinks(artists: track.artists) { viewState.push(artist: $0) }
+								Text(" – ")
+								LinkedText(text: track.album.title) { viewState.push(album: track.album) }
+							}
+							.lineLimit(1)
+							.truncationMode(.tail)
 						}
-						.lineLimit(1)
-						.truncationMode(.tail)
 						.foregroundColor(.secondary)
 						.help("\(track.artists.formArtistString()) – \(track.album.title)")
 						if let source = queueInfo.source {
