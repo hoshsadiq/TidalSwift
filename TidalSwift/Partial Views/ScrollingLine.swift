@@ -20,8 +20,12 @@ import SwiftUI
 /// artwork, but driven by `TimelineView` so it can stop and start without
 /// jumping. A `repeatForever` animation, which that artwork uses, cannot be
 /// paused. The content is laid out twice in a row so the wrap is seamless.
-struct ScrollingLine<Content: View>: View {
+///
+/// `identity` names the content: the line starts from the beginning whenever it
+/// changes, so a new track's credit does not inherit the previous one's phase.
+struct ScrollingLine<Content: View, ID: Hashable>: View {
 	private let content: Content
+	private let identity: ID
 	private let pointsPerSecond: Double
 	private let gap: CGFloat
 
@@ -37,7 +41,13 @@ struct ScrollingLine<Content: View>: View {
 	@State private var isPaused = false
 	@State private var resumeTask: Task<Void, Never>?
 
-	init(pointsPerSecond: Double = 30, gap: CGFloat = 48, @ViewBuilder content: () -> Content) {
+	init(
+		identity: ID,
+		pointsPerSecond: Double = 30,
+		gap: CGFloat = 48,
+		@ViewBuilder content: () -> Content
+	) {
+		self.identity = identity
 		self.pointsPerSecond = pointsPerSecond
 		self.gap = gap
 		self.content = content()
@@ -75,7 +85,13 @@ struct ScrollingLine<Content: View>: View {
 				.hidden()
 				.frame(width: 0, height: 0, alignment: .leading)
 				.accessibilityHidden(true)
-				.onPreferenceChange(ScrollingLineSizeKey.self) { lineSize = $0 }
+				.onPreferenceChange(ScrollingLineSizeKey.self) { size in
+					let contentChanged = size.width != lineSize.width
+					lineSize = size
+					// Content measured at a new width is a new line: restart it rather
+					// than let it inherit the previous content's phase.
+					if contentChanged { restart() }
+				}
 
 			// The line itself. It sets the row's height whether or not it scrolls,
 			// stays put (and stays clickable) when it fits, and is covered by the
@@ -109,15 +125,27 @@ struct ScrollingLine<Content: View>: View {
 		.focusable()
 		.focused($isFocused)
 		.focusEffectDisabled()
+		.onChange(of: identity) { restart() }
 		.onChange(of: scrolls) { _, nowScrolling in
 			// Start each scroll from the beginning rather than from wherever the
 			// line's age happened to land it.
-			if nowScrolling { anchor = Date() }
+			if nowScrolling { restart() }
 		}
 		.onChange(of: pauseRequested) { _, requested in
 			updatePause(requested)
 		}
 		.onDisappear { resumeTask?.cancel() }
+	}
+
+	/// Puts the line back at the start of its loop, which is what a new identity,
+	/// a new measured width and the start of a scroll all want.
+	private func restart() {
+		let now = Date()
+		anchor = now
+		// A pause measures its resume shift from `pausedAt`, so restarting while
+		// paused has to move that mark too: otherwise the shift would replay time
+		// that the restarted phase no longer counts.
+		if isPaused { pausedAt = now }
 	}
 
 	/// Stops the line while a pointer or the keyboard is on it, and starts it

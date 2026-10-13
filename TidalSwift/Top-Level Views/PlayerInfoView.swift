@@ -224,7 +224,7 @@ struct TrackInfoView: View {
 							}
 						}
 						.help(trackToolTipString(for: track))
-						ScrollingLine {
+						ScrollingLine(identity: track.id) {
 							HStack(spacing: 0) {
 								ArtistLinks(artists: track.artists) { viewState.push(artist: $0) }
 								Text(" – ")
