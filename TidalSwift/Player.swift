@@ -285,6 +285,7 @@ class Player {
 
 		if track.isUnavailable {
 			print("[PLAYBACK] avSetItem(): track unavailable - title: \(track.title), id: \(track.id), streamReady: \(track.streamReady), audioModes: \(String(describing: track.audioModes)), failedItems: \(failedItems), queueCount: \(queueInfo.queue.count)")
+			clearResolvedStream(for: track.id)
 			skipFailedItem(resumeAfterSet: shouldResume)
 			return
 		}
@@ -460,6 +461,7 @@ class Player {
 		print("[PLAYBACK] item failed - title: \(track?.title ?? "?"), id: \(track.map { String($0.id) } ?? "?"), reason: \(reason), error: \(errorDescription ?? "none"), failedItems: \(failedItems), queueCount: \(queueInfo.queue.count)")
 		if let track {
 			playbackInfo.failedTrackIds.insert(track.id)
+			clearResolvedStream(for: track.id)
 		}
 		failedItems += 1
 		if failedItems >= queueInfo.queue.count {
@@ -469,6 +471,14 @@ class Player {
 		} else {
 			advance(resumeAfterSet: playbackInfo.playing)
 		}
+	}
+
+	/// Drops the resolved stream when the play it described failed, so the badge never labels a
+	/// track that is not playing. Nothing else clears it: a stream that resolves and then fails
+	/// would otherwise keep its quality over silence, which is what the play bar showed.
+	private func clearResolvedStream(for trackId: Int) {
+		guard playbackInfo.resolvedStream?.trackId == trackId else { return }
+		playbackInfo.resolvedStream = nil
 	}
 
 	// MARK: Queue
