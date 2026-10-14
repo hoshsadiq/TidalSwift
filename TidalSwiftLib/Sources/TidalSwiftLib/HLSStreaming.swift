@@ -847,6 +847,34 @@ extension HLSStreaming {
 		}
 	}
 
+	/// The badge for a rung once every fact it names is known, or nil while one is missing.
+	///
+	/// A bit-depth label needs the sample rate, which a playlist cannot supply: only the loaded
+	/// item reports it. `badge(for:)` would print a bare "16-bit" for that moment and the rate
+	/// would change the string under the reader, so the badge is withheld until the rate arrives
+	/// rather than shown as half an answer. The rate-free labels (Atmos and the lossy tiers) are
+	/// complete as soon as the rung is known.
+	public static func completeBadge(for rung: HLSRung, sampleRate: Int?) -> String? {
+		switch rung {
+		case .stereo(let quality):
+			return completeBadge(for: quality, sampleRate: sampleRate)
+		case .dolbyAtmos:
+			return badge(for: rung, sampleRate: sampleRate)
+		}
+	}
+
+	/// The badge for a stereo tier once its sample rate is known; nil for a bit-depth tier until
+	/// then. The lossy tiers name no rate and are complete at once.
+	public static func completeBadge(for quality: AudioQuality, sampleRate: Int?) -> String? {
+		switch quality {
+		case .max, .high:
+			guard let sampleRate, sampleRate > 0 else { return nil }
+			return badge(for: quality, sampleRate: sampleRate)
+		case .medium, .low:
+			return badge(for: quality, sampleRate: sampleRate)
+		}
+	}
+
 	private static func bitDepthBadge(_ bitDepth: Int, sampleRate: Int?) -> String {
 		guard let sampleRate, sampleRate > 0 else { return "\(bitDepth)-bit" }
 		return "\(bitDepth)-bit \(formattedSampleRate(sampleRate))"

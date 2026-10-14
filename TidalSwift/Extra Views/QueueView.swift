@@ -252,6 +252,8 @@ private struct QueueRow: View {
 	let queueIndex: Int?
 	let onPlay: () -> Void
 
+	@Environment(ViewState.self) private var viewState
+
 	var body: some View {
 		HStack(spacing: 8) {
 			artwork
@@ -263,7 +265,7 @@ private struct QueueRow: View {
 					.accessibilityAction {
 						onPlay()
 					}
-				Text(item.track.artists.formArtistString())
+				ArtistLinks(artists: item.track.artists) { viewState.push(artist: $0) }
 					.font(.caption)
 					.foregroundColor(.secondary)
 					.lineLimit(1)

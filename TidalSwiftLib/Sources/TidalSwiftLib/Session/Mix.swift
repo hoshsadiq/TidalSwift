@@ -15,7 +15,12 @@ extension Session {
 		let url = URL(string: "\(AuthInformation.APILocation)/pages/my_collection_my_mixes")!
 		do {
 			let response: Mixes = try await get(url: url, parameters: parameters)
-			return response.rows[0].modules[0].pagedList.items
+			// A reply without rows or modules carries no mix list; report it as
+			// unresolved rather than indexing past the end.
+			guard let row = response.rows.first, let module = row.modules.first else {
+				return nil
+			}
+			return module.pagedList.items
 		} catch {
 			return nil
 		}
