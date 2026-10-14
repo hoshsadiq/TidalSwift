@@ -238,6 +238,11 @@ struct TrackInfoView: View {
 									Text(version)
 										.foregroundColor(.secondary)
 										.padding(.leading, -5)
+										// Inert while the line scrolls or fits, since both render at the
+										// natural size. It matters when Reduce Motion is on and the line
+										// overflows: then this is constrained, and the version should
+										// give way before the title does.
+										.layoutPriority(-1)
 								}
 							}
 							// Truncate rather than wrap: the bar is 64pt tall, so a wrapped
