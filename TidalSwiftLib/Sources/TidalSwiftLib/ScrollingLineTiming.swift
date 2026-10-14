@@ -39,6 +39,16 @@ public nonisolated struct ScrollingLineTiming: Equatable, Sendable {
 		max(1, Double(loopWidth) / pointsPerSecond)
 	}
 
+	/// Whether a line of `lineWidth` would move through the `availableWidth` it was
+	/// offered.
+	///
+	/// Both readings start at zero before the first layout pass, so nothing is
+	/// claimed until a width has actually been offered. The one-point slack absorbs
+	/// sub-point rounding that would otherwise start a line that fits.
+	public static func overflows(lineWidth: CGFloat, availableWidth: CGFloat) -> Bool {
+		availableWidth > 0 && lineWidth > availableWidth + 1
+	}
+
 	/// The completed fraction of one loop at `date`, in `[0, 1)`.
 	public func phase(at date: Date, period: Double) -> Double {
 		let fraction = date.timeIntervalSince(anchor).truncatingRemainder(dividingBy: period) / period
