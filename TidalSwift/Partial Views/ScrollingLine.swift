@@ -74,7 +74,10 @@ struct ScrollingLine<Content: View, ID: Hashable>: View {
 			}
 			.frame(height: 0)
 			.accessibilityHidden(true)
-			.onPreferenceChange(ScrollingLineWidthKey.self) { availableWidth = $0 }
+			.onPreferenceChange(ScrollingLineWidthKey.self) { width in
+			guard let width else { return }
+			availableWidth = width
+			}
 
 			// The line at its natural size, kept out of the layout and read once
 			// so the scroll can be gated on whether it actually overflows.
@@ -183,9 +186,12 @@ private struct ScrollingLineSizeKey: PreferenceKey {
 	}
 }
 
+/// Optional for the same reason as the size key: a view carrying this key
+/// contributes its default, and a plain zero default would let that
+/// contribution overwrite a real reading.
 private struct ScrollingLineWidthKey: PreferenceKey {
-	static let defaultValue: CGFloat = 0
-	static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-		value = nextValue()
+	static let defaultValue: CGFloat? = nil
+	static func reduce(value: inout CGFloat?, nextValue: () -> CGFloat?) {
+		value = nextValue() ?? value
 	}
 }
