@@ -47,6 +47,32 @@ struct TopDetailView: View {
 
 	private static let searchFieldWidth: CGFloat = 200
 
+	/// The narrowest detail column that still lays out. The v1 track tables
+	/// (`PageTrackTable`, `ViewAllPage`) size their text columns from the measured
+	/// width and keep only the fixed cover, time, BPM, key and action columns, so
+	/// the widest of them needs about 580pt before its three text columns shrink
+	/// past a few characters. The album and playlist headers want the same: a 100pt
+	/// cover, the text beside it and the 30pt cloud button.
+	private static let detailColumnMinWidth: CGFloat = 580
+
+	/// The window's minimum content width. Two things set it: the sidebar's 220pt
+	/// minimum plus the detail column's 580 (800), and the player bar, which is
+	/// wider. The bar's fixed pieces — the tight transport controls, the volume
+	/// control, the four icon buttons, the download indicator, the quality badge
+	/// and the ten 8pt stack gaps — come to about 560, and the text block's own
+	/// fixed content (40pt artwork, the heart, the ellipsis menu and their gaps) to
+	/// about 150, so the bar spends about 710 of its width before the title. The
+	/// bar is about 808 wide inside an 840 window once its own horizontal padding
+	/// is counted, which leaves the title about 100pt. Set on the whole column
+	/// stack rather than left to the split view so the minimum does not move with
+	/// the sidebar: collapsing it would otherwise drop the window to the detail
+	/// column alone, where the player bar has less room than it needs.
+	/// The quality badge is one of the terms above, so a wider badge string makes
+	/// this number wrong. The widest today are about fourteen characters
+	/// ("16-bit 44.1kHz", "Dolby Atmos"); a 24-bit master at 176.4 or 352.8 kHz
+	/// prints one longer ("24-bit 176.4kHz") and costs a few points of title.
+	private static let windowMinWidth: CGFloat = 840
+
 	init(session: Session, player: Player) {
 		self.session = session
 		self.player = player
@@ -146,7 +172,7 @@ struct TopDetailView: View {
 				.environment(\.colorScheme, playerBarColorScheme)
 				.animation(.easeInOut(duration: 0.3), value: playbackInfo.isNowPlayingExpanded)
 		}
-		.frame(minHeight: 500)
+		.frame(minWidth: Self.windowMinWidth, minHeight: 500)
 		.onChange(of: playbackInfo.isNowPlayingExpanded) { _, isExpanded in
 			updateSearchFieldLayout()
 			// Collapsing the drawer always leaves fullscreen, so the window can
@@ -186,7 +212,7 @@ struct TopDetailView: View {
 	/// drawer can be layered over the whole content row in `body`.
 	private var detailColumn: some View {
 		DetailView(session: session, player: player)
-			.frame(minWidth: 850)
+			.frame(minWidth: Self.detailColumnMinWidth)
 			// Clicking empty space resigns first responder so the toolbar search
 			// field loses focus. Controls keep priority over this container tap.
 			.contentShape(Rectangle())
