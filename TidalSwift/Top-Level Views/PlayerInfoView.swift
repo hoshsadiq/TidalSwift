@@ -180,6 +180,9 @@ struct TrackInfoView: View {
 	let session: Session
 
 	@Environment(QueueInfo.self) private var queueInfo
+	@Environment(ViewState.self) private var viewState
+	@Environment(ToastCenter.self) private var toastCenter
+	@State private var sourceTask: Task<Void, Never>?
 
 	var body: some View {
 		HStack {
@@ -221,15 +224,29 @@ struct TrackInfoView: View {
 							}
 						}
 						.help(trackToolTipString(for: track))
-						Text("\(track.artists.formArtistString()) – \(track.album.title)")
-							.foregroundColor(.secondary)
-							.help("\(track.artists.formArtistString()) – \(track.album.title)")
+						ScrollingLine(identity: track.id) {
+							HStack(spacing: 0) {
+								ArtistLinks(artists: track.artists) { viewState.push(artist: $0) }
+								Text(" – ")
+								LinkedText(text: track.album.title) { viewState.push(album: track.album) }
+							}
+							.lineLimit(1)
+							.truncationMode(.tail)
+						}
+						.foregroundColor(.secondary)
+						.help("\(track.artists.formArtistString()) – \(track.album.title)")
 						if let source = queueInfo.source {
 							HStack(spacing: 3) {
 								Image(systemName: source.type.symbolName)
-								Text("Playing from \(source.title)")
-									.lineLimit(1)
+								if source.type == .favorite {
+									// The Collection screen pinning a favourite source has no id
+									// to resolve, so its title stays plain rather than a dead link.
+									Text("Playing from \(source.title)")
+								} else {
+									LinkedText(text: "Playing from \(source.title)") { open(source: source) }
+								}
 							}
+							.lineLimit(1)
 							.font(.caption)
 							.foregroundColor(.secondary)
 							.help("Playing from \(source.title)")
@@ -249,6 +266,67 @@ struct TrackInfoView: View {
 		}
 		s += " – \(track.artists.formArtistString())"
 		return s
+	}
+
+	/// Opens the queue's source. Artist, album and playlist resolve by id; a mix is
+	/// looked up in the user's own mixes, which is where a mix source comes from.
+	/// A resolution that fails says so through the toast instead of doing nothing.
+	///
+	/// A click can be repeated, so each lookup cancels the one before it and only
+	/// the latest reaches the navigation stack.
+	private func open(source: QueueSource) {
+		guard let id = source.id else {
+			toastCenter.show("Couldn't open \(source.title)")
+			return
+		}
+		sourceTask?.cancel()
+		sourceTask = Task {
+			switch source.type {
+			case .artist:
+				guard let artistId = Int(id) else {
+					toastCenter.show("Couldn't open \(source.title)")
+					return
+				}
+				let artist = await session.artist(artistId: artistId)
+				guard !Task.isCancelled else { return }
+				guard let artist else {
+					toastCenter.show("Couldn't open \(source.title)")
+					return
+				}
+				viewState.push(artist: artist)
+			case .album:
+				guard let albumId = Int(id) else {
+					toastCenter.show("Couldn't open \(source.title)")
+					return
+				}
+				let album = await session.album(albumId: albumId)
+				guard !Task.isCancelled else { return }
+				guard let album else {
+					toastCenter.show("Couldn't open \(source.title)")
+					return
+				}
+				viewState.push(album: album)
+			case .playlist:
+				let playlist = await session.playlist(playlistId: id)
+				guard !Task.isCancelled else { return }
+				guard let playlist else {
+					toastCenter.show("Couldn't open \(source.title)")
+					return
+				}
+				viewState.push(playlist: playlist)
+			case .mix:
+				let mix = await session.mixes()?.first(where: { $0.id == id })
+				guard !Task.isCancelled else { return }
+				guard let mix else {
+					toastCenter.show("Couldn't open \(source.title)")
+					return
+				}
+				viewState.push(mix: mix)
+			case .favorite:
+				// Handled by the caller: the favourite source renders without a link.
+				break
+			}
+		}
 	}
 }
 

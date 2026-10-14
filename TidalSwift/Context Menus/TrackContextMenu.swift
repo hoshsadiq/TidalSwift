@@ -25,6 +25,13 @@ struct TrackContextMenu: View {
 		playlist.map { QueueSource(type: .playlist, title: $0.title, id: $0.uuid) }
 	}
 
+	/// The credits that have a page worth opening. A "Various Artists" compilation
+	/// credit is skipped here as it is in the links, so the menu and the links
+	/// always offer the same artists.
+	private var linkedArtists: [Artist] {
+		track.artists.filter { $0.name != "Various Artists" }
+	}
+
 	init(track: Track, indexInPlaylist: Int? = nil, playlist: Playlist? = nil, session: Session, player: Player) {
 		self.track = track
 		self.session = session
@@ -59,8 +66,8 @@ struct TrackContextMenu: View {
 			}
 			Divider()
 			Group {
-				if track.artists[0].name != "Various Artists" {
-					ForEach(track.artists) { artist in
+				if !linkedArtists.isEmpty {
+					ForEach(linkedArtists) { artist in
 						Button {
 							viewState.push(artist: artist)
 						} label: {
