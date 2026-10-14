@@ -285,6 +285,7 @@ class Player {
 
 		if track.isUnavailable {
 			print("[PLAYBACK] avSetItem(): track unavailable - title: \(track.title), id: \(track.id), streamReady: \(track.streamReady), audioModes: \(String(describing: track.audioModes)), failedItems: \(failedItems), queueCount: \(queueInfo.queue.count)")
+			clearResolvedStream(for: track.id)
 			skipFailedItem(resumeAfterSet: shouldResume)
 			return
 		}
@@ -298,22 +299,23 @@ class Player {
 		let item = AVPlayerItem(url: url)
 		installCurrentItem(item)
 		playbackInfo.playbackPosition = 0
-		fillHLSStreamSampleRate(from: item, loadID: loadID)
+		fillStreamSampleRate(from: item, loadID: loadID)
 
 		if shouldResume {
 			play()
 		}
 	}
 
-	/// Fills the sample rate the player reports for a streamed HLS track, which the playlist
-	/// itself cannot supply, so a streamed track reads like a cached one. Only the track's
-	/// own resolved stream is touched, and only while it still describes this load.
+	/// Fills the sample rate the player reports for a tier-based stream, which a playlist cannot
+	/// supply and a FLAC-in-fMP4 file often does not, so a streamed or offline track reads like
+	/// a cached one. Only the track's own resolved stream is touched, and only while it still
+	/// describes this load. A direct stream's badge clamps and names no rate, so it is skipped.
 	///
 	/// A Tidal playlist's `item.asset.tracks` stays empty; the rate arrives with the item's
 	/// own `tracks` once the item is installed and loading begins, so observe them rather
 	/// than reading once.
-	private func fillHLSStreamSampleRate(from item: AVPlayerItem, loadID: Int) {
-		guard let stream = playbackInfo.resolvedStream, stream.isHLS, stream.sampleRate == nil else {
+	private func fillStreamSampleRate(from item: AVPlayerItem, loadID: Int) {
+		guard let stream = playbackInfo.resolvedStream, stream.rung != nil, stream.sampleRate == nil else {
 			return
 		}
 		let trackId = stream.trackId
@@ -459,6 +461,7 @@ class Player {
 		print("[PLAYBACK] item failed - title: \(track?.title ?? "?"), id: \(track.map { String($0.id) } ?? "?"), reason: \(reason), error: \(errorDescription ?? "none"), failedItems: \(failedItems), queueCount: \(queueInfo.queue.count)")
 		if let track {
 			playbackInfo.failedTrackIds.insert(track.id)
+			clearResolvedStream(for: track.id)
 		}
 		failedItems += 1
 		if failedItems >= queueInfo.queue.count {
@@ -468,6 +471,14 @@ class Player {
 		} else {
 			advance(resumeAfterSet: playbackInfo.playing)
 		}
+	}
+
+	/// Drops the resolved stream when the play it described failed, so the badge never labels a
+	/// track that is not playing. Nothing else clears it: a stream that resolves and then fails
+	/// would otherwise keep its quality over silence, which is what the play bar showed.
+	private func clearResolvedStream(for trackId: Int) {
+		guard playbackInfo.resolvedStream?.trackId == trackId else { return }
+		playbackInfo.resolvedStream = nil
 	}
 
 	// MARK: Queue
@@ -745,7 +756,10 @@ class Player {
 			return ""
 		}
 		if let rung = stream.rung {
-			return HLSStreaming.badge(for: rung, sampleRate: stream.sampleRate)
+			// A bit-depth label waits for the sample rate rather than showing a partial one:
+			// the rate arrives with the loaded item, and a badge that gains it a moment later
+			// changes under the reader.
+			return HLSStreaming.completeBadge(for: rung, sampleRate: stream.sampleRate) ?? ""
 		}
 		if stream.isDolbyAtmos {
 			return "Dolby Atmos"
