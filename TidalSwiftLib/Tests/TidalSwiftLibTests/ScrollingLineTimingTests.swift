@@ -42,6 +42,26 @@ final class ScrollingLineTimingTests: XCTestCase {
 		)
 	}
 
+	func testOverflowIsClaimedOnlyWhenTheLineIsWiderThanItsSpace() {
+		XCTAssertFalse(ScrollingLineTiming.overflows(lineWidth: 200, availableWidth: 300))
+		XCTAssertFalse(ScrollingLineTiming.overflows(lineWidth: 300, availableWidth: 300))
+		XCTAssertTrue(ScrollingLineTiming.overflows(lineWidth: 302, availableWidth: 300))
+	}
+
+	func testOverflowWithinTheRoundingSlackDoesNotScroll() {
+		// A line a fraction of a point wider than its space still fits; the slack
+		// stops sub-point rounding from starting a line that does not need it.
+		XCTAssertFalse(ScrollingLineTiming.overflows(lineWidth: 300.5, availableWidth: 300))
+		XCTAssertFalse(ScrollingLineTiming.overflows(lineWidth: 301, availableWidth: 300))
+	}
+
+	func testOverflowIsNotClaimedBeforeAWidthIsOffered() {
+		// The offered width reads zero until the first layout pass. A real line is
+		// wider than that, so claiming an overflow here would scroll every line.
+		XCTAssertFalse(ScrollingLineTiming.overflows(lineWidth: 369, availableWidth: 0))
+		XCTAssertFalse(ScrollingLineTiming.overflows(lineWidth: 0, availableWidth: 0))
+	}
+
 	func testPhaseAcrossTheCycleWrapsAtThePeriod() {
 		let timing = ScrollingLineTiming(anchor: t0)
 		let cases: [(offset: TimeInterval, phase: Double)] = [

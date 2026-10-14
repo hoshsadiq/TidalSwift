@@ -54,7 +54,9 @@ struct ScrollingLine<Content: View, ID: Hashable>: View {
 
 	// The width reading starts at zero and the line's own size is only known after
 	// a layout pass, so an overflow is claimed only once both are in.
-	private var overflows: Bool { availableWidth > 0 && lineSize.width > availableWidth + 1 }
+	private var overflows: Bool {
+		ScrollingLineTiming.overflows(lineWidth: lineSize.width, availableWidth: availableWidth)
+	}
 	private var scrolls: Bool { overflows && !reduceMotion }
 	private var pauseRequested: Bool { isHovering || isFocused }
 	private var loopWidth: CGFloat { lineSize.width + gap }
@@ -72,7 +74,10 @@ struct ScrollingLine<Content: View, ID: Hashable>: View {
 			}
 			.frame(height: 0)
 			.accessibilityHidden(true)
-			.onPreferenceChange(ScrollingLineWidthKey.self) { availableWidth = $0 }
+			.onPreferenceChange(ScrollingLineWidthKey.self) { width in
+			guard let width else { return }
+			availableWidth = width
+			}
 
 			// The line at its natural size, kept out of the layout and read once
 			// so the scroll can be gated on whether it actually overflows.
@@ -87,6 +92,7 @@ struct ScrollingLine<Content: View, ID: Hashable>: View {
 				.frame(width: 0, height: 0, alignment: .leading)
 				.accessibilityHidden(true)
 				.onPreferenceChange(ScrollingLineSizeKey.self) { size in
+					guard let size else { return }
 					let contentChanged = size.width != lineSize.width
 					lineSize = size
 					// Content measured at a new width is a new line: restart it rather
@@ -169,15 +175,23 @@ struct ScrollingLine<Content: View, ID: Hashable>: View {
 }
 
 private struct ScrollingLineSizeKey: PreferenceKey {
-	static let defaultValue: CGSize = .zero
-	static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
-		value = nextValue()
+	static let defaultValue: CGSize? = nil
+
+	// The measurement is written from a `.background`, so the primary view reduces
+	// into this key as well, with the default. Keeping an absent contribution from
+	// overwriting a real one makes the result order-independent, which the reading
+	// needs: SwiftUI does not promise which of the two arrives last.
+	static func reduce(value: inout CGSize?, nextValue: () -> CGSize?) {
+		value = nextValue() ?? value
 	}
 }
 
+/// Optional for the same reason as the size key: a view carrying this key
+/// contributes its default, and a plain zero default would let that
+/// contribution overwrite a real reading.
 private struct ScrollingLineWidthKey: PreferenceKey {
-	static let defaultValue: CGFloat = 0
-	static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-		value = nextValue()
+	static let defaultValue: CGFloat? = nil
+	static func reduce(value: inout CGFloat?, nextValue: () -> CGFloat?) {
+		value = nextValue() ?? value
 	}
 }
