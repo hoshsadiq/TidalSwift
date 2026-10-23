@@ -11,6 +11,28 @@ import os
 
 let lyricsLogger = Logger(subsystem: "io.hosh.TidalSwift", category: "lyrics")
 
+/// What a lyrics provider, or the resolver reading both, answered.
+///
+/// A failure is kept apart from a genuine miss: one means the answer is unknown,
+/// the other means there is nothing to show.
+public enum LyricsOutcome<Value: Equatable>: Equatable {
+	case found(Value)
+	case notFound
+	case failed
+
+	/// The provider's lyrics, `nil` for both a miss and a failure.
+	public var value: Value? {
+		guard case .found(let value) = self else { return nil }
+		return value
+	}
+
+	/// Whether the provider could not answer, as opposed to answering "nothing".
+	public var isFailure: Bool {
+		if case .failed = self { return true }
+		return false
+	}
+}
+
 /// Lyrics as returned by Tidal's v2 catalog API.
 public struct TidalLyrics: Equatable {
 	/// LRC-timestamped lyrics (`attributes.lrcText`), when present.
@@ -66,12 +88,16 @@ extension Session {
 	/// Fetches lyrics for a track from Tidal's v2 catalog API
 	/// (`openapi.tidal.com/v2/tracks/{id}?include=lyrics`).
 	///
-	/// Returns `nil` when the track has no lyrics resource, when the resource's
-	/// `technicalStatus` isn't `OK`, or when the request fails. A track without
-	/// lyrics answers HTTP 200 with an empty `included` array.
-	public func trackLyrics(trackId: Int) async -> TidalLyrics? {
+	/// Returns `.notFound` when the track has no lyrics resource or the
+	/// resource's `technicalStatus` isn't `OK`, and `.failed` when the request
+	/// itself fails. A track without lyrics answers HTTP 200 with an empty
+	/// `included` array.
+	///
+	/// TODO: `v2Get` decodes a non-2xx body too, so a Tidal server error reads as
+	/// `.notFound` here. Reading the status would tell the two apart.
+	public func trackLyrics(trackId: Int) async -> LyricsOutcome<TidalLyrics> {
 		guard let url = URL(string: "\(AuthInformation.APIV2OpenAPILocation)/tracks/\(trackId)") else {
-			return nil
+			return .failed
 		}
 		var parameters = sessionParameters
 		parameters.removeValue(forKey: "limit")
@@ -81,19 +107,19 @@ extension Session {
 			guard let resource = response.included?.first(where: { $0.type == "lyrics" }),
 				  resource.attributes?.technicalStatus == "OK" else {
 				lyricsLogger.debug("tidal lyrics track=\(trackId, privacy: .public) none")
-				return nil
+				return .notFound
 			}
 			let lrc = resource.attributes?.lrcText?.nonEmpty
 			let plain = resource.attributes?.text?.nonEmpty
 			guard lrc != nil || plain != nil else {
 				lyricsLogger.debug("tidal lyrics track=\(trackId, privacy: .public) empty")
-				return nil
+				return .notFound
 			}
 			lyricsLogger.debug("tidal lyrics track=\(trackId, privacy: .public) lrc=\(lrc != nil, privacy: .public) plain=\(plain != nil, privacy: .public)")
-			return TidalLyrics(lrc: lrc, plain: plain)
+			return .found(TidalLyrics(lrc: lrc, plain: plain))
 		} catch {
 			lyricsLogger.debug("tidal lyrics track=\(trackId, privacy: .public) failed")
-			return nil
+			return .failed
 		}
 	}
 }
@@ -126,11 +152,12 @@ nonisolated struct LRCLIBError: Decodable {
 }
 
 /// Outcome of a single LRCLIB HTTP request.
-enum LRCLIBResponse {
+nonisolated enum LRCLIBResponse {
 	case success(Data)
 	case notFound
-	case rateLimited
-	case failure
+	/// Too many requests, carrying the wait the server asked for.
+	case rateLimited(after: Duration)
+	case failure(statusCode: Int?)
 
 	var logDescription: String {
 		switch self {
@@ -140,8 +167,8 @@ enum LRCLIBResponse {
 			"404"
 		case .rateLimited:
 			"429"
-		case .failure:
-			"failed"
+		case .failure(let statusCode):
+			statusCode.map(String.init) ?? "transport"
 		}
 	}
 }
@@ -178,14 +205,15 @@ extension Session {
 	///
 	/// Tries `/api/get` with the exact metadata first; on a miss (HTTP 404)
 	/// falls back to `/api/search` and picks the closest-duration match.
-	/// Requests are serialised with a 200–500 ms gap and honour `429` +
-	/// `Retry-After`. Returns `nil` when nothing usable is found.
+	/// Requests are serialised with a 200–500 ms gap, honour `429` +
+	/// `Retry-After`, and make one further attempt after a transient failure.
+	/// Returns `.notFound` only when LRCLIB answered that it has nothing.
 	public func lrclibLyrics(
 		trackName: String,
 		artistName: String,
 		albumName: String,
 		duration: Int
-	) async -> LRCLIBLyrics? {
+	) async -> LyricsOutcome<LRCLIBLyrics> {
 		let getParameters = [
 			"track_name": trackName,
 			"artist_name": artistName,
@@ -194,20 +222,44 @@ extension Session {
 		]
 		switch await lrclibRequest(path: "api/get", parameters: getParameters) {
 		case .success(let data):
-			guard let record = try? JSONDecoder().decode(LRCLIBRecord.self, from: data) else { return nil }
-			return record.lyrics
+			return Self.lyrics(fromRecordData: data)
 		case .notFound:
-			break
+			// A panel the user has left must not spend a second request on the search.
+			guard !Task.isCancelled else { return .failed }
+			return await search(trackName: trackName, artistName: artistName, duration: duration)
 		case .rateLimited, .failure:
-			return nil
+			return .failed
 		}
+	}
 
-		let searchParameters = ["track_name": trackName, "artist_name": artistName]
-		guard case .success(let data) = await lrclibRequest(path: "api/search", parameters: searchParameters),
-			  let records = try? JSONDecoder().decode([LRCLIBRecord].self, from: data) else {
-			return nil
+	/// The `/api/get` leg's payload, mapped to a fetch outcome. A 200 is final:
+	/// an instrumental or lyric-less record is LRCLIB's answer, not a reason to
+	/// search for a different version.
+	private static func lyrics(fromRecordData data: Data) -> LyricsOutcome<LRCLIBLyrics> {
+		// An unreadable body is a fault, not an answer, so the caller is told to ask again
+		// rather than shown an empty panel.
+		guard let record = try? JSONDecoder().decode(LRCLIBRecord.self, from: data) else { return .failed }
+		guard let lyrics = record.lyrics else { return .notFound }
+		return .found(lyrics)
+	}
+
+	/// The `/api/search` fallback for a track `/api/get` does not know.
+	private func search(
+		trackName: String,
+		artistName: String,
+		duration: Int
+	) async -> LyricsOutcome<LRCLIBLyrics> {
+		let parameters = ["track_name": trackName, "artist_name": artistName]
+		switch await lrclibRequest(path: "api/search", parameters: parameters) {
+		case .success(let data):
+			guard let records = try? JSONDecoder().decode([LRCLIBRecord].self, from: data) else { return .failed }
+			guard let match = Self.bestLRCLIBMatch(in: records, duration: duration)?.lyrics else { return .notFound }
+			return .found(match)
+		case .notFound:
+			return .notFound
+		case .rateLimited, .failure:
+			return .failed
 		}
-		return Self.bestLRCLIBMatch(in: records, duration: duration)?.lyrics
 	}
 
 	/// Picks the closest-duration record, preferring ones with synced lyrics.
@@ -224,48 +276,94 @@ extension Session {
 
 	private func lrclibRequest(path: String, parameters: [String: String]) async -> LRCLIBResponse {
 		guard var components = URLComponents(string: "\(AuthInformation.LRCLIBLocation)/\(path)") else {
-			return .failure
+			return .failure(statusCode: nil)
 		}
 		components.queryItems = parameters.map { URLQueryItem(name: $0.key, value: $0.value) }
-		guard let url = components.url else { return .failure }
+		guard let url = components.url else { return .failure(statusCode: nil) }
 
 		lyricsLogger.debug("lrclib request path=\(path, privacy: .public)")
 		let userAgent = AuthInformation.safariUserAgent
 		let logger = lyricsLogger
+		// Read on this actor before the fetch moves to the throttle's own task.
+		let httpSession = requestSession
 		let response = await LRCLIBThrottle.shared.perform {
-			for attempt in 0..<2 {
-				var request = URLRequest(url: url)
+			var attempts = 1
+			while true {
+				var request = URLRequest(url: url, timeoutInterval: Self.requestTimeout)
 				request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
 				request.setValue("application/json", forHTTPHeaderField: "Accept")
-				guard let (data, http) = try? await URLSession.shared.data(for: request),
-					  let http = http as? HTTPURLResponse else {
-					return LRCLIBResponse.failure
+				let outcome = await Self.lrclibAttempt(request, path: path, logger: logger, httpSession: httpSession)
+				guard attempts < Self.maxAttempts, let delay = Self.retryDelay(for: outcome) else {
+					return outcome
 				}
-				switch http.statusCode {
-				case 200:
-					return .success(data)
-				case 404:
-					if let error = try? JSONDecoder().decode(LRCLIBError.self, from: data) {
-						logger.debug("lrclib miss path=\(path, privacy: .public) name=\(error.name, privacy: .public)")
-					}
-					return .notFound
-				case 429:
-					guard attempt == 0 else { return .rateLimited }
-					try? await Task.sleep(for: Self.retryAfter(from: http))
-				default:
-					return .failure
-				}
+				attempts += 1
+				try? await Task.sleep(for: delay)
 			}
-			return .rateLimited
 		}
 		lyricsLogger.debug("lrclib response path=\(path, privacy: .public) status=\(response.logDescription, privacy: .public)")
 		return response
 	}
 
-	/// `Retry-After` in seconds, capped so a misbehaving server can't stall the
-	/// fetch indefinitely. Defaults to 1 s when the header is missing or unparsable.
-	private static func retryAfter(from response: HTTPURLResponse) -> Duration {
+	/// Attempts per request, and the gap before the second one after a transient
+	/// failure. Both stay small: LRCLIB is a free service, and a lyrics panel is
+	/// not worth a long backoff.
+	private nonisolated static let maxAttempts = 2
+	private nonisolated static let transientRetryDelay: Duration = .milliseconds(500)
+
+	/// Never retry sooner than the low end of the gap `LRCLIBThrottle` paces requests
+	/// with, and never hold the shared throttle for a stalled request for long.
+	private nonisolated static let minimumRetryGap: Double = 0.2
+	private nonisolated static let requestTimeout: TimeInterval = 10
+
+	/// One LRCLIB request, no retry.
+	private nonisolated static func lrclibAttempt(
+		_ request: URLRequest,
+		path: String,
+		logger: Logger,
+		httpSession: URLSession
+	) async -> LRCLIBResponse {
+		guard let (data, response) = try? await httpSession.data(for: request),
+			  let http = response as? HTTPURLResponse else {
+			return .failure(statusCode: nil)
+		}
+		switch http.statusCode {
+		case 200:
+			return .success(data)
+		case 404:
+			if let error = try? JSONDecoder().decode(LRCLIBError.self, from: data) {
+				logger.debug("lrclib miss path=\(path, privacy: .public) name=\(error.name, privacy: .public)")
+			}
+			return .notFound
+		case 429:
+			return .rateLimited(after: retryAfter(from: http))
+		default:
+			return .failure(statusCode: http.statusCode)
+		}
+	}
+
+	/// The wait before a second attempt, or `nil` when a second attempt would get
+	/// the same answer.
+	///
+	/// A 429 states its own wait. A 5xx or a transport failure is a blip worth one
+	/// more ask. Any other status is a refusal.
+	nonisolated static func retryDelay(for outcome: LRCLIBResponse) -> Duration? {
+		switch outcome {
+		case .rateLimited(let stated):
+			return stated
+		case .failure(let statusCode):
+			guard let statusCode else { return transientRetryDelay }
+			return statusCode == 408 || statusCode >= 500 ? transientRetryDelay : nil
+		case .success, .notFound:
+			return nil
+		}
+	}
+
+	/// `Retry-After` in seconds, bounded at both ends so a misbehaving server can
+	/// neither trap the fetch on a non-finite value nor stall it indefinitely.
+	/// Missing or unparsable headers mean one second.
+	nonisolated static func retryAfter(from response: HTTPURLResponse) -> Duration {
 		let seconds = response.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init) ?? 1
-		return .seconds(min(max(seconds, 0), 30))
+		guard seconds.isFinite else { return .seconds(1) }
+		return .seconds(min(max(seconds, minimumRetryGap), 30))
 	}
 }
