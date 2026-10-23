@@ -15,7 +15,8 @@ public enum LyricsSource: Equatable {
 	case lrclib
 }
 
-/// The outcome of resolving lyrics for a track.
+/// Lyrics resolved for a track. `LyricsResolver` only hands out results with
+/// something to render, so a `.found` outcome always has lines or plain text.
 public struct LyricsResult: Equatable {
 	/// Timed lines parsed from the winning LRC document; empty when the winner
 	/// has no LRC (render `plainText` instead).
@@ -56,9 +57,12 @@ public struct LyricsQuery {
 /// 2. Tidal has nothing → LRCLIB (LRC if present, else plain).
 /// 3. Tidal has plain only → ask LRCLIB; LRCLIB LRC wins, otherwise Tidal's plain.
 /// 4. Fallback off → Tidal only.
+///
+/// The result separates a genuine miss from a failed fetch, so a caller can
+/// offer a retry in the second case instead of claiming there are no lyrics.
 public struct LyricsResolver {
-	public typealias TidalFetcher = (Int) async -> TidalLyrics?
-	public typealias LRCLIBFetcher = (String, String, String, Int) async -> LRCLIBLyrics?
+	public typealias TidalFetcher = (Int) async -> LyricsOutcome<TidalLyrics>
+	public typealias LRCLIBFetcher = (String, String, String, Int) async -> LyricsOutcome<LRCLIBLyrics>
 
 	private let tidalFetcher: TidalFetcher
 	private let lrclibFetcher: LRCLIBFetcher
@@ -88,7 +92,7 @@ public struct LyricsResolver {
 
 	/// Resolves lyrics for `track`, consulting LRCLIB only when the precedence
 	/// rule requires it. Results are cached in memory per track id.
-	public func lyrics(for track: Track, preferLRCLIB: Bool) async -> LyricsResult? {
+	public func lyrics(for track: Track, preferLRCLIB: Bool) async -> LyricsOutcome<LyricsResult> {
 		await lyrics(
 			for: LyricsQuery(
 				trackId: track.id,
@@ -102,50 +106,69 @@ public struct LyricsResolver {
 	}
 
 	/// Resolves lyrics from raw track metadata. Same rule as `lyrics(for:preferLRCLIB:)`.
-	public func lyrics(for query: LyricsQuery, preferLRCLIB: Bool) async -> LyricsResult? {
+	public func lyrics(for query: LyricsQuery, preferLRCLIB: Bool) async -> LyricsOutcome<LyricsResult> {
 		if case .hit(let cached) = await cache.lookup(trackId: query.trackId, preferLRCLIB: preferLRCLIB) {
-			return cached
+			return .found(cached)
 		}
 		let tidal = await tidalFetcher(query.trackId)
-		var lrclib: LRCLIBLyrics?
-		if preferLRCLIB, tidal?.lrc?.nonEmpty == nil {
+		var lrclib = LyricsOutcome<LRCLIBLyrics>.notFound
+		if preferLRCLIB, tidal.value?.lrc?.nonEmpty == nil {
 			lrclib = await lrclibFetcher(query.title, query.artistName, query.albumName, query.duration)
 		}
-		let result = Self.decide(tidal: tidal, lrclib: lrclib, preferLRCLIB: preferLRCLIB)
-		// Only successful resolutions are cached; a nil (nothing found, or a
-		// transient fetch failure) must stay a cache miss so the retry button
-		// actually refetches instead of re-reading a cached nil.
-		if let result {
-			await cache.store(result, trackId: query.trackId, preferLRCLIB: preferLRCLIB)
+		var outcome = Self.decide(tidal: tidal, lrclib: lrclib, preferLRCLIB: preferLRCLIB)
+		// A result with nothing to render is a miss, not an answer: caching it would
+		// make the panel's retry replay it instead of asking again.
+		if case .found(let result) = outcome, !Self.hasContent(result) {
+			outcome = .notFound
 		}
-		lyricsLogger.debug("lyrics resolved track=\(query.trackId, privacy: .public) source=\(String(describing: result?.source), privacy: .public) lines=\(result?.lines.count ?? 0, privacy: .public)")
-		return result
+		// Only real results are cached. A miss or a failure must stay a cache miss
+		// so the next ask refetches instead of replaying a stale non-answer.
+		switch outcome {
+		case .found(let result):
+			await cache.store(result, trackId: query.trackId, preferLRCLIB: preferLRCLIB)
+			lyricsLogger.debug("lyrics resolved track=\(query.trackId, privacy: .public) source=\(String(describing: result.source), privacy: .public) lines=\(result.lines.count, privacy: .public)")
+		case .notFound, .failed:
+			let kind = outcome.isFailure ? "failed" : "notFound"
+			lyricsLogger.debug("lyrics resolved track=\(query.trackId, privacy: .public) outcome=\(kind, privacy: .public)")
+		}
+		return outcome
 	}
 
 	/// The pure precedence rule. Exposed for tests and for callers that already
 	/// have both fetches in hand.
-	public static func decide(tidal: TidalLyrics?, lrclib: LRCLIBLyrics?, preferLRCLIB: Bool) -> LyricsResult? {
-		let tidalLRC = tidal?.lrc?.nonEmpty
-		let tidalPlain = tidal?.plain?.nonEmpty
-		let lrclibLRC = lrclib?.lrc?.nonEmpty
-		let lrclibPlain = lrclib?.plain?.nonEmpty
+	///
+	/// Any real result wins over a failure elsewhere: partial information beats
+	/// none. With no result, a failed leg means the answer is unknown, not absent.
+	public static func decide(
+		tidal: LyricsOutcome<TidalLyrics>,
+		lrclib: LyricsOutcome<LRCLIBLyrics>,
+		preferLRCLIB: Bool
+	) -> LyricsOutcome<LyricsResult> {
+		let tidalLRC = tidal.value?.lrc?.nonEmpty
+		let tidalPlain = tidal.value?.plain?.nonEmpty
+		let lrclibLRC = lrclib.value?.lrc?.nonEmpty
+		let lrclibPlain = lrclib.value?.plain?.nonEmpty
 
 		if let tidalLRC {
-			return LyricsResult(lines: LRCParser.parse(tidalLRC), plainText: tidalPlain, source: .tidal)
+			return .found(LyricsResult(lines: LRCParser.parse(tidalLRC), plainText: tidalPlain, source: .tidal))
 		}
-		guard preferLRCLIB else {
-			return tidalPlain.map { LyricsResult(lines: [], plainText: $0, source: .tidal) }
-		}
-		if let lrclibLRC {
-			return LyricsResult(lines: LRCParser.parse(lrclibLRC), plainText: lrclibPlain, source: .lrclib)
+		if preferLRCLIB, let lrclibLRC {
+			return .found(LyricsResult(lines: LRCParser.parse(lrclibLRC), plainText: lrclibPlain, source: .lrclib))
 		}
 		if let tidalPlain {
-			return LyricsResult(lines: [], plainText: tidalPlain, source: .tidal)
+			return .found(LyricsResult(lines: [], plainText: tidalPlain, source: .tidal))
 		}
-		if let lrclibPlain {
-			return LyricsResult(lines: [], plainText: lrclibPlain, source: .lrclib)
+		if preferLRCLIB, let lrclibPlain {
+			return .found(LyricsResult(lines: [], plainText: lrclibPlain, source: .lrclib))
 		}
-		return nil
+		let consultedLRCLIB = preferLRCLIB && lrclib.isFailure
+		return tidal.isFailure || consultedLRCLIB ? .failed : .notFound
+	}
+
+	/// Whether there is anything to put on screen. Timed text that parses to no
+	/// lines, with no plain text beside it, is a provider bug rather than lyrics.
+	static func hasContent(_ result: LyricsResult) -> Bool {
+		!result.lines.isEmpty || result.plainText?.nonEmpty != nil
 	}
 }
 

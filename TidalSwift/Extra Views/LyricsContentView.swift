@@ -16,11 +16,11 @@ import TidalSwiftLib
 /// - `.loaded`: timed LRC lines with the current one highlighted and scrolled to
 ///   the vertical centre, or a plain-text block when the winning source had no LRC.
 /// - `.empty`: "No lyrics available" when no provider has lyrics for the track.
-/// - `.failed`: an error message with a retry button.
+/// - `.failed`: a provider request failed, or there is no current track.
 ///
-/// `LyricsResolver` reports "no lyrics" and "request failed" identically as
-/// `nil`, so `nil` renders as `.empty` (the common case) and `.failed` is
-/// reserved for the one failure the view can observe itself: no current track.
+/// Both terminal states carry a retry button. The resolver tells a dropped
+/// request from a track that has no lyrics, so an empty panel never claims the
+/// wrong one.
 struct LyricsContentView: View {
 	/// Sizing knobs so the drawer and the (much smaller) miniplayer can share
 	/// one renderer without duplicating the fetch/highlight/scroll logic.
@@ -158,18 +158,17 @@ struct LyricsContentView: View {
 			phase = .failed
 			return
 		}
-		let result = await resolver.lyrics(for: track, preferLRCLIB: useLRCLIBFallback)
+		let outcome = await resolver.lyrics(for: track, preferLRCLIB: useLRCLIBFallback)
 		guard !Task.isCancelled else { return }
-		guard let result else {
+		// The resolver only reports `.found` with something to render.
+		switch outcome {
+		case .found(let result):
+			phase = .loaded(result)
+		case .notFound:
 			phase = .empty
-			return
+		case .failed:
+			phase = .failed
 		}
-		let hasContent = !result.lines.isEmpty || result.plainText?.isEmpty == false
-		guard hasContent else {
-			phase = .empty
-			return
-		}
-		phase = .loaded(result)
 	}
 
 	// MARK: - States
@@ -289,25 +288,36 @@ struct LyricsContentView: View {
 	private static let skeletonWidths: [CGFloat] = [0.92, 0.68, 0.85, 0.55, 0.78, 0.95, 0.62, 0.72]
 
 	private var emptyState: some View {
-		VStack(spacing: 10) {
-			Image(systemName: "quote.bubble")
-				.font(.system(size: 28))
-			Text("No lyrics available")
-				.font(.system(size: 14))
-		}
-		.foregroundStyle(.secondary)
-		.frame(maxWidth: .infinity, maxHeight: .infinity)
+		terminalState(
+			icon: "quote.bubble",
+			iconSize: 28,
+			message: "No lyrics available"
+		)
 	}
 
 	private var errorState: some View {
+		terminalState(
+			icon: "exclamationmark.triangle",
+			iconSize: 26,
+			message: "Couldn't load lyrics"
+		)
+	}
+
+	/// A state with nothing to show: an icon, one line of explanation and a
+	/// button that refetches. A miss and a failure both end here.
+	private func terminalState(
+		icon: String,
+		iconSize: CGFloat,
+		message: String
+	) -> some View {
 		VStack(spacing: 12) {
-			Image(systemName: "exclamationmark.triangle")
-				.font(.system(size: 26))
+			Image(systemName: icon)
+				.font(.system(size: iconSize))
 				.foregroundStyle(.secondary)
-			Text("Couldn't load lyrics")
+			Text(message)
 				.font(.system(size: 14))
 				.foregroundStyle(.secondary)
-			Button("Retry") {
+			Button("Try again") {
 				attempt += 1
 			}
 			.buttonStyle(.bordered)
