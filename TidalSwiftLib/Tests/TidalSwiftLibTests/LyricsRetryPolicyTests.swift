@@ -30,6 +30,15 @@ final class LyricsRetryPolicyTests: XCTestCase {
 		XCTAssertNil(delay(after: 9, .failed))
 	}
 
+	func testTheCapLeavesRoomForTheWholeSchedule() {
+		// The waits bound nothing on their own: a hanging provider spends the request timeout
+		// inside each try. The cap is what stops the skeleton, so it must sit above the three
+		// waits or an ordinary failure would be cut short.
+		XCTAssertEqual(LyricsRetryPolicy.totalBudget, .seconds(30))
+		let waits = LyricsRetryPolicy.delays.reduce(Duration.zero, +)
+		XCTAssertLessThan(waits, LyricsRetryPolicy.totalBudget)
+	}
+
 	func testAResultStopsTheSchedule() {
 		XCTAssertNil(delay(after: 1, .found(result)))
 		XCTAssertNil(delay(after: 2, .found(result)))

@@ -167,6 +167,11 @@ struct LyricsContentView: View {
 	/// The failure state is painted only once the schedule is spent. While a retry is
 	/// still due, the skeleton stays: the result is not final yet, and a button that
 	/// cancels the schedule would be a trap.
+	///
+	/// The whole sequence runs under one wall-clock cap, because the waits alone bound
+	/// nothing: a provider that never answers spends the request timeout inside each try.
+	/// The cap cancels the sequence, attempt in flight included, and what it leaves behind is
+	/// a failure, so the longest the skeleton can last is `LyricsRetryPolicy.totalBudget`.
 	private func load() async {
 		guard isVisible else { return }
 		selectedLineIndex = nil
@@ -175,28 +180,47 @@ struct LyricsContentView: View {
 			phase = .failed
 			return
 		}
+		let sequence = Task { await self.sequence(for: track) }
+		let cap = Task {
+			try? await Task.sleep(for: LyricsRetryPolicy.totalBudget)
+			guard !Task.isCancelled else { return }
+			sequence.cancel()
+		}
+		let outcome = await withTaskCancellationHandler {
+			await sequence.value
+		} onCancel: {
+			// A track change, a closed surface or a manual retry must stop the schedule too.
+			sequence.cancel()
+		}
+		cap.cancel()
+		// The view's own task was cancelled: nothing here is worth painting.
+		guard !Task.isCancelled else { return }
+		switch outcome {
+		case .found(let result):
+			phase = .loaded(result)
+		case .notFound:
+			phase = .empty
+		case .failed:
+			phase = .failed
+		}
+	}
+
+	/// Tries until an answer arrives, the schedule is spent or the caller cancels. The
+	/// outcome is returned rather than painted, so the caller decides what a cancelled
+	/// sequence means.
+	private func sequence(for track: Track) async -> LyricsOutcome<LyricsResult> {
 		var completedTries = 0
 		while true {
 			let outcome = await resolver.lyrics(for: track, preferLRCLIB: useLRCLIBFallback)
 			completedTries += 1
-			// A cancelled fetch must neither paint a state nor wait on a retry.
-			guard !Task.isCancelled else { return }
-			// The resolver only reports `.found` with something to render.
-			switch outcome {
-			case .found(let result):
-				phase = .loaded(result)
-				return
-			case .notFound:
-				phase = .empty
-				return
-			case .failed:
-				guard let delay = LyricsRetryPolicy.retryDelay(afterCompletedTries: completedTries, outcome: outcome) else {
-					phase = .failed
-					return
-				}
-				try? await Task.sleep(for: delay)
-				guard !Task.isCancelled else { return }
+			guard !Task.isCancelled,
+				  let delay = LyricsRetryPolicy.retryDelay(afterCompletedTries: completedTries, outcome: outcome) else {
+				return outcome
 			}
+			try? await Task.sleep(for: delay)
+			// A wait cut short is a failure the panel should show, which is what the cap
+			// leaves behind when it lands here.
+			guard !Task.isCancelled else { return .failed }
 		}
 	}
 

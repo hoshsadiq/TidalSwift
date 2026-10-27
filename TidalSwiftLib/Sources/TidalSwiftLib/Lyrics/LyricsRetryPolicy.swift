@@ -15,6 +15,13 @@ public nonisolated enum LyricsRetryPolicy {
 	/// at most, the first one plus these three, and the panel offers its button afterwards.
 	public static let delays: [Duration] = [.seconds(1), .seconds(3), .seconds(8)]
 
+	/// How long the whole automatic sequence may take. The waits alone cannot bound it: a
+	/// provider that never answers spends the request timeout inside each try. The sequence
+	/// is cancelled at this cap, attempt in flight included, so the panel's skeleton never
+	/// outlives it. Comfortably above the 12 s the three waits take, so an ordinary failure
+	/// still uses the whole schedule.
+	public static let totalBudget: Duration = .seconds(30)
+
 	/// The wait before the next automatic try, or `nil` when the fetch should stop.
 	///
 	/// `completedTries` counts the tries already finished, the first one included, so a
