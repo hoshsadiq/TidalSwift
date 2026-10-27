@@ -56,6 +56,7 @@ nonisolated enum MP4TagWriter {
 			item(.iTunesMetadataAlbumArtist, tags.albumArtist),
 			item(.iTunesMetadataReleaseDate, tags.releaseDate),
 			item(.iTunesMetadataCopyright, tags.copyright),
+			item(.iTunesMetadataLyrics, tags.lyrics),
 		].compactMap { $0 }
 		items.append(item(.iTunesMetadataTrackNumber, numberPair(tags.trackNumber, of: tags.trackTotal, trailingPadding: true), dataType: kCMMetadataBaseDataType_RawData))
 		items.append(item(.iTunesMetadataDiscNumber, numberPair(tags.discNumber, of: tags.discTotal, trailingPadding: false), dataType: kCMMetadataBaseDataType_RawData))

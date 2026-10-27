@@ -59,7 +59,8 @@ public struct LRCLIBLyrics: Equatable {
 	}
 }
 
-extension String {
+// `nonisolated` because the file readers ask the same question off the main actor.
+nonisolated extension String {
 	/// `self` when it contains anything but whitespace, `nil` otherwise.
 	var nonEmpty: String? {
 		trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : self

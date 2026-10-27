@@ -455,6 +455,53 @@ final class LyricsResolverTests: XCTestCase {
 		XCTAssertEqual(LyricsStatusStubURLProtocol.requestCount, 0, "a disk hit asks no provider")
 	}
 
+	func testAFileCopyAnswersBeforeAnyProviderIsAsked() async {
+		// A downloaded track carries its own lyrics, so an offline play needs no network at all.
+		let embedded = LyricsResult(
+			lines: [LyricLine(time: 1, text: "From the file")],
+			plainText: nil,
+			source: .file
+		)
+		let memory = LyricsCache()
+		var tidalCalls = 0
+		let resolver = LyricsResolver(
+			tidalFetcher: { _ in
+				tidalCalls += 1
+				return .found(self.tidalLRC)
+			},
+			lrclibFetcher: { _, _, _, _ in .notFound },
+			cache: memory,
+			embeddedFetcher: { _ in .found(embedded) }
+		)
+
+		let outcome = await resolver.lyrics(for: query(trackId: 80), preferLRCLIB: true)
+
+		assertOutcome(outcome, matches: .found(.file, lines: 1, plain: nil), "the file's copy wins")
+		XCTAssertEqual(tidalCalls, 0, "no provider is asked when the file already has lyrics")
+		guard case .hit = await memory.lookup(trackId: 80, preferLRCLIB: true) else {
+			return XCTFail("the file's copy should be remembered for this session")
+		}
+	}
+
+	func testTheDiskCacheOutranksAFileCopy() async {
+		let root = temporaryRoot()
+		defer { try? FileManager.default.removeItem(at: root) }
+		let disk = LyricsDiskCache(directory: root)
+		await disk.store(LyricsResult(lines: [], plainText: "from the cache", source: .lrclib),
+						 trackId: 81, preferLRCLIB: true)
+		let resolver = LyricsResolver(
+			tidalFetcher: { _ in .notFound },
+			lrclibFetcher: { _, _, _, _ in .notFound },
+			cache: LyricsCache(),
+			diskCache: disk,
+			embeddedFetcher: { _ in .found(LyricsResult(lines: [], plainText: "from the file", source: .file)) }
+		)
+
+		let outcome = await resolver.lyrics(for: query(trackId: 81), preferLRCLIB: true)
+
+		assertOutcome(outcome, matches: .found(.lrclib, lines: 0, plain: "from the cache"), "the fresher cached answer wins")
+	}
+
 	func testAMissIsNotWrittenToDisk() async {
 		let root = temporaryRoot()
 		defer { try? FileManager.default.removeItem(at: root) }

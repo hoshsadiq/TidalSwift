@@ -384,12 +384,24 @@ struct LyricsContentView: View {
 		VStack(spacing: 0) {
 			Divider()
 				.opacity(0.3)
-			Text(source == .tidal ? "Lyrics from Tidal" : "Lyrics from LRCLIB")
+			Text(Self.attributionText(source))
 				.font(.system(size: 11))
 				.foregroundStyle(.secondary)
 				.frame(maxWidth: .infinity, alignment: .leading)
 				.padding(.horizontal, style.horizontalPadding)
 				.padding(.vertical, 10)
+		}
+	}
+
+	/// A file records no provider, so it is credited as the file rather than guessed at.
+	private static func attributionText(_ source: LyricsSource) -> String {
+		switch source {
+		case .tidal:
+			"Lyrics from Tidal"
+		case .lrclib:
+			"Lyrics from LRCLIB"
+		case .file:
+			"Lyrics from file"
 		}
 	}
 }

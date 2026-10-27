@@ -13,6 +13,8 @@ import Foundation
 public nonisolated enum LyricsSource: Equatable, Codable, Sendable {
 	case tidal
 	case lrclib
+	/// Lyrics read back from a stored audio file, which records no provider of its own.
+	case file
 }
 
 /// Lyrics resolved for a track. `LyricsResolver` only hands out results with
@@ -66,9 +68,12 @@ public struct LyricsQuery {
 public struct LyricsResolver {
 	public typealias TidalFetcher = (Int) async -> LyricsOutcome<TidalLyrics>
 	public typealias LRCLIBFetcher = (String, String, String, Int) async -> LyricsOutcome<LRCLIBLyrics>
+	public typealias EmbeddedFetcher = (Int) async -> LyricsOutcome<LyricsResult>
 
 	private let tidalFetcher: TidalFetcher
 	private let lrclibFetcher: LRCLIBFetcher
+	/// Lyrics carried by a downloaded file, which need no network at all.
+	private let embeddedFetcher: EmbeddedFetcher?
 	private let cache: LyricsCache
 	/// Absent for a resolver that should stay in memory only, which is what a test
 	/// wants: nobody's real lyrics folder should depend on a test run.
@@ -84,12 +89,14 @@ public struct LyricsResolver {
 		tidalFetcher: @escaping TidalFetcher,
 		lrclibFetcher: @escaping LRCLIBFetcher,
 		cache: LyricsCache,
-		diskCache: LyricsDiskCache? = nil
+		diskCache: LyricsDiskCache? = nil,
+		embeddedFetcher: EmbeddedFetcher? = nil
 	) {
 		self.tidalFetcher = tidalFetcher
 		self.lrclibFetcher = lrclibFetcher
 		self.cache = cache
 		self.diskCache = diskCache
+		self.embeddedFetcher = embeddedFetcher
 	}
 
 	/// A resolver backed by a live `Session`, sharing the session's caches so a
@@ -99,7 +106,12 @@ public struct LyricsResolver {
 			tidalFetcher: { await session.trackLyrics(trackId: $0) },
 			lrclibFetcher: { await session.lrclibLyrics(trackName: $0, artistName: $1, albumName: $2, duration: $3) },
 			cache: session.lyricsCache,
-			diskCache: session.lyricsDiskCache
+			diskCache: session.lyricsDiskCache,
+			embeddedFetcher: { trackId in
+				guard let file = session.helpers.offline.storedFile(forTrackId: trackId),
+					  let result = await EmbeddedLyrics.read(at: file) else { return .notFound }
+				return .found(result)
+			}
 		)
 	}
 
@@ -122,6 +134,9 @@ public struct LyricsResolver {
 	public func lyrics(for query: LyricsQuery, preferLRCLIB: Bool) async -> LyricsOutcome<LyricsResult> {
 		if case .hit(let cached) = await cachedResult(trackId: query.trackId, preferLRCLIB: preferLRCLIB) {
 			return .found(cached)
+		}
+		if case .hit(let embedded) = await embeddedResult(trackId: query.trackId, preferLRCLIB: preferLRCLIB) {
+			return .found(embedded)
 		}
 		let tidal = await tidalFetcher(query.trackId)
 		var lrclib = LyricsOutcome<LRCLIBLyrics>.notFound
@@ -146,6 +161,16 @@ public struct LyricsResolver {
 			lyricsLogger.debug("lyrics resolved track=\(query.trackId, privacy: .public) outcome=\(kind, privacy: .public)")
 		}
 		return outcome
+	}
+
+	/// A downloaded file's own lyrics, stored in memory only: the disk cache tags every entry
+	/// with the preference it was resolved under, and a file has no answer to that.
+	private func embeddedResult(trackId: Int, preferLRCLIB: Bool) async -> LyricsCacheLookup {
+		guard let embeddedFetcher, case .found(let embedded) = await embeddedFetcher(trackId) else {
+			return .miss
+		}
+		await cache.store(embedded, trackId: trackId, preferLRCLIB: preferLRCLIB)
+		return .hit(embedded)
 	}
 
 	/// Memory first, then disk. A disk hit is promoted into memory, so the rest of this

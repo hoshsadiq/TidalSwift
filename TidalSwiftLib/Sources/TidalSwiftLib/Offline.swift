@@ -453,6 +453,13 @@ public final class Offline {
 		return Set(rungs.map(variant(of:)))
 	}
 
+	/// A stored file for a track id, when the library holds a playable one, so its embedded
+	/// lyrics can be read without a network round trip. Lyrics do not depend on the rendition
+	/// a ceiling would admit, so any playable file answers.
+	func storedFile(forTrackId trackId: Int) -> URL? {
+		localFilesByTrackId()?[trackId]?.first { isPlayableStoredFile($0) }
+	}
+
 	/// The file the library should keep and play when more than one is present. The wanted
 	/// variant wins, then the best stereo tier the ceiling's ladder can serve, then the file name,
 	/// so the same library always resolves to the same file rather than to directory order.
