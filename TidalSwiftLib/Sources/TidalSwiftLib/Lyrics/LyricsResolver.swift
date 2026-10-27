@@ -10,14 +10,17 @@ import Foundation
 @_exported import LRCParser
 
 /// Which provider a resolved lyrics result came from.
-public enum LyricsSource: Equatable {
+public nonisolated enum LyricsSource: Equatable, Codable, Sendable {
 	case tidal
 	case lrclib
 }
 
 /// Lyrics resolved for a track. `LyricsResolver` only hands out results with
 /// something to render, so a `.found` outcome always has lines or plain text.
-public struct LyricsResult: Equatable {
+///
+/// `nonisolated` because a result is built and read inside the caches' actors as well
+/// as on the main actor.
+public nonisolated struct LyricsResult: Equatable, Sendable {
 	/// Timed lines parsed from the winning LRC document; empty when the winner
 	/// has no LRC (render `plainText` instead).
 	public let lines: [LyricLine]
@@ -67,6 +70,9 @@ public struct LyricsResolver {
 	private let tidalFetcher: TidalFetcher
 	private let lrclibFetcher: LRCLIBFetcher
 	private let cache: LyricsCache
+	/// Absent for a resolver that should stay in memory only, which is what a test
+	/// wants: nobody's real lyrics folder should depend on a test run.
+	private let diskCache: LyricsDiskCache?
 
 	public init(tidalFetcher: @escaping TidalFetcher, lrclibFetcher: @escaping LRCLIBFetcher) {
 		self.init(tidalFetcher: tidalFetcher, lrclibFetcher: lrclibFetcher, cache: LyricsCache())
@@ -74,24 +80,31 @@ public struct LyricsResolver {
 
 	/// Designated initializer, so a caller with a longer-lived cache (the app's
 	/// `Session`) can share one cache across the resolvers it builds.
-	init(tidalFetcher: @escaping TidalFetcher, lrclibFetcher: @escaping LRCLIBFetcher, cache: LyricsCache) {
+	init(
+		tidalFetcher: @escaping TidalFetcher,
+		lrclibFetcher: @escaping LRCLIBFetcher,
+		cache: LyricsCache,
+		diskCache: LyricsDiskCache? = nil
+	) {
 		self.tidalFetcher = tidalFetcher
 		self.lrclibFetcher = lrclibFetcher
 		self.cache = cache
+		self.diskCache = diskCache
 	}
 
-	/// A resolver backed by a live `Session`, sharing the session's lyrics cache
-	/// so results survive the view that requested them being rebuilt.
+	/// A resolver backed by a live `Session`, sharing the session's caches so a
+	/// result survives the view that requested it, and a relaunch.
 	public init(session: Session) {
 		self.init(
 			tidalFetcher: { await session.trackLyrics(trackId: $0) },
 			lrclibFetcher: { await session.lrclibLyrics(trackName: $0, artistName: $1, albumName: $2, duration: $3) },
-			cache: session.lyricsCache
+			cache: session.lyricsCache,
+			diskCache: session.lyricsDiskCache
 		)
 	}
 
 	/// Resolves lyrics for `track`, consulting LRCLIB only when the precedence
-	/// rule requires it. Results are cached in memory per track id.
+	/// rule requires it. Results are cached per track id, in memory and on disk.
 	public func lyrics(for track: Track, preferLRCLIB: Bool) async -> LyricsOutcome<LyricsResult> {
 		await lyrics(
 			for: LyricsQuery(
@@ -107,7 +120,7 @@ public struct LyricsResolver {
 
 	/// Resolves lyrics from raw track metadata. Same rule as `lyrics(for:preferLRCLIB:)`.
 	public func lyrics(for query: LyricsQuery, preferLRCLIB: Bool) async -> LyricsOutcome<LyricsResult> {
-		if case .hit(let cached) = await cache.lookup(trackId: query.trackId, preferLRCLIB: preferLRCLIB) {
+		if case .hit(let cached) = await cachedResult(trackId: query.trackId, preferLRCLIB: preferLRCLIB) {
 			return .found(cached)
 		}
 		let tidal = await tidalFetcher(query.trackId)
@@ -126,12 +139,27 @@ public struct LyricsResolver {
 		switch outcome {
 		case .found(let result):
 			await cache.store(result, trackId: query.trackId, preferLRCLIB: preferLRCLIB)
+			await diskCache?.store(result, trackId: query.trackId, preferLRCLIB: preferLRCLIB)
 			lyricsLogger.debug("lyrics resolved track=\(query.trackId, privacy: .public) source=\(String(describing: result.source), privacy: .public) lines=\(result.lines.count, privacy: .public)")
 		case .notFound, .failed:
 			let kind = outcome.isFailure ? "failed" : "notFound"
 			lyricsLogger.debug("lyrics resolved track=\(query.trackId, privacy: .public) outcome=\(kind, privacy: .public)")
 		}
 		return outcome
+	}
+
+	/// Memory first, then disk. A disk hit is promoted into memory, so the rest of this
+	/// session reads that track without touching the disk again.
+	private func cachedResult(trackId: Int, preferLRCLIB: Bool) async -> LyricsCacheLookup {
+		if case .hit(let cached) = await cache.lookup(trackId: trackId, preferLRCLIB: preferLRCLIB) {
+			return .hit(cached)
+		}
+		guard let diskCache,
+			  case .hit(let cached) = await diskCache.lookup(trackId: trackId, preferLRCLIB: preferLRCLIB) else {
+			return .miss
+		}
+		await cache.store(cached, trackId: trackId, preferLRCLIB: preferLRCLIB)
+		return .hit(cached)
 	}
 
 	/// The pure precedence rule. Exposed for tests and for callers that already
@@ -179,7 +207,8 @@ enum LyricsCacheLookup {
 	case hit(LyricsResult)
 }
 
-/// In-memory, per-track cache for resolved lyrics. No disk persistence.
+/// In-memory, per-track cache for resolved lyrics. `LyricsDiskCache` holds the same
+/// results across launches; this holds the ones read this session.
 ///
 /// Shared by every `LyricsResolver` a `Session` builds, so a result survives
 /// the view that triggered resolution. Bounded so a long session cannot hold

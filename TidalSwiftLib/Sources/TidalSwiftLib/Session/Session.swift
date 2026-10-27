@@ -45,6 +45,9 @@ public class Session {
 	/// drawer or the lyrics panel being torn down and rebuilt.
 	let lyricsCache = LyricsCache()
 
+	/// The same results on disk, so a relaunch does not fetch every track again.
+	let lyricsDiskCache = LyricsDiskCache()
+
 	public init(config: Config?, offlineLibraryRoot: URL? = nil) {
 		if let config = config {
 			self.config = config

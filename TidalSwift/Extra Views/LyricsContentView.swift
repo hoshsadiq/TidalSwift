@@ -151,6 +151,13 @@ struct LyricsContentView: View {
 		return LyricLine.currentIndex(at: playbackInfo.playbackPosition, in: result.lines)
 	}
 
+	/// Fetches once, then retries a failure on `LyricsRetryPolicy`'s schedule.
+	///
+	/// The retries live inside this one task and never touch `attempt`: `fetchKey`
+	/// stays put while one is pending, so the panel is not restarted under them. Only
+	/// the retry button bumps `attempt`, which changes the key, cancels this task
+	/// (a sleeping retry included) and starts a fresh schedule. A track change and a
+	/// closed panel cancel it the same way, so no retry outlives what asked for it.
 	private func load() async {
 		selectedLineIndex = nil
 		phase = .loading
@@ -158,16 +165,24 @@ struct LyricsContentView: View {
 			phase = .failed
 			return
 		}
-		let outcome = await resolver.lyrics(for: track, preferLRCLIB: useLRCLIBFallback)
-		guard !Task.isCancelled else { return }
-		// The resolver only reports `.found` with something to render.
-		switch outcome {
-		case .found(let result):
-			phase = .loaded(result)
-		case .notFound:
-			phase = .empty
-		case .failed:
-			phase = .failed
+		var completedTries = 0
+		while true {
+			let outcome = await resolver.lyrics(for: track, preferLRCLIB: useLRCLIBFallback)
+			completedTries += 1
+			// A cancelled fetch must neither paint a state nor wait on a retry.
+			guard !Task.isCancelled else { return }
+			// The resolver only reports `.found` with something to render.
+			switch outcome {
+			case .found(let result):
+				phase = .loaded(result)
+			case .notFound:
+				phase = .empty
+			case .failed:
+				phase = .failed
+			}
+			guard let delay = LyricsRetryPolicy.retryDelay(afterCompletedTries: completedTries, outcome: outcome) else { return }
+			try? await Task.sleep(for: delay)
+			guard !Task.isCancelled else { return }
 		}
 	}
 
