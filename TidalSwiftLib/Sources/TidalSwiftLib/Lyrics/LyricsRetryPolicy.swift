@@ -11,14 +11,9 @@ import Foundation
 /// Only a failure is retried: a miss is a real answer, and asking again for lyrics a
 /// provider says it does not have would spend requests on a decision that cannot change.
 public nonisolated enum LyricsRetryPolicy {
-	/// The wait before each automatic retry, in order.
+	/// The wait before each automatic retry, in order. A fetch therefore makes four tries
+	/// at most, the first one plus these three, and the panel offers its button afterwards.
 	public static let delays: [Duration] = [.seconds(1), .seconds(3), .seconds(8)]
-
-	/// How many tries a fetch makes in total, the first one and the automatic retries
-	/// together. After the last one the panel leaves its retry button.
-	public static var maxTries: Int {
-		delays.count + 1
-	}
 
 	/// The wait before the next automatic try, or `nil` when the fetch should stop.
 	///

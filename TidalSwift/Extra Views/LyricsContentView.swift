@@ -61,6 +61,10 @@ struct LyricsContentView: View {
 	let session: Session
 	let player: Player
 	var style: Style = .drawer
+	/// Whether the surface hosting this view is on screen. The miniplayer's window is
+	/// retained when closed, so its content is never torn down and `.task` would keep a
+	/// pending retry running; folding this into the fetch key cancels it on close instead.
+	var isVisible: Bool = true
 
 	@Environment(PlaybackInfo.self) private var playbackInfo
 	@Environment(QueueInfo.self) private var queueInfo
@@ -92,10 +96,11 @@ struct LyricsContentView: View {
 		case failed
 	}
 
-	init(session: Session, player: Player, style: Style = .drawer) {
+	init(session: Session, player: Player, style: Style = .drawer, isVisible: Bool = true) {
 		self.session = session
 		self.player = player
 		self.style = style
+		self.isVisible = isVisible
 		_resolver = State(initialValue: LyricsResolver(session: session))
 	}
 
@@ -128,10 +133,10 @@ struct LyricsContentView: View {
 		queueInfo.currentItem?.track
 	}
 
-	/// Re-runs the fetch when the track, the fallback preference or a manual
-	/// retry changes.
+	/// Re-runs the fetch when the track, the fallback preference, a manual retry or
+	/// the surface's visibility changes.
 	private var fetchKey: String {
-		"\(track?.id ?? -1)#\(useLRCLIBFallback)#\(attempt)"
+		"\(track?.id ?? -1)#\(useLRCLIBFallback)#\(attempt)#\(isVisible)"
 	}
 
 	/// The provider to credit, only while lyrics are actually rendered.
@@ -157,8 +162,13 @@ struct LyricsContentView: View {
 	/// stays put while one is pending, so the panel is not restarted under them. Only
 	/// the retry button bumps `attempt`, which changes the key, cancels this task
 	/// (a sleeping retry included) and starts a fresh schedule. A track change and a
-	/// closed panel cancel it the same way, so no retry outlives what asked for it.
+	/// closed surface cancel it the same way, so no retry outlives what asked for it.
+	///
+	/// The failure state is painted only once the schedule is spent. While a retry is
+	/// still due, the skeleton stays: the result is not final yet, and a button that
+	/// cancels the schedule would be a trap.
 	private func load() async {
+		guard isVisible else { return }
 		selectedLineIndex = nil
 		phase = .loading
 		guard let track else {
@@ -175,14 +185,18 @@ struct LyricsContentView: View {
 			switch outcome {
 			case .found(let result):
 				phase = .loaded(result)
+				return
 			case .notFound:
 				phase = .empty
+				return
 			case .failed:
-				phase = .failed
+				guard let delay = LyricsRetryPolicy.retryDelay(afterCompletedTries: completedTries, outcome: outcome) else {
+					phase = .failed
+					return
+				}
+				try? await Task.sleep(for: delay)
+				guard !Task.isCancelled else { return }
 			}
-			guard let delay = LyricsRetryPolicy.retryDelay(afterCompletedTries: completedTries, outcome: outcome) else { return }
-			try? await Task.sleep(for: delay)
-			guard !Task.isCancelled else { return }
 		}
 	}
 

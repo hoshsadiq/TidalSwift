@@ -15,9 +15,15 @@ import Foundation
 /// recently used, through the shared `PlaybackCacheEviction` table, which keys on the
 /// `<track id>-` file-name convention this cache uses too.
 actor LyricsDiskCache {
-	/// A cached document is a few kilobytes of JSON, so this holds roughly a thousand
-	/// tracks: more than a long listening history, and small beside the playback cache.
+	/// A stored document runs from about 2 KB for a short song to about 10 KB for a long one
+	/// that carries both timed lines and plain text, so 4 MB holds roughly 400 to 700 tracks.
+	/// That is still more than a long listening history, and small beside a playback cache
+	/// measured in gigabytes.
 	static let budgetBytes = 4 * 1024 * 1024
+
+	/// Nothing larger than this is written, and a larger file on disk is treated as foreign
+	/// and dropped: a provider bug should not park a megabyte of text in the cache.
+	static let maxDocumentBytes = 512 * 1024
 
 	/// The container's caches directory, not `~/Library/Caches` of the user.
 	nonisolated static var directory: URL {
@@ -34,13 +40,8 @@ actor LyricsDiskCache {
 	}
 
 	func lookup(trackId: Int, preferLRCLIB: Bool) -> LyricsCacheLookup {
-		let url = fileURL(trackId: trackId)
-		guard let data = try? Data(contentsOf: url) else { return .miss }
-		guard let entry = try? JSONDecoder().decode(Entry.self, from: data) else {
-			// An unreadable file can never be served, so it may as well stop taking space.
-			try? FileManager.default.removeItem(at: url)
-			return .miss
-		}
+		guard let url = fileURL(trackId: trackId) else { return .miss }
+		guard let entry = readableEntry(at: url) else { return .miss }
 		guard entry.preferLRCLIB == preferLRCLIB else { return .miss }
 		// The modification date is the eviction order, so reading a file is what keeps it.
 		try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: url.path)
@@ -48,11 +49,38 @@ actor LyricsDiskCache {
 	}
 
 	func store(_ result: LyricsResult, trackId: Int, preferLRCLIB: Bool) {
-		guard let data = try? JSONEncoder().encode(Entry(preferLRCLIB: preferLRCLIB, result: result)) else { return }
-		try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+		guard let url = fileURL(trackId: trackId),
+			  let data = try? JSONEncoder().encode(Entry(preferLRCLIB: preferLRCLIB, result: result)),
+			  data.count <= Self.maxDocumentBytes else { return }
+		// Only this process should be able to read what it cached.
+		try? FileManager.default.createDirectory(
+			at: directory,
+			withIntermediateDirectories: true,
+			attributes: [.posixPermissions: 0o700]
+		)
 		// Atomic: a half-written document would decode as corrupt and read as a miss.
-		try? data.write(to: fileURL(trackId: trackId), options: .atomic)
+		try? data.write(to: url, options: .atomic)
 		prune()
+	}
+
+	/// A document is only served when it is a regular file this cache could have written.
+	/// A link or an oversized file belongs to something else, so it is dropped rather than
+	/// read or followed.
+	private func readableEntry(at url: URL) -> Entry? {
+		let keys: Set<URLResourceKey> = [.isRegularFileKey, .fileSizeKey]
+		guard let values = try? url.resourceValues(forKeys: keys),
+			  values.isRegularFile == true,
+			  let size = values.fileSize,
+			  size <= Self.maxDocumentBytes else {
+			try? FileManager.default.removeItem(at: url)
+			return nil
+		}
+		guard let data = try? Data(contentsOf: url), let entry = try? JSONDecoder().decode(Entry.self, from: data) else {
+			// An unreadable file can never be served, so it may as well stop taking space.
+			try? FileManager.default.removeItem(at: url)
+			return nil
+		}
+		return entry
 	}
 
 	/// Removes the least recently used documents until the folder is under budget, and
@@ -87,37 +115,39 @@ actor LyricsDiskCache {
 		return removed
 	}
 
-	/// The name carries the track id so the shared eviction table can read it.
-	private func fileURL(trackId: Int) -> URL {
-		directory.appendingPathComponent("\(trackId)-lyrics.json")
+	/// The name carries the track id so the shared eviction table can read it. A track id that
+	/// is not positive would produce a name no prune can match, so it is refused here.
+	private func fileURL(trackId: Int) -> URL? {
+		guard trackId > 0 else { return nil }
+		return directory.appendingPathComponent("\(trackId)-lyrics.json")
+	}
+}
+
+/// The on-disk shape. `LyricLine` is the parser's type and stays out of the file format, so a
+/// parser change cannot make every cached document unreadable.
+private nonisolated struct Entry: Codable {
+	let preferLRCLIB: Bool
+	let source: LyricsSource
+	let plainText: String?
+	let lines: [StoredLine]
+
+	init(preferLRCLIB: Bool, result: LyricsResult) {
+		self.preferLRCLIB = preferLRCLIB
+		self.source = result.source
+		self.plainText = result.plainText
+		self.lines = result.lines.map { StoredLine(time: $0.time, text: $0.text) }
 	}
 
-	/// The on-disk shape. `LyricLine` is the parser's type and stays out of the file format,
-	/// so a parser change cannot make every cached document unreadable.
-	private struct Entry: Codable {
-		struct Line: Codable {
-			let time: TimeInterval
-			let text: String
-		}
-
-		let preferLRCLIB: Bool
-		let source: LyricsSource
-		let plainText: String?
-		let lines: [Line]
-
-		init(preferLRCLIB: Bool, result: LyricsResult) {
-			self.preferLRCLIB = preferLRCLIB
-			self.source = result.source
-			self.plainText = result.plainText
-			self.lines = result.lines.map { Line(time: $0.time, text: $0.text) }
-		}
-
-		var result: LyricsResult {
-			LyricsResult(
-				lines: lines.map { LyricLine(time: $0.time, text: $0.text) },
-				plainText: plainText,
-				source: source
-			)
-		}
+	var result: LyricsResult {
+		LyricsResult(
+			lines: lines.map { LyricLine(time: $0.time, text: $0.text) },
+			plainText: plainText,
+			source: source
+		)
 	}
+}
+
+private nonisolated struct StoredLine: Codable {
+	let time: TimeInterval
+	let text: String
 }

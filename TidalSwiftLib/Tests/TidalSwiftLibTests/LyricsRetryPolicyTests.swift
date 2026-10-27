@@ -20,7 +20,6 @@ final class LyricsRetryPolicyTests: XCTestCase {
 	}
 
 	func testThreeRetriesFollowTheFirstTry() {
-		XCTAssertEqual(LyricsRetryPolicy.maxTries, 4)
 		XCTAssertEqual(delay(after: 1, .failed), .seconds(1))
 		XCTAssertEqual(delay(after: 2, .failed), .seconds(3))
 		XCTAssertEqual(delay(after: 3, .failed), .seconds(8))

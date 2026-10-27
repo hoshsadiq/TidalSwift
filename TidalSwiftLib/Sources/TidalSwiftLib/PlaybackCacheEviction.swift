@@ -5,8 +5,8 @@
 
 import Foundation
 
-/// The playback cache's eviction table: given what is on disk, what must survive, what is
-/// in the queue and a size budget, it decides which files go.
+/// The cache eviction table, shared by the playback cache and the lyrics cache: given what is
+/// on disk, what must survive, what is in the queue and a size budget, it decides which files go.
 ///
 /// Pure, so the whole table is testable without a disk. `PlaybackCache.prune` reads its
 /// own directory into `Entry` values, asks here, and deletes the returned names — which is

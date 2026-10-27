@@ -40,6 +40,10 @@ private struct TemporaryLyricsCache {
 		try? FileManager.default.setAttributes([.modificationDate: lastUsed], ofItemAtPath: url.path)
 	}
 
+	func fileURL(_ name: String) -> URL {
+		root.appendingPathComponent(name)
+	}
+
 	func remove() {
 		try? FileManager.default.removeItem(at: root)
 	}
@@ -135,6 +139,57 @@ final class LyricsDiskCacheTests: XCTestCase {
 		XCTAssertEqual(temporary.fileNames(), [], "a file nothing can decode should not keep taking space")
 	}
 
+	func testADocumentLargerThanTheCapIsDroppedUnread() async {
+		let cache = temporary.makeCache()
+		temporary.writeRawFile(trackId: 15, size: LyricsDiskCache.maxDocumentBytes + 1, lastUsed: Date())
+
+		guard case .miss = await cache.lookup(trackId: 15, preferLRCLIB: true) else {
+			return XCTFail("expected a miss")
+		}
+		XCTAssertEqual(temporary.fileNames(), [])
+	}
+
+	func testAnOversizedResultIsNotWritten() async {
+		let cache = temporary.makeCache()
+		let huge = LyricsResult(
+			lines: [],
+			plainText: String(repeating: "a", count: LyricsDiskCache.maxDocumentBytes + 1),
+			source: .tidal
+		)
+
+		await cache.store(huge, trackId: 16, preferLRCLIB: true)
+
+		XCTAssertEqual(temporary.fileNames(), [])
+	}
+
+	func testALinkIsNotFollowedAndIsDropped() async {
+		// A document is only served when it is a regular file this cache could have written.
+		let cache = temporary.makeCache()
+		try? FileManager.default.createDirectory(at: temporary.root, withIntermediateDirectories: true)
+		let target = temporary.root.appendingPathComponent("outside.json")
+		try? Data("{}".utf8).write(to: target)
+		try? FileManager.default.createSymbolicLink(at: temporary.fileURL("17-lyrics.json"), withDestinationURL: target)
+
+		guard case .miss = await cache.lookup(trackId: 17, preferLRCLIB: true) else {
+			return XCTFail("expected a miss")
+		}
+		XCTAssertEqual(temporary.fileNames(), ["outside.json"], "the link goes, the target it pointed at stays")
+	}
+
+	func testANonPositiveTrackIdIsNeitherWrittenNorServed() async {
+		// A name without a leading track id is invisible to the eviction table, so it
+		// would sit in the folder for ever.
+		let cache = temporary.makeCache()
+
+		await cache.store(result(), trackId: 0, preferLRCLIB: true)
+		await cache.store(result(), trackId: -5, preferLRCLIB: true)
+
+		XCTAssertEqual(temporary.fileNames(), [])
+		guard case .miss = await cache.lookup(trackId: -5, preferLRCLIB: true) else {
+			return XCTFail("expected a miss")
+		}
+	}
+
 	// MARK: - Eviction
 
 	func testStoringPrunesTheFolder() async {
@@ -162,6 +217,27 @@ final class LyricsDiskCacheTests: XCTestCase {
 
 		XCTAssertEqual(removed.map(\.lastPathComponent), ["10-lyrics.json", "11-lyrics.json"])
 		XCTAssertEqual(temporary.fileNames(), ["12-lyrics.json"])
+	}
+
+	func testAnOldDocumentIsKeptBecauseLyricsDoNotExpire() async {
+		// Only the size cap evicts: a document from over a year ago is still the answer.
+		let cache = temporary.makeCache()
+		let now = Date()
+		temporary.writeRawFile(trackId: 30, size: 100, lastUsed: now.addingTimeInterval(-400 * 24 * 60 * 60))
+		await cache.store(result(), trackId: 31, preferLRCLIB: true)
+
+		let removed = await cache.prune(now: now)
+
+		XCTAssertEqual(removed, [])
+		XCTAssertEqual(temporary.fileNames(), ["30-lyrics.json", "31-lyrics.json"])
+	}
+
+	func testTheFolderIsPrivateToTheUser() async {
+		let cache = temporary.makeCache()
+		await cache.store(result(), trackId: 40, preferLRCLIB: true)
+
+		let attributes = try? FileManager.default.attributesOfItem(atPath: temporary.root.path)
+		XCTAssertEqual((attributes?[.posixPermissions] as? NSNumber)?.intValue, 0o700)
 	}
 
 	func testReadingADocumentKeepsIt() async {

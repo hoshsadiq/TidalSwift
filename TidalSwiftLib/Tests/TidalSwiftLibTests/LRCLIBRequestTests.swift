@@ -204,4 +204,39 @@ final class LRCLIBRequestTests: XCTestCase {
 		XCTAssertEqual(try delay("NaN"), .seconds(1))
 		XCTAssertEqual(try delay(nil), .seconds(1))
 	}
+
+	// MARK: - Pacing after a rate limit
+
+	func testAQuietWindowHoldsTheNextRequest() async {
+		// A stated wait belongs to the host, not to one surface: with the lyrics panel
+		// retrying a failure within seconds, only the shared throttle can keep the next
+		// request behind the wait LRCLIB asked for.
+		let throttle = LRCLIBThrottle()
+		await throttle.quiet(for: .milliseconds(300))
+		let start = ContinuousClock.now
+
+		_ = await throttle.perform { 1 }
+
+		XCTAssertGreaterThanOrEqual(ContinuousClock.now - start, .milliseconds(250))
+	}
+
+	func testTheLongerOfTwoQuietWindowsWins() async {
+		let throttle = LRCLIBThrottle()
+		await throttle.quiet(for: .milliseconds(400))
+		await throttle.quiet(for: .milliseconds(50))
+		let start = ContinuousClock.now
+
+		_ = await throttle.perform { 1 }
+
+		XCTAssertGreaterThanOrEqual(ContinuousClock.now - start, .milliseconds(350))
+	}
+
+	func testARequestWithoutAQuietWindowGoesStraightOut() async {
+		let throttle = LRCLIBThrottle()
+		let start = ContinuousClock.now
+
+		_ = await throttle.perform { 1 }
+
+		XCTAssertLessThan(ContinuousClock.now - start, .milliseconds(200))
+	}
 }

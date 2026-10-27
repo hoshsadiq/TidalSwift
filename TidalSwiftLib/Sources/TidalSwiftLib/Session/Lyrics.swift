@@ -185,13 +185,34 @@ actor LRCLIBThrottle {
 	private static let gap: Duration = .milliseconds(350)
 
 	private var previous: Task<Void, Never>?
+	/// No request may go out before this instant. Set when LRCLIB states a wait, so a
+	/// caller that asks again sooner than the server allowed (the lyrics panel after a
+	/// failure) still cannot send early. Shared, because the wait belongs to the host
+	/// rather than to whichever surface provoked it.
+	private var quietUntil: ContinuousClock.Instant?
+
+	/// Records a wait the provider asked for, keeping the longest one already known.
+	func quiet(for wait: Duration) {
+		let until = ContinuousClock.now.advanced(by: wait)
+		if let quietUntil, quietUntil > until {
+			return
+		}
+		quietUntil = until
+	}
 
 	func perform<T: Sendable>(_ operation: @escaping @Sendable () async -> T) async -> T {
 		let previous = self.previous
+		let quietUntil = self.quietUntil
 		let task = Task {
 			if let previous {
 				await previous.value
 				try? await Task.sleep(for: Self.gap)
+			}
+			if let quietUntil {
+				let remaining = ContinuousClock.now.duration(to: quietUntil)
+				if remaining > .zero {
+					try? await Task.sleep(for: remaining)
+				}
 			}
 			return await operation()
 		}
@@ -299,6 +320,12 @@ extension Session {
 				attempts += 1
 				try? await Task.sleep(for: delay)
 			}
+		}
+		// Still rate-limited once this request gave up: hold the whole chain for the wait the
+		// server stated, or the lyrics panel's outer schedule asks again within seconds and
+		// each ask pays that wait again behind the shared throttle.
+		if case .rateLimited(let wait) = response {
+			await LRCLIBThrottle.shared.quiet(for: wait)
 		}
 		lyricsLogger.debug("lrclib response path=\(path, privacy: .public) status=\(response.logDescription, privacy: .public)")
 		return response
