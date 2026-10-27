@@ -112,4 +112,14 @@ final class TidalLyricsStatusTests: XCTestCase {
 
 		XCTAssertEqual(outcome, .notFound)
 	}
+
+	func testAMissingTrackWithAnEmptyBodyIsStillAMiss() async {
+		// The status is the answer; a body that decodes to nothing must not turn a 404 into
+		// a failure the panel would retry.
+		LyricsStatusStubURLProtocol.reset(status: 404, body: "")
+
+		let outcome = await makeSession().trackLyrics(trackId: 6)
+
+		XCTAssertEqual(outcome, .notFound)
+	}
 }

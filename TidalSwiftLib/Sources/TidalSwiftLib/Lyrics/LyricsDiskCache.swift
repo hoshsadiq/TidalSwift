@@ -16,10 +16,10 @@ import Foundation
 /// recently used, through the shared `PlaybackCacheEviction` table, which keys on the
 /// `<track id>-` file-name convention this cache uses too.
 actor LyricsDiskCache {
-	/// A stored document runs from about 2 KB for a short song to about 10 KB for a long one
-	/// that carries both timed lines and plain text, so 4 MB holds roughly 400 to 700 tracks.
-	/// That is still more than a long listening history, and small beside a playback cache
-	/// measured in gigabytes.
+	/// A stored document runs from roughly 4 KB for a short song to roughly 9 KB for a long one
+	/// that carries both timed lines and plain text, so 4 MB holds several hundred tracks:
+	/// more than a long listening history, and small beside a playback cache measured in
+	/// gigabytes.
 	static let budgetBytes = 4 * 1024 * 1024
 
 	/// Nothing larger than this is written, and a larger file on disk is treated as foreign

@@ -106,8 +106,14 @@ extension Session {
 		do {
 			let http = try await v2GetResponse(url: url, parameters: parameters)
 			let status = http.statusCode ?? 0
-			// A 404 is the API saying the track is not there: an answer, not a fault.
-			guard (200..<300).contains(status) || status == 404 else {
+			// A 404 is the API saying the track is not there: an answer, not a fault, and it
+			// stays one whatever the body holds. Decoding first would turn an empty 404 body
+			// into a throw and so into a failure worth retrying.
+			if status == 404 {
+				lyricsLogger.debug("tidal lyrics track=\(trackId, privacy: .public) not found")
+				return .notFound
+			}
+			guard (200..<300).contains(status) else {
 				lyricsLogger.debug("tidal lyrics track=\(trackId, privacy: .public) status=\(status, privacy: .public) failed")
 				return .failed
 			}
