@@ -93,8 +93,9 @@ extension Session {
 	/// itself fails. A track without lyrics answers HTTP 200 with an empty
 	/// `included` array.
 	///
-	/// TODO: `v2Get` decodes a non-2xx body too, so a Tidal server error reads as
-	/// `.notFound` here. Reading the status would tell the two apart.
+	/// The status is read before the body is trusted. An error page decodes to nothing, so
+	/// decoding first would report a Tidal outage as "no lyrics" and leave the caller no
+	/// reason to ask again.
 	public func trackLyrics(trackId: Int) async -> LyricsOutcome<TidalLyrics> {
 		guard let url = URL(string: "\(AuthInformation.APIV2OpenAPILocation)/tracks/\(trackId)") else {
 			return .failed
@@ -103,7 +104,14 @@ extension Session {
 		parameters.removeValue(forKey: "limit")
 		parameters["include"] = "lyrics"
 		do {
-			let response: TrackLyricsResponse = try await v2Get(url: url, parameters: parameters)
+			let http = try await v2GetResponse(url: url, parameters: parameters)
+			let status = http.statusCode ?? 0
+			// A 404 is the API saying the track is not there: an answer, not a fault.
+			guard (200..<300).contains(status) || status == 404 else {
+				lyricsLogger.debug("tidal lyrics track=\(trackId, privacy: .public) status=\(status, privacy: .public) failed")
+				return .failed
+			}
+			let response = try JSONDecoder.custom.decode(TrackLyricsResponse.self, from: http.data)
 			guard let resource = response.included?.first(where: { $0.type == "lyrics" }),
 				  resource.attributes?.technicalStatus == "OK" else {
 				lyricsLogger.debug("tidal lyrics track=\(trackId, privacy: .public) none")
@@ -200,24 +208,33 @@ actor LRCLIBThrottle {
 		quietUntil = until
 	}
 
-	func perform<T: Sendable>(_ operation: @escaping @Sendable () async -> T) async -> T {
+	/// Runs `operation` once the previous request is done, the documented gap has passed and
+	/// any stated wait has elapsed. `nil` when the caller was cancelled before its request
+	/// went out: that surface is gone, and a queued request per closed panel is one too many.
+	func perform<T: Sendable>(_ operation: @escaping @Sendable () async -> T) async -> T? {
 		let previous = self.previous
-		let quietUntil = self.quietUntil
-		let task = Task {
+		let task = Task { () -> T? in
 			if let previous {
 				await previous.value
 				try? await Task.sleep(for: Self.gap)
 			}
-			if let quietUntil {
+			// Read on arrival rather than on entry: a caller that queued before the wait was
+			// recorded must still see it, or the second surface sends early after all.
+			if let quietUntil = self.quietUntil {
 				let remaining = ContinuousClock.now.duration(to: quietUntil)
 				if remaining > .zero {
 					try? await Task.sleep(for: remaining)
 				}
 			}
+			guard !Task.isCancelled else { return nil }
 			return await operation()
 		}
 		self.previous = Task { _ = await task.value }
-		return await task.value
+		return await withTaskCancellationHandler {
+			await task.value
+		} onCancel: {
+			task.cancel()
+		}
 	}
 }
 
@@ -320,7 +337,7 @@ extension Session {
 				attempts += 1
 				try? await Task.sleep(for: delay)
 			}
-		}
+		} ?? .failure(statusCode: nil)
 		// Still rate-limited once this request gave up: hold the whole chain for the wait the
 		// server stated, or the lyrics panel's outer schedule asks again within seconds and
 		// each ask pays that wait again behind the shared throttle.

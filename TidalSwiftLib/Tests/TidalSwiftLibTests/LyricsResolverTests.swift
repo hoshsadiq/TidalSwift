@@ -431,6 +431,30 @@ final class LyricsResolverTests: XCTestCase {
 		XCTAssertEqual(tidalCalls, 1)
 	}
 
+	func testASessionResolverReadsTheSessionsDiskCache() async {
+		// The app's path: a resolver built from a `Session` consults the session's cache, so
+		// pointing that at a temporary root keeps the real folder out of the test entirely.
+		let root = temporaryRoot()
+		defer { try? FileManager.default.removeItem(at: root) }
+		let library = TemporaryOfflineLibrary(label: "LyricsSessionDiskCache")
+		defer { library.remove() }
+		let session = library.makeSession()
+		session.lyricsDiskCache = LyricsDiskCache(directory: root)
+		let disk = session.lyricsDiskCache
+		await disk.store(LyricsResult(lines: [LyricLine(time: 1, text: "line")], plainText: nil, source: .tidal),
+						 trackId: 70, preferLRCLIB: true)
+		let configuration = URLSessionConfiguration.ephemeral
+		configuration.protocolClasses = [LyricsStatusStubURLProtocol.self]
+		session.requestSession = URLSession(configuration: configuration)
+		LyricsStatusStubURLProtocol.reset(status: 500, body: "")
+
+		let outcome = await LyricsResolver(session: session).lyrics(for: query(trackId: 70), preferLRCLIB: true)
+
+		assertOutcome(outcome, matches: .found(.tidal, lines: 1, plain: nil), "the session's disk cache answers")
+		XCTAssertEqual(storedFileNames(in: root), ["70-lyrics.json"])
+		XCTAssertEqual(LyricsStatusStubURLProtocol.requestCount, 0, "a disk hit asks no provider")
+	}
+
 	func testAMissIsNotWrittenToDisk() async {
 		let root = temporaryRoot()
 		defer { try? FileManager.default.removeItem(at: root) }

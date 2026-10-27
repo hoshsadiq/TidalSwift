@@ -5,8 +5,9 @@
 
 import Foundation
 
-/// Resolved lyrics kept on disk, under the container's caches directory at
-/// `…/Caches/TidalSwift/lyrics/`, resolved the same way `PlaybackCache` resolves its own root.
+/// Resolved lyrics kept on disk, at `~/Library/Caches/TidalSwift/lyrics/`, resolved the same
+/// way `PlaybackCache` resolves its own root: the user's caches directory, which a signed,
+/// sandboxed build places inside the app's container.
 ///
 /// A result outlives the process here, so a relaunch serves lyrics from disk instead of
 /// asking both providers again. Only real results are written, each tagged with the LRCLIB
@@ -25,9 +26,10 @@ actor LyricsDiskCache {
 	/// and dropped: a provider bug should not park a megabyte of text in the cache.
 	static let maxDocumentBytes = 512 * 1024
 
-	/// The container's caches directory, not `~/Library/Caches` of the user.
+	/// The caches directory, which a sandboxed build resolves inside its container.
 	nonisolated static var directory: URL {
-		let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+		let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+			?? FileManager.default.temporaryDirectory
 		return base.appendingPathComponent("TidalSwift/lyrics", isDirectory: true)
 	}
 
@@ -52,14 +54,14 @@ actor LyricsDiskCache {
 		guard let url = fileURL(trackId: trackId),
 			  let data = try? JSONEncoder().encode(Entry(preferLRCLIB: preferLRCLIB, result: result)),
 			  data.count <= Self.maxDocumentBytes else { return }
-		// Only this process should be able to read what it cached.
-		try? FileManager.default.createDirectory(
-			at: directory,
-			withIntermediateDirectories: true,
-			attributes: [.posixPermissions: 0o700]
-		)
+		// Only this process should be able to read what it cached. The mode is set after
+		// creating, because `createDirectory` only applies attributes to a folder it made
+		// itself, and an existing loose folder would keep its mode.
+		try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+		try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
 		// Atomic: a half-written document would decode as corrupt and read as a miss.
-		try? data.write(to: url, options: .atomic)
+		guard (try? data.write(to: url, options: .atomic)) != nil else { return }
+		try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
 		prune()
 	}
 
@@ -83,36 +85,15 @@ actor LyricsDiskCache {
 		return entry
 	}
 
-	/// Removes the least recently used documents until the folder is under budget, and
-	/// returns what went so a test can pin it.
+	/// Trims the folder to the budget, oldest document first, and returns what went so a test
+	/// can pin it. Lyrics do not go stale, so nothing is dropped for its age.
 	@discardableResult
 	func prune(now: Date = Date()) -> [URL] {
-		let keys: Set<URLResourceKey> = [.contentModificationDateKey, .fileSizeKey]
-		guard let contents = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys)) else {
-			return []
-		}
-		let entries = contents.compactMap { url -> PlaybackCacheEviction.Entry? in
-			guard let values = try? url.resourceValues(forKeys: keys) else { return nil }
-			return PlaybackCacheEviction.Entry(
-				name: url.lastPathComponent,
-				size: values.fileSize ?? 0,
-				lastUsed: values.contentModificationDate ?? .distantPast
-			)
-		}
-		let doomed = PlaybackCacheEviction.evictions(
-			entries: entries,
-			protectedTrackIds: [],
-			queueTrackIds: [],
-			// No age limit; the sky-high bound keeps the table from evicting on age alone.
+		PlaybackCacheEviction.pruneFiles(
+			in: directory,
+			// The sky-high age bound keeps the table from evicting on age alone.
 			limits: .init(budgetBytes: budgetBytes, maxAge: .greatestFiniteMagnitude, now: now)
 		)
-		var removed: [URL] = []
-		for entry in doomed {
-			let url = directory.appendingPathComponent(entry.name)
-			try? FileManager.default.removeItem(at: url)
-			removed.append(url)
-		}
-		return removed
 	}
 
 	/// The name carries the track id so the shared eviction table can read it. A track id that

@@ -78,6 +78,38 @@ nonisolated enum PlaybackCacheEviction {
 		return evicted
 	}
 
+	/// Applies the table to a directory: reads its own files into entries, asks for the
+	/// evictions and deletes them, returning what went. Shared by both caches so the driver
+	/// exists once; it only ever names files it just listed, so nothing outside `directory`
+	/// is reached.
+	@discardableResult
+	static func pruneFiles(in directory: URL, limits: Limits, protectedTrackIds: Set<Int> = [], queueTrackIds: Set<Int> = []) -> [URL] {
+		let keys: Set<URLResourceKey> = [.contentModificationDateKey, .fileSizeKey]
+		guard let contents = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys)) else {
+			return []
+		}
+		let entries = contents.compactMap { url -> Entry? in
+			guard let values = try? url.resourceValues(forKeys: keys) else { return nil }
+			return Entry(
+				name: url.lastPathComponent,
+				size: values.fileSize ?? 0,
+				lastUsed: values.contentModificationDate ?? .distantPast
+			)
+		}
+		var removed: [URL] = []
+		for entry in evictions(
+			entries: entries,
+			protectedTrackIds: protectedTrackIds,
+			queueTrackIds: queueTrackIds,
+			limits: limits
+		) {
+			let url = directory.appendingPathComponent(entry.name)
+			try? FileManager.default.removeItem(at: url)
+			removed.append(url)
+		}
+		return removed
+	}
+
 	/// The track id a cache file name carries, or nil when it carries none.
 	static func trackId(of name: String) -> Int? {
 		let digits = name.prefix(while: \.isNumber)

@@ -79,35 +79,16 @@ public nonisolated enum PlaybackCache {
 	/// Protected tracks and files in the prefetch window survive even when that leaves the
 	/// directory over budget; the removed URLs are returned so a test can pin what went.
 	///
-	/// The decision is `PlaybackCacheEviction`'s; this only reads its own directory into
-	/// entries and deletes the names it returns, so no file outside the cache is reached.
+	/// The decision and the deletion are `PlaybackCacheEviction`'s, shared with the lyrics
+	/// cache; this only supplies this cache's own limits and protections.
 	@discardableResult
 	static func prune(in directory: URL, maxBytes: Int, maxAge: TimeInterval, protecting trackIds: Set<Int> = [], queueTrackIds: Set<Int> = [], now: Date = Date()) -> [URL] {
-		let keys: Set<URLResourceKey> = [.contentModificationDateKey, .fileSizeKey]
-		guard let contents = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys)) else {
-			return []
-		}
-		let entries = contents.compactMap { url -> PlaybackCacheEviction.Entry? in
-			guard let values = try? url.resourceValues(forKeys: keys) else { return nil }
-			return PlaybackCacheEviction.Entry(
-				name: url.lastPathComponent,
-				size: values.fileSize ?? 0,
-				lastUsed: values.contentModificationDate ?? .distantPast
-			)
-		}
-		let doomed = PlaybackCacheEviction.evictions(
-			entries: entries,
+		PlaybackCacheEviction.pruneFiles(
+			in: directory,
+			limits: .init(budgetBytes: maxBytes, maxAge: maxAge, now: now),
 			protectedTrackIds: trackIds,
-			queueTrackIds: queueTrackIds,
-			limits: .init(budgetBytes: maxBytes, maxAge: maxAge, now: now)
+			queueTrackIds: queueTrackIds
 		)
-		var removed: [URL] = []
-		for entry in doomed {
-			let url = directory.appendingPathComponent(entry.name)
-			try? FileManager.default.removeItem(at: url)
-			removed.append(url)
-		}
-		return removed
 	}
 }
 

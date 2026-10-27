@@ -232,12 +232,26 @@ final class LyricsDiskCacheTests: XCTestCase {
 		XCTAssertEqual(temporary.fileNames(), ["30-lyrics.json", "31-lyrics.json"])
 	}
 
-	func testTheFolderIsPrivateToTheUser() async {
+	func testTheFolderAndItsDocumentsArePrivateToTheUser() async {
 		let cache = temporary.makeCache()
 		await cache.store(result(), trackId: 40, preferLRCLIB: true)
 
-		let attributes = try? FileManager.default.attributesOfItem(atPath: temporary.root.path)
-		XCTAssertEqual((attributes?[.posixPermissions] as? NSNumber)?.intValue, 0o700)
+		let folder = try? FileManager.default.attributesOfItem(atPath: temporary.root.path)
+		XCTAssertEqual((folder?[.posixPermissions] as? NSNumber)?.intValue, 0o700)
+		let document = try? FileManager.default.attributesOfItem(atPath: temporary.fileURL("40-lyrics.json").path)
+		XCTAssertEqual((document?[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+	}
+
+	func testALooseFolderIsTightenedOnTheNextWrite() async {
+		// Attributing a folder at creation only touches a folder created there and then.
+		try? FileManager.default.createDirectory(at: temporary.root, withIntermediateDirectories: true)
+		try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: temporary.root.path)
+		let cache = temporary.makeCache()
+
+		await cache.store(result(), trackId: 41, preferLRCLIB: true)
+
+		let folder = try? FileManager.default.attributesOfItem(atPath: temporary.root.path)
+		XCTAssertEqual((folder?[.posixPermissions] as? NSNumber)?.intValue, 0o700)
 	}
 
 	func testReadingADocumentKeepsIt() async {

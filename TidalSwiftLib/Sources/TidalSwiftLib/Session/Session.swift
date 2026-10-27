@@ -265,14 +265,22 @@ extension Session {
 	/// so this builds the request itself (mirroring `Requests.swift`'s refresh
 	/// and retry-on-401 behaviour).
 	func v2Get<Result: Decodable>(url: URL, parameters: [String: String]) async throws -> Result {
+		let response = try await v2GetResponse(url: url, parameters: parameters)
+		return try JSONDecoder.custom.decode(Result.self, from: response.data)
+	}
+
+	/// The same GET, returning the raw response so a caller can read the status before
+	/// trusting the body. A body of the wrong shape decodes to nothing, which reads as
+	/// "no data" rather than "the server failed"; a caller that must tell those apart asks
+	/// here. Owns the one refresh-and-retry path `v2Get` also uses.
+	func v2GetResponse(url: URL, parameters: [String: String]) async throws -> Response {
 		try? await refreshAccessTokenIfNeeded()
 		let response = try await v2Request(url: url, parameters: parameters, accessToken: config.accessToken, xTidalToken: config.apiToken)
 		guard response.statusCode == 401, Self.isAuthenticationFailure(response) else {
-			return try JSONDecoder.custom.decode(Result.self, from: response.data)
+			return response
 		}
 		try await refreshAccessToken()
-		let retry = try await v2Request(url: url, parameters: parameters, accessToken: config.accessToken, xTidalToken: config.apiToken)
-		return try JSONDecoder.custom.decode(Result.self, from: retry.data)
+		return try await v2Request(url: url, parameters: parameters, accessToken: config.accessToken, xTidalToken: config.apiToken)
 	}
 
 	/// Performs an authenticated PUT against the v2 API, mirroring `v2Get`'s

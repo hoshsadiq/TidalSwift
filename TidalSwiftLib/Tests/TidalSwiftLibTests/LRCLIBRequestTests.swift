@@ -239,4 +239,34 @@ final class LRCLIBRequestTests: XCTestCase {
 
 		XCTAssertLessThan(ContinuousClock.now - start, .milliseconds(200))
 	}
+
+	func testAQueuedCallerSeesAWaitRecordedWhileItWasQueued() async {
+		// The second surface queues before the first one's 429 is recorded. Reading the wait
+		// on entry would miss it, and the queued request would go out before the server said.
+		let throttle = LRCLIBThrottle()
+		let slow = Task { await throttle.perform { try? await Task.sleep(for: .milliseconds(200)) } }
+		try? await Task.sleep(for: .milliseconds(50))
+		let queued = Task { await throttle.perform { 1 } }
+		try? await Task.sleep(for: .milliseconds(200))
+		await throttle.quiet(for: .milliseconds(400))
+		let queuedStart = ContinuousClock.now
+
+		_ = await slow.value
+		_ = await queued.value
+
+		XCTAssertGreaterThanOrEqual(ContinuousClock.now - queuedStart, .milliseconds(250))
+	}
+
+	func testACancelledCallerSendsNothing() async {
+		// A panel that has closed must not spend a request once its turn comes.
+		let throttle = LRCLIBThrottle()
+		await throttle.quiet(for: .milliseconds(200))
+		let caller = Task { await throttle.perform { 1 } }
+		try? await Task.sleep(for: .milliseconds(50))
+
+		caller.cancel()
+		let result = await caller.value
+
+		XCTAssertNil(result)
+	}
 }
