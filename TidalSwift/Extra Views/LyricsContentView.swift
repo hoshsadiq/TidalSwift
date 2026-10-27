@@ -9,8 +9,7 @@ import TidalSwiftLib
 /// The shared lyrics renderer used by both the Now Playing drawer's Lyrics
 /// panel and the miniplayer's lyrics mode.
 ///
-/// Resolves the current queue item through `LyricsResolver` and renders the
-/// result in one of four states:
+/// Renders the current queue item's lyrics in one of four states:
 ///
 /// - `.loading`: eight skeleton lines while the resolver works.
 /// - `.loaded`: timed LRC lines with the current one highlighted and scrolled to
@@ -61,7 +60,6 @@ struct LyricsContentView: View {
 	let session: Session
 	let player: Player
 	var style: Style = .drawer
-
 	@Environment(PlaybackInfo.self) private var playbackInfo
 	@Environment(QueueInfo.self) private var queueInfo
 
@@ -69,10 +67,6 @@ struct LyricsContentView: View {
 	/// re-resolves with the new precedence instead of showing a stale decision.
 	@AppStorage(LyricsSettings.useLRCLIBFallbackKey) private var useLRCLIBFallback: Bool = true
 
-	/// Held in `@State` so the resolver is not rebuilt on every body
-	/// re-evaluation. Its cache lives on the shared `Session`, so resolved
-	/// lyrics survive this view being torn down and rebuilt.
-	@State private var resolver: LyricsResolver
 	@State private var phase: Phase = .loading
 	/// Bumping this restarts the fetch; that is how the retry button works.
 	@State private var attempt: Int = 0
@@ -96,7 +90,6 @@ struct LyricsContentView: View {
 		self.session = session
 		self.player = player
 		self.style = style
-		_resolver = State(initialValue: LyricsResolver(session: session))
 	}
 
 	var body: some View {
@@ -128,8 +121,8 @@ struct LyricsContentView: View {
 		queueInfo.currentItem?.track
 	}
 
-	/// Re-runs the fetch when the track, the fallback preference or a manual
-	/// retry changes.
+	/// Re-reads when the track, the fallback preference or a manual retry changes. A retry
+	/// waits for the prefetcher's own schedule, so nothing here reinvents one.
 	private var fetchKey: String {
 		"\(track?.id ?? -1)#\(useLRCLIBFallback)#\(attempt)"
 	}
@@ -151,6 +144,13 @@ struct LyricsContentView: View {
 		return LyricLine.currentIndex(at: playbackInfo.playbackPosition, in: result.lines)
 	}
 
+	/// Reads the track's lyrics. The fetch, its 1/3/8 s schedule and its 30 s cap belong to
+	/// `LyricsPrefetcher`, which a play and a download warm: a panel that is open, closed or
+	/// reopened only ever reads what is there, and closing one ends nothing another surface
+	/// still needs.
+	///
+	/// The failure state is painted only once the prefetcher has spent its schedule, so the
+	/// skeleton means work is genuinely still going on.
 	private func load() async {
 		selectedLineIndex = nil
 		phase = .loading
@@ -158,9 +158,9 @@ struct LyricsContentView: View {
 			phase = .failed
 			return
 		}
-		let outcome = await resolver.lyrics(for: track, preferLRCLIB: useLRCLIBFallback)
+		let outcome = await session.lyricsPrefetcher.lyrics(for: LyricsQuery(track), preferLRCLIB: useLRCLIBFallback)
+		// The track changed under the read, or the panel went away: nothing here is worth painting.
 		guard !Task.isCancelled else { return }
-		// The resolver only reports `.found` with something to render.
 		switch outcome {
 		case .found(let result):
 			phase = .loaded(result)
@@ -331,12 +331,24 @@ struct LyricsContentView: View {
 		VStack(spacing: 0) {
 			Divider()
 				.opacity(0.3)
-			Text(source == .tidal ? "Lyrics from Tidal" : "Lyrics from LRCLIB")
+			Text(Self.attributionText(source))
 				.font(.system(size: 11))
 				.foregroundStyle(.secondary)
 				.frame(maxWidth: .infinity, alignment: .leading)
 				.padding(.horizontal, style.horizontalPadding)
 				.padding(.vertical, 10)
+		}
+	}
+
+	/// A file records no provider, so it is credited as the file rather than guessed at.
+	private static func attributionText(_ source: LyricsSource) -> String {
+		switch source {
+		case .tidal:
+			"Lyrics from Tidal"
+		case .lrclib:
+			"Lyrics from LRCLIB"
+		case .file:
+			"Lyrics from file"
 		}
 	}
 }

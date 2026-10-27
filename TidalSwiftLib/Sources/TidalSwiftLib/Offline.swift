@@ -280,10 +280,17 @@ public final class Offline {
 		startSync()
 	}
 
-	public init(session: Session, downloadStatus: DownloadStatus, offlineLibraryRoot: URL? = nil) {
+	/// Tags the file just written, so the library copy carries its lyrics. Optional because a
+	/// reader-only library (a test, or a sync that never downloads) needs no tagger.
+	private let metadata: Metadata?
+
+	/// Internal because this is the only library the app builds, through `Helpers`, and the
+	/// tagger it takes is an internal type.
+	init(session: Session, downloadStatus: DownloadStatus, offlineLibraryRoot: URL? = nil, metadata: Metadata? = nil) {
 		self.session = session
 		self.downloadStatus = downloadStatus
 		self.offlineLibraryRoot = offlineLibraryRoot
+		self.metadata = metadata
 
 		do {
 			var path = try offlineBaseURL()
@@ -453,6 +460,34 @@ public final class Offline {
 		return Set(rungs.map(variant(of:)))
 	}
 
+	/// Tags the freshly written file so it carries its lyrics, then keeps the tagging only when
+	/// the file still verifies. Losing the audio to gain the words is never the trade, and a
+	/// rendition the tag writer's export cannot survive would be left unplayable otherwise.
+	private func embedMetadata(for track: Track, at path: URL) async {
+		guard let metadata else { return }
+		// A dot-prefixed name is invisible to the library listing, the convention a half-written
+		// download already uses.
+		let untagged = path.deletingLastPathComponent()
+			.appendingPathComponent(".\(path.lastPathComponent).untagged")
+		try? FileManager.default.removeItem(at: untagged)
+		guard (try? FileManager.default.copyItem(at: path, to: untagged)) != nil else { return }
+		await metadata.setMetadata(for: track, at: path)
+		guard !isPlayableStoredFile(path) else {
+			try? FileManager.default.removeItem(at: untagged)
+			return
+		}
+		try? FileManager.default.removeItem(at: path)
+		try? FileManager.default.moveItem(at: untagged, to: path)
+		print("Offline: Kept the untagged file for \(track.title): the tagged copy did not verify")
+	}
+
+	/// A stored file for a track id, when the library holds a playable one, so its embedded
+	/// lyrics can be read without a network round trip. Lyrics do not depend on the rendition
+	/// a ceiling would admit, so any playable file answers.
+	func storedFile(forTrackId trackId: Int) -> URL? {
+		localFilesByTrackId()?[trackId]?.first { isPlayableStoredFile($0) }
+	}
+
 	/// The file the library should keep and play when more than one is present. The wanted
 	/// variant wins, then the best stereo tier the ceiling's ladder can serve, then the file name,
 	/// so the same library always resolves to the same file rather than to directory order.
@@ -571,6 +606,9 @@ public final class Offline {
 		}
 		do {
 			try await write(source, to: path)
+			// The library copy is the one a play reads, so it is the one that carries the tags and
+			// the lyrics: the resolver looks here, not at a Downloads copy.
+			await embedMetadata(for: track, at: path)
 		} catch {
 			if Task.isCancelled { return .failed }
 			// `localizedDescription`, not the error itself: `String(describing:)` on a

@@ -116,6 +116,8 @@ nonisolated enum FLACTagWriter {
 			("DATE", tags.releaseDate),
 			("COPYRIGHT", tags.copyright),
 			("ISRC", tags.isrc),
+			// LRC text when there are timings, so a reader gets them back; plain words otherwise.
+			("LYRICS", tags.lyrics),
 		]
 		if tags.isCompilation {
 			fields.append(("COMPILATION", "1"))

@@ -204,4 +204,69 @@ final class LRCLIBRequestTests: XCTestCase {
 		XCTAssertEqual(try delay("NaN"), .seconds(1))
 		XCTAssertEqual(try delay(nil), .seconds(1))
 	}
+
+	// MARK: - Pacing after a rate limit
+
+	func testAQuietWindowHoldsTheNextRequest() async {
+		// A stated wait belongs to the host, not to one surface: with the lyrics panel
+		// retrying a failure within seconds, only the shared throttle can keep the next
+		// request behind the wait LRCLIB asked for.
+		let throttle = LRCLIBThrottle()
+		await throttle.quiet(for: .milliseconds(300))
+		let start = ContinuousClock.now
+
+		_ = await throttle.perform { 1 }
+
+		XCTAssertGreaterThanOrEqual(ContinuousClock.now - start, .milliseconds(250))
+	}
+
+	func testTheLongerOfTwoQuietWindowsWins() async {
+		let throttle = LRCLIBThrottle()
+		await throttle.quiet(for: .milliseconds(400))
+		await throttle.quiet(for: .milliseconds(50))
+		let start = ContinuousClock.now
+
+		_ = await throttle.perform { 1 }
+
+		XCTAssertGreaterThanOrEqual(ContinuousClock.now - start, .milliseconds(350))
+	}
+
+	func testARequestWithoutAQuietWindowGoesStraightOut() async {
+		let throttle = LRCLIBThrottle()
+		let start = ContinuousClock.now
+
+		_ = await throttle.perform { 1 }
+
+		XCTAssertLessThan(ContinuousClock.now - start, .milliseconds(200))
+	}
+
+	func testAQueuedCallerSeesAWaitRecordedWhileItWasQueued() async {
+		// The second surface queues before the first one's 429 is recorded. Reading the wait
+		// on entry would miss it, and the queued request would go out before the server said.
+		let throttle = LRCLIBThrottle()
+		let slow = Task { await throttle.perform { try? await Task.sleep(for: .milliseconds(200)) } }
+		try? await Task.sleep(for: .milliseconds(50))
+		let queued = Task { await throttle.perform { 1 } }
+		try? await Task.sleep(for: .milliseconds(200))
+		await throttle.quiet(for: .milliseconds(400))
+		let queuedStart = ContinuousClock.now
+
+		_ = await slow.value
+		_ = await queued.value
+
+		XCTAssertGreaterThanOrEqual(ContinuousClock.now - queuedStart, .milliseconds(250))
+	}
+
+	func testACancelledCallerSendsNothing() async {
+		// A panel that has closed must not spend a request once its turn comes.
+		let throttle = LRCLIBThrottle()
+		await throttle.quiet(for: .milliseconds(200))
+		let caller = Task { await throttle.perform { 1 } }
+		try? await Task.sleep(for: .milliseconds(50))
+
+		caller.cancel()
+		let result = await caller.value
+
+		XCTAssertNil(result)
+	}
 }

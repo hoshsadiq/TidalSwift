@@ -18,7 +18,12 @@ public class Helpers {
 	public init(session: Session, offlineLibraryRoot: URL? = nil) {
 		self.session = session
 		self.metadata = Metadata(session: session)
-		self.offline = Offline(session: session, downloadStatus: downloadStatus, offlineLibraryRoot: offlineLibraryRoot)
+		self.offline = Offline(
+			session: session,
+			downloadStatus: downloadStatus,
+			offlineLibraryRoot: offlineLibraryRoot,
+			metadata: self.metadata
+		)
 		self.download = Download(session: session, metadata: self.metadata, downloadStatus: downloadStatus)
 	}
 

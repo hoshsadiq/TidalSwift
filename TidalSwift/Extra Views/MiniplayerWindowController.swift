@@ -114,6 +114,9 @@ struct MiniplayerView: View {
 
 	@Environment(QueueInfo.self) private var queueInfo
 	@Environment(PlaybackInfo.self) private var playbackInfo
+	/// The window is retained when closed, so lyrics mode is told when it is off screen
+	/// and stops a pending fetch instead of running it into a hidden window.
+	@Environment(TidalSwiftAppModel.self) private var appModel
 
 	/// Persisted so the mode survives relaunches.
 	@AppStorage(MiniplayerSettings.modeKey) private var mode: MiniplayerMode = .artwork

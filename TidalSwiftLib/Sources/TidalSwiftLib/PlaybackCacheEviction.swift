@@ -5,8 +5,8 @@
 
 import Foundation
 
-/// The playback cache's eviction table: given what is on disk, what must survive, what is
-/// in the queue and a size budget, it decides which files go.
+/// The cache eviction table, shared by the playback cache and the lyrics cache: given what is
+/// on disk, what must survive, what is in the queue and a size budget, it decides which files go.
 ///
 /// Pure, so the whole table is testable without a disk. `PlaybackCache.prune` reads its
 /// own directory into `Entry` values, asks here, and deletes the returned names — which is
@@ -76,6 +76,38 @@ nonisolated enum PlaybackCacheEviction {
 			remove(entry)
 		}
 		return evicted
+	}
+
+	/// Applies the table to a directory: reads its own files into entries, asks for the
+	/// evictions and deletes them, returning what went. Shared by both caches so the driver
+	/// exists once; it only ever names files it just listed, so nothing outside `directory`
+	/// is reached.
+	@discardableResult
+	static func pruneFiles(in directory: URL, limits: Limits, protectedTrackIds: Set<Int> = [], queueTrackIds: Set<Int> = []) -> [URL] {
+		let keys: Set<URLResourceKey> = [.contentModificationDateKey, .fileSizeKey]
+		guard let contents = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys)) else {
+			return []
+		}
+		let entries = contents.compactMap { url -> Entry? in
+			guard let values = try? url.resourceValues(forKeys: keys) else { return nil }
+			return Entry(
+				name: url.lastPathComponent,
+				size: values.fileSize ?? 0,
+				lastUsed: values.contentModificationDate ?? .distantPast
+			)
+		}
+		var removed: [URL] = []
+		for entry in evictions(
+			entries: entries,
+			protectedTrackIds: protectedTrackIds,
+			queueTrackIds: queueTrackIds,
+			limits: limits
+		) {
+			let url = directory.appendingPathComponent(entry.name)
+			try? FileManager.default.removeItem(at: url)
+			removed.append(url)
+		}
+		return removed
 	}
 
 	/// The track id a cache file name carries, or nil when it carries none.

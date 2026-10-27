@@ -363,6 +363,175 @@ final class LyricsResolverTests: XCTestCase {
 		XCTAssertEqual(tidalCalls, 1)
 	}
 
+	// MARK: - Disk cache
+
+	/// A throwaway lyrics folder, so a test never touches the real one.
+	private func temporaryRoot() -> URL {
+		FileManager.default.temporaryDirectory
+			.appendingPathComponent("TidalSwiftTests-lyrics-\(UUID().uuidString)", isDirectory: true)
+	}
+
+	private func storedFileNames(in root: URL) -> [String] {
+		((try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []).sorted()
+	}
+
+	func testAFoundResultIsServedFromDiskToALaterResolver() async {
+		let root = temporaryRoot()
+		defer { try? FileManager.default.removeItem(at: root) }
+		let disk = LyricsDiskCache(directory: root)
+
+		let first = LyricsResolver(
+			tidalFetcher: { _ in .found(self.tidalLRC) },
+			lrclibFetcher: { _, _, _, _ in .notFound },
+			cache: LyricsCache(),
+			diskCache: disk
+		)
+		_ = await first.lyrics(for: query(trackId: 30), preferLRCLIB: true)
+
+		// A fresh memory cache stands in for the next launch.
+		let memory = LyricsCache()
+		var tidalCalls = 0
+		let second = LyricsResolver(
+			tidalFetcher: { _ in
+				tidalCalls += 1
+				return .failed
+			},
+			lrclibFetcher: { _, _, _, _ in .notFound },
+			cache: memory,
+			diskCache: disk
+		)
+		let outcome = await second.lyrics(for: query(trackId: 30), preferLRCLIB: true)
+
+		XCTAssertEqual(tidalCalls, 0, "the disk answers, so neither provider is asked")
+		assertOutcome(outcome, matches: .found(.tidal, lines: 1, plain: "Tidal plain"), "the disk serves the second resolver")
+		guard case .hit = await memory.lookup(trackId: 30, preferLRCLIB: true) else {
+			return XCTFail("a disk hit should be promoted into the memory cache")
+		}
+	}
+
+	func testADiskResultUnderTheOtherPreferenceIsIgnored() async {
+		let root = temporaryRoot()
+		defer { try? FileManager.default.removeItem(at: root) }
+		let disk = LyricsDiskCache(directory: root)
+		let resolved = LyricsResult(lines: [], plainText: "plain", source: .tidal)
+		await disk.store(resolved, trackId: 31, preferLRCLIB: true)
+
+		var tidalCalls = 0
+		let resolver = LyricsResolver(
+			tidalFetcher: { _ in
+				tidalCalls += 1
+				return .found(self.tidalPlain)
+			},
+			lrclibFetcher: { _, _, _, _ in .notFound },
+			cache: LyricsCache(),
+			diskCache: disk
+		)
+		_ = await resolver.lyrics(for: query(trackId: 31), preferLRCLIB: false)
+
+		XCTAssertEqual(tidalCalls, 1)
+	}
+
+	func testASessionResolverReadsTheSessionsDiskCache() async {
+		// The app's path: a resolver built from a `Session` consults the session's cache, so
+		// pointing that at a temporary root keeps the real folder out of the test entirely.
+		let root = temporaryRoot()
+		defer { try? FileManager.default.removeItem(at: root) }
+		let library = TemporaryOfflineLibrary(label: "LyricsSessionDiskCache")
+		defer { library.remove() }
+		let session = library.makeSession()
+		session.lyricsDiskCache = LyricsDiskCache(directory: root)
+		let disk = session.lyricsDiskCache
+		await disk.store(LyricsResult(lines: [LyricLine(time: 1, text: "line")], plainText: nil, source: .tidal),
+						 trackId: 70, preferLRCLIB: true)
+		let configuration = URLSessionConfiguration.ephemeral
+		configuration.protocolClasses = [LyricsStatusStubURLProtocol.self]
+		session.requestSession = URLSession(configuration: configuration)
+		LyricsStatusStubURLProtocol.reset(status: 500, body: "")
+
+		let outcome = await LyricsResolver(session: session).lyrics(for: query(trackId: 70), preferLRCLIB: true)
+
+		assertOutcome(outcome, matches: .found(.tidal, lines: 1, plain: nil), "the session's disk cache answers")
+		XCTAssertEqual(storedFileNames(in: root), ["70-lyrics.json"])
+		XCTAssertEqual(LyricsStatusStubURLProtocol.requestCount, 0, "a disk hit asks no provider")
+	}
+
+	func testAFileCopyAnswersBeforeAnyProviderIsAsked() async {
+		// A downloaded track carries its own lyrics, so an offline play needs no network at all.
+		let embedded = LyricsResult(
+			lines: [LyricLine(time: 1, text: "From the file")],
+			plainText: nil,
+			source: .file
+		)
+		let memory = LyricsCache()
+		var tidalCalls = 0
+		let resolver = LyricsResolver(
+			tidalFetcher: { _ in
+				tidalCalls += 1
+				return .found(self.tidalLRC)
+			},
+			lrclibFetcher: { _, _, _, _ in .notFound },
+			cache: memory,
+			embeddedFetcher: { _ in .found(embedded) }
+		)
+
+		let outcome = await resolver.lyrics(for: query(trackId: 80), preferLRCLIB: true)
+
+		assertOutcome(outcome, matches: .found(.file, lines: 1, plain: nil), "the file's copy wins")
+		XCTAssertEqual(tidalCalls, 0, "no provider is asked when the file already has lyrics")
+		guard case .hit = await memory.lookup(trackId: 80, preferLRCLIB: true) else {
+			return XCTFail("the file's copy should be remembered for this session")
+		}
+	}
+
+	func testTheDiskCacheOutranksAFileCopy() async {
+		let root = temporaryRoot()
+		defer { try? FileManager.default.removeItem(at: root) }
+		let disk = LyricsDiskCache(directory: root)
+		await disk.store(LyricsResult(lines: [], plainText: "from the cache", source: .lrclib),
+						 trackId: 81, preferLRCLIB: true)
+		let resolver = LyricsResolver(
+			tidalFetcher: { _ in .notFound },
+			lrclibFetcher: { _, _, _, _ in .notFound },
+			cache: LyricsCache(),
+			diskCache: disk,
+			embeddedFetcher: { _ in .found(LyricsResult(lines: [], plainText: "from the file", source: .file)) }
+		)
+
+		let outcome = await resolver.lyrics(for: query(trackId: 81), preferLRCLIB: true)
+
+		assertOutcome(outcome, matches: .found(.lrclib, lines: 0, plain: "from the cache"), "the fresher cached answer wins")
+	}
+
+	func testAMissIsNotWrittenToDisk() async {
+		let root = temporaryRoot()
+		defer { try? FileManager.default.removeItem(at: root) }
+		let resolver = LyricsResolver(
+			tidalFetcher: { _ in .notFound },
+			lrclibFetcher: { _, _, _, _ in .notFound },
+			cache: LyricsCache(),
+			diskCache: LyricsDiskCache(directory: root)
+		)
+
+		_ = await resolver.lyrics(for: query(trackId: 32), preferLRCLIB: true)
+
+		XCTAssertEqual(storedFileNames(in: root), [])
+	}
+
+	func testAFailureIsNotWrittenToDisk() async {
+		let root = temporaryRoot()
+		defer { try? FileManager.default.removeItem(at: root) }
+		let resolver = LyricsResolver(
+			tidalFetcher: { _ in .failed },
+			lrclibFetcher: { _, _, _, _ in .failed },
+			cache: LyricsCache(),
+			diskCache: LyricsDiskCache(directory: root)
+		)
+
+		_ = await resolver.lyrics(for: query(trackId: 33), preferLRCLIB: true)
+
+		XCTAssertEqual(storedFileNames(in: root), [])
+	}
+
 	func testCacheRespectsFallbackSetting() async {
 		var lrclibCalls = 0
 		let resolver = LyricsResolver(

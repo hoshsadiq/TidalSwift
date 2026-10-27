@@ -293,6 +293,9 @@ class Player {
 		guard let url = await resolveStreamURL(for: track, loadID: loadID, resumeAfterSet: shouldResume) else {
 			return
 		}
+		// The track is really playing now, so its lyrics are worth having whether or not a
+		// panel is open.
+		warmLyrics(for: track)
 		failedItems = 0
 		playbackInfo.failedTrackIds.remove(track.id)
 
@@ -349,6 +352,15 @@ class Player {
 	/// Resolves the URL that plays `track` — the offline copy first, then the policy's
 	/// online routes — and publishes the resolved stream. A rendition fetch can suspend
 	/// for a download, so the stale-load check repeats in every publishing path.
+	/// Lyrics travel with the track, so a play warms them: whatever the panel shows later is a
+	/// read, and a closed panel changes nothing about the work already going on.
+	private func warmLyrics(for track: Track) {
+		session.lyricsPrefetcher.prepare(
+			for: LyricsQuery(track),
+			preferLRCLIB: LyricsPreferences.useLRCLIBFallback
+		)
+	}
+
 	private func resolveStreamURL(for track: Track, loadID: Int, resumeAfterSet: Bool) async -> URL? {
 		// The cache write behind an online play prunes under this: the prefetch window, the
 		// current track and the queue, so a play never evicts what is about to play.
