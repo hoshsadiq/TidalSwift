@@ -49,6 +49,10 @@ public class Session {
 	/// test can point it at a temporary root, the same seam `requestSession` provides.
 	var lyricsDiskCache = LyricsDiskCache()
 
+	/// Owns the fetch schedule for lyrics, so a play warms them and a view only reads what is
+	/// there. Lazy because it needs the two caches above to exist first.
+	public lazy var lyricsPrefetcher = LyricsPrefetcher(resolver: LyricsResolver(session: self))
+
 	public init(config: Config?, offlineLibraryRoot: URL? = nil) {
 		if let config = config {
 			self.config = config

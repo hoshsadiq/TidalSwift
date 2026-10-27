@@ -46,6 +46,17 @@ public struct LyricsQuery {
 	public let albumName: String
 	public let duration: Int
 
+	/// The query a track's own fields make, so every caller asks the same question.
+	public init(_ track: Track) {
+		self.init(
+			trackId: track.id,
+			title: track.title,
+			artistName: track.artists.first?.name ?? "",
+			albumName: track.album.title,
+			duration: track.duration
+		)
+	}
+
 	public init(trackId: Int, title: String, artistName: String, albumName: String, duration: Int) {
 		self.trackId = trackId
 		self.title = title
@@ -118,19 +129,22 @@ public struct LyricsResolver {
 	/// Resolves lyrics for `track`, consulting LRCLIB only when the precedence
 	/// rule requires it. Results are cached per track id, in memory and on disk.
 	public func lyrics(for track: Track, preferLRCLIB: Bool) async -> LyricsOutcome<LyricsResult> {
-		await lyrics(
-			for: LyricsQuery(
-				trackId: track.id,
-				title: track.title,
-				artistName: track.artists.first?.name ?? "",
-				albumName: track.album.title,
-				duration: track.duration
-			),
-			preferLRCLIB: preferLRCLIB
-		)
+		await lyrics(for: LyricsQuery(track), preferLRCLIB: preferLRCLIB)
 	}
 
 	/// Resolves lyrics from raw track metadata. Same rule as `lyrics(for:preferLRCLIB:)`.
+	/// What the caches and the downloaded file already hold, without asking any provider.
+	/// This is the read a view does; the fetch belongs to `LyricsPrefetcher`.
+	public func cachedLyrics(for query: LyricsQuery, preferLRCLIB: Bool) async -> LyricsOutcome<LyricsResult>? {
+		if case .hit(let cached) = await cachedResult(trackId: query.trackId, preferLRCLIB: preferLRCLIB) {
+			return .found(cached)
+		}
+		if case .hit(let embedded) = await embeddedResult(trackId: query.trackId, preferLRCLIB: preferLRCLIB) {
+			return .found(embedded)
+		}
+		return nil
+	}
+
 	public func lyrics(for query: LyricsQuery, preferLRCLIB: Bool) async -> LyricsOutcome<LyricsResult> {
 		if case .hit(let cached) = await cachedResult(trackId: query.trackId, preferLRCLIB: preferLRCLIB) {
 			return .found(cached)

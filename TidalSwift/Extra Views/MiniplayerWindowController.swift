@@ -154,7 +154,7 @@ struct MiniplayerView: View {
 		case .artwork:
 			artworkMode
 		case .lyrics:
-			LyricsContentView(session: session, player: player, style: .miniplayer, isVisible: appModel.isMiniplayerOpen)
+			LyricsContentView(session: session, player: player, style: .miniplayer)
 		}
 	}
 

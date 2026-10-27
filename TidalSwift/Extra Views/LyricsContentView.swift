@@ -9,8 +9,7 @@ import TidalSwiftLib
 /// The shared lyrics renderer used by both the Now Playing drawer's Lyrics
 /// panel and the miniplayer's lyrics mode.
 ///
-/// Resolves the current queue item through `LyricsResolver` and renders the
-/// result in one of four states:
+/// Renders the current queue item's lyrics in one of four states:
 ///
 /// - `.loading`: eight skeleton lines while the resolver works.
 /// - `.loaded`: timed LRC lines with the current one highlighted and scrolled to
@@ -61,11 +60,6 @@ struct LyricsContentView: View {
 	let session: Session
 	let player: Player
 	var style: Style = .drawer
-	/// Whether the surface hosting this view is on screen. The miniplayer's window is
-	/// retained when closed, so its content is never torn down and `.task` would keep a
-	/// pending retry running; folding this into the fetch key cancels it on close instead.
-	var isVisible: Bool = true
-
 	@Environment(PlaybackInfo.self) private var playbackInfo
 	@Environment(QueueInfo.self) private var queueInfo
 
@@ -73,10 +67,6 @@ struct LyricsContentView: View {
 	/// re-resolves with the new precedence instead of showing a stale decision.
 	@AppStorage(LyricsSettings.useLRCLIBFallbackKey) private var useLRCLIBFallback: Bool = true
 
-	/// Held in `@State` so the resolver is not rebuilt on every body
-	/// re-evaluation. Its cache lives on the shared `Session`, so resolved
-	/// lyrics survive this view being torn down and rebuilt.
-	@State private var resolver: LyricsResolver
 	@State private var phase: Phase = .loading
 	/// Bumping this restarts the fetch; that is how the retry button works.
 	@State private var attempt: Int = 0
@@ -96,12 +86,10 @@ struct LyricsContentView: View {
 		case failed
 	}
 
-	init(session: Session, player: Player, style: Style = .drawer, isVisible: Bool = true) {
+	init(session: Session, player: Player, style: Style = .drawer) {
 		self.session = session
 		self.player = player
 		self.style = style
-		self.isVisible = isVisible
-		_resolver = State(initialValue: LyricsResolver(session: session))
 	}
 
 	var body: some View {
@@ -133,10 +121,10 @@ struct LyricsContentView: View {
 		queueInfo.currentItem?.track
 	}
 
-	/// Re-runs the fetch when the track, the fallback preference, a manual retry or
-	/// the surface's visibility changes.
+	/// Re-reads when the track, the fallback preference or a manual retry changes. A retry
+	/// waits for the prefetcher's own schedule, so nothing here reinvents one.
 	private var fetchKey: String {
-		"\(track?.id ?? -1)#\(useLRCLIBFallback)#\(attempt)#\(isVisible)"
+		"\(track?.id ?? -1)#\(useLRCLIBFallback)#\(attempt)"
 	}
 
 	/// The provider to credit, only while lyrics are actually rendered.
@@ -156,44 +144,22 @@ struct LyricsContentView: View {
 		return LyricLine.currentIndex(at: playbackInfo.playbackPosition, in: result.lines)
 	}
 
-	/// Fetches once, then retries a failure on `LyricsRetryPolicy`'s schedule.
+	/// Reads the track's lyrics. The fetch, its 1/3/8 s schedule and its 30 s cap belong to
+	/// `LyricsPrefetcher`, which a play and a download warm: a panel that is open, closed or
+	/// reopened only ever reads what is there, and closing one ends nothing another surface
+	/// still needs.
 	///
-	/// The retries live inside this one task and never touch `attempt`: `fetchKey`
-	/// stays put while one is pending, so the panel is not restarted under them. Only
-	/// the retry button bumps `attempt`, which changes the key, cancels this task
-	/// (a sleeping retry included) and starts a fresh schedule. A track change and a
-	/// closed surface cancel it the same way, so no retry outlives what asked for it.
-	///
-	/// The failure state is painted only once the schedule is spent. While a retry is
-	/// still due, the skeleton stays: the result is not final yet, and a button that
-	/// cancels the schedule would be a trap.
-	///
-	/// The whole sequence runs under one wall-clock cap, because the waits alone bound
-	/// nothing: a provider that never answers spends the request timeout inside each try.
-	/// The cap cancels the sequence, attempt in flight included, and what it leaves behind is
-	/// a failure, so the longest the skeleton can last is `LyricsRetryPolicy.totalBudget`.
+	/// The failure state is painted only once the prefetcher has spent its schedule, so the
+	/// skeleton means work is genuinely still going on.
 	private func load() async {
-		guard isVisible else { return }
 		selectedLineIndex = nil
 		phase = .loading
 		guard let track else {
 			phase = .failed
 			return
 		}
-		let sequence = Task { await self.sequence(for: track) }
-		let cap = Task {
-			try? await Task.sleep(for: LyricsRetryPolicy.totalBudget)
-			guard !Task.isCancelled else { return }
-			sequence.cancel()
-		}
-		let outcome = await withTaskCancellationHandler {
-			await sequence.value
-		} onCancel: {
-			// A track change, a closed surface or a manual retry must stop the schedule too.
-			sequence.cancel()
-		}
-		cap.cancel()
-		// The view's own task was cancelled: nothing here is worth painting.
+		let outcome = await session.lyricsPrefetcher.lyrics(for: LyricsQuery(track), preferLRCLIB: useLRCLIBFallback)
+		// The track changed under the read, or the panel went away: nothing here is worth painting.
 		guard !Task.isCancelled else { return }
 		switch outcome {
 		case .found(let result):
@@ -202,25 +168,6 @@ struct LyricsContentView: View {
 			phase = .empty
 		case .failed:
 			phase = .failed
-		}
-	}
-
-	/// Tries until an answer arrives, the schedule is spent or the caller cancels. The
-	/// outcome is returned rather than painted, so the caller decides what a cancelled
-	/// sequence means.
-	private func sequence(for track: Track) async -> LyricsOutcome<LyricsResult> {
-		var completedTries = 0
-		while true {
-			let outcome = await resolver.lyrics(for: track, preferLRCLIB: useLRCLIBFallback)
-			completedTries += 1
-			guard !Task.isCancelled,
-				  let delay = LyricsRetryPolicy.retryDelay(afterCompletedTries: completedTries, outcome: outcome) else {
-				return outcome
-			}
-			try? await Task.sleep(for: delay)
-			// A wait cut short is a failure the panel should show, which is what the cap
-			// leaves behind when it lands here.
-			guard !Task.isCancelled else { return .failed }
 		}
 	}
 
