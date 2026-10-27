@@ -15,10 +15,11 @@ public enum LRCWriter {
 	/// time is clamped to zero, since a timestamp cannot run backwards.
 	public static func encode(_ lines: [LyricLine]) -> String {
 		lines.map { line in
-			let total = max(0, line.time)
-			// Truncating minutes rather than rounding them keeps the seconds field under 60.
-			let minutes = Int(total) / 60
-			let seconds = total - Double(minutes * 60)
+			// Round to the hundredth before splitting, so 59.996 becomes one minute rather than
+			// `[00:60.00]`, which no LRC reader accepts.
+			let hundredths = Int((max(0, line.time) * 100).rounded())
+			let minutes = hundredths / 6000
+			let seconds = Double(hundredths % 6000) / 100
 			return String(format: "[%02d:%05.2f]%@", minutes, seconds, line.text)
 		}
 		.joined(separator: "\n")

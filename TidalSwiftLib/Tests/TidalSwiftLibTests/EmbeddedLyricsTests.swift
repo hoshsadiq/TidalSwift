@@ -138,6 +138,15 @@ final class EmbeddedLyricsTests: XCTestCase {
 		XCTAssertEqual(LRCParser.parse(text), lines)
 	}
 
+	func testATimeThatRoundsUpToTheNextMinuteStaysReadable() {
+		// 59.996 rounds to 60 hundredths-seconds' worth of a minute boundary; writing it as
+		// `[00:60.00]` would give a document no reader accepts.
+		let text = LRCWriter.encode([LyricLine(time: 59.996, text: "Edge")])
+
+		XCTAssertEqual(text, "[01:00.00]Edge")
+		XCTAssertEqual(LRCParser.parse(text).map(\.text), ["Edge"])
+	}
+
 	func testANegativeTimeIsClampedWhenWritten() {
 		let text = LRCWriter.encode([LyricLine(time: -5, text: "Before the start")])
 
